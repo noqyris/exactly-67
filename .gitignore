@@ -1,0 +1,11 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# Capacitor / iOS
+ios/App/Pods
+ios/App/App/public
+ios/App/output
+ios/DerivedData
+ios/capacitor-cordova-ios-plugins

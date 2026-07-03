@@ -1,0 +1,29 @@
+{
+  "name": "exactly-67",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vitest run && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ios:sync": "npm run build && cap sync ios",
+    "ios:open": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/preferences": "^8.0.1",
+    "@fontsource/baloo-2": "^5.2.6",
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
+  }
+}
