@@ -49,4 +49,19 @@ npm run ios:open   # open in Xcode
 
 In Xcode: select the **App** scheme and an iPhone simulator (or a device with
 your signing team set under *Signing & Capabilities*), then **Run**. Bundle id
-`com.noqyris.exactly67`, display name "Exactly 67", portrait-only.
+`com.noqyris.exactly67`, display name "Exactly 67", portrait-only, universal
+(iPhone + iPad, layout centers into a content frame on tablets).
+
+## Shipping to the App Store
+
+Everything that can be prepared without your Apple account is done and lives in
+[store/](store/):
+
+- `icon-1024.png` — the source app icon (Xcode generates all sizes).
+- `screenshots/iphone-6.9/` and `screenshots/ipad-13/` — App Store screenshots at the required sizes.
+- `STORE_LISTING.md` — ASO-tuned name, subtitle, keywords, description, categories.
+- `PRIVACY_POLICY.md` — a ready-to-host privacy policy (the app collects no data).
+- `SUBMISSION.md` — the step-by-step path to "Submit for Review", flagging exactly which
+  steps need your Apple Developer account.
+
+The bundled `ios/App/App/PrivacyInfo.xcprivacy` declares no tracking / no data collected.
