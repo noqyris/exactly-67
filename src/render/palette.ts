@@ -1,4 +1,5 @@
 /** The chunky "physics toy" look: candy fills, one thick ink outline. */
+import { u } from './layout'
 
 export const INK = 0x2b2440
 export const INK_CSS = '#2B2440'
@@ -26,7 +27,7 @@ export const STAR = 0xffd43b
 export const STAR_EMPTY = 0xd8cfbf
 
 /** Outline width scales a little with the element, but this is the base. */
-export const OUTLINE = 4
+export const OUTLINE = u(4)
 
 export const FONT = '"Baloo 2", sans-serif'
 

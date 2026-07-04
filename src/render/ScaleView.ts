@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { prefersReducedMotion } from './layout'
+import { prefersReducedMotion, u } from './layout'
 import {
   BEAM,
   BEAM_DARK,
@@ -143,34 +143,34 @@ export class ScaleView {
     // Strings: a V from each beam-end hook down to the dish rim.
     const g = this.stringsG
     g.clear()
-    g.lineStyle(3, INK, 1)
+    g.lineStyle(u(3), INK, 1)
     for (const [end, pan] of [
       [left, this.leftPan],
       [right, this.rightPan],
     ] as const) {
-      g.lineBetween(end.x, end.y, pan.x - panWidth * 0.42, pan.y + 2)
-      g.lineBetween(end.x, end.y, pan.x + panWidth * 0.42, pan.y + 2)
+      g.lineBetween(end.x, end.y, pan.x - panWidth * 0.42, pan.y + u(2))
+      g.lineBetween(end.x, end.y, pan.x + panWidth * 0.42, pan.y + u(2))
       // Hook dot at the beam end.
       g.fillStyle(INK, 1)
-      g.fillCircle(end.x, end.y, 5)
+      g.fillCircle(end.x, end.y, u(5))
     }
   }
 
   private buildBeam() {
     const g = this.scene.add.graphics()
     const L = this.geo.halfBeam
-    const h = Math.max(16, L * 0.09)
+    const h = Math.max(u(16), L * 0.09)
     const r = h * 0.45
 
     g.fillStyle(INK, 1)
-    g.fillRoundedRect(-L - h * 0.4, -h / 2 + 4, (L + h * 0.4) * 2, h, r)
+    g.fillRoundedRect(-L - h * 0.4, -h / 2 + u(4), (L + h * 0.4) * 2, h, r)
     g.fillStyle(BEAM, 1)
     g.fillRoundedRect(-L - h * 0.4, -h / 2, (L + h * 0.4) * 2, h, r)
     g.lineStyle(OUTLINE, INK, 1)
     g.strokeRoundedRect(-L - h * 0.4, -h / 2, (L + h * 0.4) * 2, h, r)
     // Shade band along the bottom edge.
     g.fillStyle(BEAM_DARK, 1)
-    g.fillRoundedRect(-L - h * 0.4 + 3, h / 2 - h * 0.28, (L + h * 0.4) * 2 - 6, h * 0.2, h * 0.1)
+    g.fillRoundedRect(-L - h * 0.4 + u(3), h / 2 - h * 0.28, (L + h * 0.4) * 2 - u(6), h * 0.2, h * 0.1)
 
     // Center hub over the pivot.
     g.fillStyle(BEAM_DARK, 1)
@@ -190,13 +190,13 @@ export class ScaleView {
 
     // Dish: a shallow tray with an ink drop shadow.
     g.fillStyle(INK, 1)
-    g.fillRoundedRect(-w / 2, 4, w, h, { tl: r * 0.4, tr: r * 0.4, bl: r, br: r })
+    g.fillRoundedRect(-w / 2, u(4), w, h, { tl: r * 0.4, tr: r * 0.4, bl: r, br: r })
     g.fillStyle(PAN, 1)
     g.fillRoundedRect(-w / 2, 0, w, h, { tl: r * 0.4, tr: r * 0.4, bl: r, br: r })
     g.lineStyle(OUTLINE, INK, 1)
     g.strokeRoundedRect(-w / 2, 0, w, h, { tl: r * 0.4, tr: r * 0.4, bl: r, br: r })
     g.fillStyle(PAN_DARK, 1)
-    g.fillRoundedRect(-w / 2 + 4, h * 0.55, w - 8, h * 0.28, r * 0.5)
+    g.fillRoundedRect(-w / 2 + u(4), h * 0.55, w - u(8), h * 0.28, r * 0.5)
 
     pan.add(g)
   }
@@ -235,7 +235,7 @@ export class ScaleView {
 
     // Column: a rounded triangle from the pivot down to a base plate.
     g.fillStyle(INK, 1)
-    g.fillRoundedRect(cx - baseW / 2, cy + h - 6, baseW, Math.max(16, h * 0.14), 8)
+    g.fillRoundedRect(cx - baseW / 2, cy + h - u(6), baseW, Math.max(u(16), h * 0.14), u(8))
     g.fillStyle(BEAM_DARK, 1)
     g.beginPath()
     g.moveTo(cx, cy)
@@ -251,7 +251,7 @@ export class ScaleView {
   addCaption(text: string) {
     const { cx, cy } = this.geo
     this.scene.add
-      .text(cx, cy + this.geo.halfBeam * 0.52 + 34, text, TEXT.ink(15, '600'))
+      .text(cx, cy + this.geo.halfBeam * 0.52 + u(34), text, TEXT.ink(15, '600'))
       .setOrigin(0.5)
   }
 }

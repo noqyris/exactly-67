@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { globalOf, PACKS, TOTAL_LEVELS } from '../game/levels'
 import { isUnlocked, starsFor, totalStars } from '../game/progress'
 import { progress } from '../services/progressStore'
-import { prefersReducedMotion, safeArea } from './layout'
+import { prefersReducedMotion, safeArea, u } from './layout'
 import { BEAM, BG, INK, OUTLINE, PAPER } from './palette'
 import { drawBackIcon, drawStar, makeIconButton, TEXT } from './ui'
 
@@ -30,71 +30,80 @@ export class LevelMapScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(BG)
     const w = this.scale.width
     const safe = safeArea()
-    const top = safe.top + 12
+    const top = safe.top + u(12)
 
-    const back = makeIconButton(this, 46, (g, s) => drawBackIcon(g, s), () => {
+    const back = makeIconButton(this, u(46), (g, s) => drawBackIcon(g, s), () => {
       this.scene.start('Menu')
     })
-    back.setPosition(Math.max(16, safe.left) + 23, top + 23).setDepth(10)
+    back.setPosition(Math.max(u(16), safe.left) + u(23), top + u(23)).setDepth(10)
 
     this.add
-      .text(w / 2, top + 10, 'Levels', TEXT.ink(26, '800'))
+      .text(w / 2, top + u(10), 'Levels', TEXT.ink(26, '800'))
       .setOrigin(0.5, 0)
       .setDepth(10)
 
     // Total-stars chip on the right.
-    const starsChip = this.add.container(w - Math.max(16, safe.right) - 54, top + 23).setDepth(10)
+    const starsChip = this.add
+      .container(w - Math.max(u(16), safe.right) - u(54), top + u(23))
+      .setDepth(10)
     const chipG = this.add.graphics()
     chipG.fillStyle(PAPER, 1)
-    chipG.fillRoundedRect(-52, -20, 104, 40, 14)
-    chipG.lineStyle(OUTLINE - 1, INK, 1)
-    chipG.strokeRoundedRect(-52, -20, 104, 40, 14)
+    chipG.fillRoundedRect(-u(52), -u(20), u(104), u(40), u(14))
+    chipG.lineStyle(u(3), INK, 1)
+    chipG.strokeRoundedRect(-u(52), -u(20), u(104), u(40), u(14))
     const starG = this.add.graphics()
-    drawStar(starG, -26, 0, 11, true)
+    drawStar(starG, -u(26), 0, u(11), true)
     const totals = this.add
-      .text(6, 0, `${totalStars(progress())}/${TOTAL_LEVELS * 3}`, TEXT.ink(16))
+      .text(u(6), 0, `${totalStars(progress())}/${TOTAL_LEVELS * 3}`, TEXT.ink(16))
       .setOrigin(0.5)
     starsChip.add([chipG, starG, totals])
 
-    // Header backdrop so scrolled content slides underneath.
-    const headerH = top + 60
+    // Header backdrop so scrolled content slides underneath. It is
+    // interactive so buttons scrolled under it cannot be tapped through it.
+    const headerH = top + u(60)
     const headerBg = this.add.rectangle(w / 2, headerH / 2, w, headerH, BG).setDepth(5)
     headerBg.setStrokeStyle(0)
+    headerBg.setInteractive()
 
     this.content = this.add.container(0, headerH)
-    this.buildContent(headerH)
+    this.buildContent()
     this.bindScrolling(headerH)
 
     if (this.scrollTo !== undefined) {
       // Land with the requested level in view.
       const row = Math.floor((this.scrollTo - 1) / 4)
       this.scrollY = Phaser.Math.Clamp(
-        -(row * 96 - 120),
+        -(row * u(96) - u(120)),
         Math.min(0, this.scale.height - headerH - this.contentHeight),
         0,
       )
       this.content.y = headerH + this.scrollY
     }
+
+    // Portrait-locked on device, but dev browsers can resize: rebuild once.
+    this.scale.once('resize', () => {
+      this.time.delayedCall(60, () => this.scene.restart({ scrollTo: this.scrollTo }))
+    })
   }
 
-  private buildContent(headerH: number) {
+  private buildContent() {
     const w = this.scale.width
     const safe = safeArea()
-    const margin = Math.max(20, safe.left, safe.right)
+    const margin = Math.max(u(20), safe.left, safe.right)
     const cols = 4
-    const gap = 12
-    const cell = Math.min(84, (w - margin * 2 - gap * (cols - 1)) / cols)
+    const gap = u(12)
+    const cell = Math.min(u(84), (w - margin * 2 - gap * (cols - 1)) / cols)
     const gridW = cell * cols + gap * (cols - 1)
     const startX = (w - gridW) / 2 + cell / 2
 
-    let y = 16
+    let y = u(16)
     PACKS.forEach((pack, packIndex) => {
       const name = this.add.text(margin, y, pack.name, TEXT.ink(21, '800'))
       const tagline = this.add
-        .text(margin, y + 28, pack.tagline, TEXT.ink(14, '600'))
+        .text(margin, y + u(28), pack.tagline, TEXT.ink(14, '600'))
         .setColor(INK_SOFT)
       this.content.add([name, tagline])
-      y += 58
+      y += u(58)
 
       pack.levels.forEach((_, levelIndex) => {
         const global = globalOf(packIndex, levelIndex)
@@ -104,11 +113,10 @@ export class LevelMapScene extends Phaser.Scene {
         const cy = y + row * (cell + gap) + cell / 2
         this.content.add(this.levelButton(global, x, cy, cell))
       })
-      y += Math.ceil(pack.levels.length / cols) * (cell + gap) + 26
+      y += Math.ceil(pack.levels.length / cols) * (cell + gap) + u(26)
     })
 
-    this.contentHeight = y + safeArea().bottom + 20
-    void headerH
+    this.contentHeight = y + safe.bottom + u(20)
   }
 
   private levelButton(global: number, x: number, y: number, size: number) {
@@ -150,7 +158,7 @@ export class LevelMapScene extends Phaser.Scene {
     } else {
       // Padlock.
       const lg = this.add.graphics()
-      lg.lineStyle(3.5, INK, 0.45)
+      lg.lineStyle(u(3.5), INK, 0.45)
       lg.beginPath()
       lg.arc(0, -size * 0.08, size * 0.11, Math.PI, 0)
       lg.strokePath()
@@ -176,14 +184,14 @@ export class LevelMapScene extends Phaser.Scene {
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.isDown) return
       const dy = pointer.y - this.dragStartY
-      if (Math.abs(dy) > 8) this.moved = true
+      if (Math.abs(dy) > u(8)) this.moved = true
       this.scrollY = this.dragStartScroll + dy
       clampScroll()
     })
     this.input.on(
       'wheel',
       (_p: unknown, _o: unknown, _dx: number, dy: number) => {
-        this.scrollY -= dy * (prefersReducedMotion() ? 1 : 0.9)
+        this.scrollY -= u(dy) * (prefersReducedMotion() ? 1 : 0.9)
         this.moved = true
         clampScroll()
         this.time.delayedCall(50, () => (this.moved = false))

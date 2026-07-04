@@ -1,3 +1,14 @@
+/**
+ * The game canvas is sized in physical device pixels (see main.ts) so
+ * Graphics and Text render crisp on retina screens. Every fixed design
+ * dimension therefore goes through u(): 1 design unit = 1 CSS pixel.
+ */
+export const DPR = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3)
+
+export function u(n: number): number {
+  return n * DPR
+}
+
 export interface SafeArea {
   top: number
   bottom: number
@@ -11,13 +22,16 @@ function cssPx(name: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
-/** iOS notch / home-indicator insets, exposed by style.css via env(). */
+/**
+ * iOS notch / home-indicator insets, exposed by style.css via env(),
+ * converted to game (device-pixel) units.
+ */
 export function safeArea(): SafeArea {
   return {
-    top: cssPx('--safe-top'),
-    bottom: cssPx('--safe-bottom'),
-    left: cssPx('--safe-left'),
-    right: cssPx('--safe-right'),
+    top: u(cssPx('--safe-top')),
+    bottom: u(cssPx('--safe-bottom')),
+    left: u(cssPx('--safe-left')),
+    right: u(cssPx('--safe-right')),
   }
 }
 

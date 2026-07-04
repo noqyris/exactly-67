@@ -35,7 +35,7 @@ import {
 import { progress, recordClear } from '../services/progressStore'
 import { bestFor } from '../game/progress'
 import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
-import { prefersReducedMotion, safeArea } from './layout'
+import { prefersReducedMotion, safeArea, u } from './layout'
 import { BG, GOOD, INK, OVER, OUTLINE, PAPER, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
 import type { ScaleGeometry } from './ScaleView'
@@ -126,7 +126,7 @@ export class GameScene extends Phaser.Scene {
     // Snap weights to their homes on the first frame instead of gliding in.
     this.steerWeights(1)
 
-    this.input.dragDistanceThreshold = 10
+    this.input.dragDistanceThreshold = u(10)
     this.scale.on('resize', this.layoutAll, this)
     this.events.once('shutdown', () => this.scale.off('resize', this.layoutAll, this))
     this.bindKeyboard()
@@ -148,13 +148,13 @@ export class GameScene extends Phaser.Scene {
     const w = this.scale.width
     const h = this.scale.height
     const safe = safeArea()
-    const halfBeam = Math.min(w * 0.33, 240)
-    const panWidth = Math.min(w * 0.29, 190)
+    const halfBeam = Math.min(w * 0.33, u(240))
+    const panWidth = Math.min(w * 0.29, u(190))
     return {
       cx: w / 2,
       cy: safe.top + h * 0.245,
       halfBeam,
-      ropeLen: Math.min(h * 0.14, 130),
+      ropeLen: Math.min(h * 0.14, u(130)),
       panWidth,
       panHeight: panWidth * 0.22,
     }
@@ -166,12 +166,12 @@ export class GameScene extends Phaser.Scene {
     const safe = safeArea()
     const geo = this.scaleGeometry()
     this.scaleView.layout(geo)
-    this.panScale = Math.min(1, (geo.panWidth * 0.34) / 84)
+    this.panScale = Math.min(1, (geo.panWidth * 0.34) / u(84))
 
     // Tray panel: bottom band above the home indicator.
-    const trayMargin = Math.max(12, safe.left, safe.right)
+    const trayMargin = Math.max(u(12), safe.left, safe.right)
     const trayTop = h * 0.635
-    const trayBottom = h - safe.bottom - 10
+    const trayBottom = h - safe.bottom - u(10)
     this.tray = {
       x: trayMargin,
       y: trayTop,
@@ -188,7 +188,7 @@ export class GameScene extends Phaser.Scene {
       anchor.x - geo.panWidth * 0.9,
       geo.cy - geo.halfBeam * 0.6,
       geo.panWidth * 1.8,
-      trayTop - (geo.cy - geo.halfBeam * 0.6) - 8,
+      trayTop - (geo.cy - geo.halfBeam * 0.6) - u(8),
     )
 
     this.layoutHud()
@@ -200,18 +200,18 @@ export class GameScene extends Phaser.Scene {
     const g = this.trayG
     g.clear()
     g.fillStyle(INK, 1)
-    g.fillRoundedRect(x, y + 5, width, height, 22)
+    g.fillRoundedRect(x, y + u(5), width, height, u(22))
     g.fillStyle(PAPER, 1)
-    g.fillRoundedRect(x, y, width, height, 22)
+    g.fillRoundedRect(x, y, width, height, u(22))
     g.lineStyle(OUTLINE, INK, 1)
-    g.strokeRoundedRect(x, y, width, height, 22)
+    g.strokeRoundedRect(x, y, width, height, u(22))
   }
 
   private computeTrayHomes() {
     const n = this.ref.def.weights.length
     const cols = n <= 4 ? Math.max(1, n) : n <= 8 ? 4 : Math.ceil(n / 3)
     const rows = Math.ceil(n / cols)
-    const pad = 10
+    const pad = u(10)
     const cellW = (this.tray.width - pad * 2) / cols
     const cellH = (this.tray.height - pad * 2) / rows
     this.tray.homes = []
@@ -222,7 +222,7 @@ export class GameScene extends Phaser.Scene {
       // Center the last (possibly short) row.
       const rowOffset = ((cols - inRow) * cellW) / 2
       const view = this.weights[i]
-      const size = view ? view.bodySize : 84
+      const size = view ? view.bodySize : u(84)
       const scale = Math.min(1, (cellW * 0.82) / size, (cellH * 0.72) / (size * 1.4))
       this.tray.homes.push({
         x: this.tray.x + pad + rowOffset + cellW * (col + 0.5),
@@ -258,7 +258,7 @@ export class GameScene extends Phaser.Scene {
       this.hintText.setColor(INK_SOFT)
     }
 
-    const size = 46
+    const size = u(46)
     const back = makeIconButton(this, size, (g, s) => drawBackIcon(g, s), () => {
       this.scene.start('LevelMap', { scrollTo: this.ref.global })
     })
@@ -296,46 +296,51 @@ export class GameScene extends Phaser.Scene {
   private layoutHud() {
     const w = this.scale.width
     const safe = safeArea()
-    const top = safe.top + 12
-    const size = 46
+    const top = safe.top + u(12)
+    const size = u(46)
 
-    this.hudButtons.back.setPosition(Math.max(16, safe.left) + size / 2, top + size / 2)
-    this.hudButtons.haptics.setPosition(w - Math.max(16, safe.right) - size / 2, top + size / 2)
-    this.hudButtons.sound.setPosition(this.hudButtons.haptics.x - size - 12, top + size / 2)
+    this.hudButtons.back.setPosition(Math.max(u(16), safe.left) + size / 2, top + size / 2)
+    this.hudButtons.haptics.setPosition(w - Math.max(u(16), safe.right) - size / 2, top + size / 2)
+    this.hudButtons.sound.setPosition(this.hudButtons.haptics.x - size - u(12), top + size / 2)
 
-    this.levelText.setPosition(w / 2, top - 2)
+    this.levelText.setPosition(w / 2, top - u(2))
     this.levelText.setText(`Level ${this.ref.global}`)
-    this.packText.setPosition(w / 2, top + 24)
+    this.packText.setPosition(w / 2, top + u(24))
     this.packText.setText(this.ref.pack.name)
 
     // Total chip sits between the HUD row and the beam; the gap message
     // hangs just below it.
-    const chipY = top + size + 48
+    const chipY = top + size + u(48)
     this.totalText.setPosition(w / 2, chipY)
-    this.gapText.setPosition(w / 2, chipY + 43).setOrigin(0.5, 0)
+    this.gapText.setPosition(w / 2, chipY + u(43)).setOrigin(0.5, 0)
 
-    const constraintY = this.tray.y - 16
-    this.budgetText?.setPosition(this.tray.x + 6, constraintY)
-    this.useAllText?.setPosition(this.tray.x + this.tray.width - 6, constraintY)
-    this.hintText?.setPosition(w / 2, this.tray.y - (this.budgetText || this.useAllText ? 38 : 16))
-    this.hintText?.setWordWrapWidth(this.tray.width - 20)
-    this.toastText.setPosition(w / 2, this.tray.y - 60)
+    const constraintY = this.tray.y - u(16)
+    this.budgetText?.setPosition(this.tray.x + u(6), constraintY)
+    this.useAllText?.setPosition(this.tray.x + this.tray.width - u(6), constraintY)
+    this.hintText?.setPosition(
+      w / 2,
+      this.tray.y - (this.budgetText || this.useAllText ? u(38) : u(16)),
+    )
+    this.hintText?.setWordWrapWidth(this.tray.width - u(20))
+    this.toastText.setPosition(w / 2, this.tray.y - u(60))
+    this.toastText.setWordWrapWidth(this.tray.width - u(20))
+    this.toastText.setAlign('center')
   }
 
   private drawTotalChip(color: number) {
     const w = this.scale.width
-    const chipW = 132
-    const chipH = 66
+    const chipW = u(132)
+    const chipH = u(66)
     const x = w / 2 - chipW / 2
     const y = this.totalText.y - chipH / 2
     const g = this.totalChipG
     g.clear()
     g.fillStyle(INK, 1)
-    g.fillRoundedRect(x, y + 4, chipW, chipH, 20)
+    g.fillRoundedRect(x, y + u(4), chipW, chipH, u(20))
     g.fillStyle(PAPER, 1)
-    g.fillRoundedRect(x, y, chipW, chipH, 20)
+    g.fillRoundedRect(x, y, chipW, chipH, u(20))
     g.lineStyle(OUTLINE, color, 1)
-    g.strokeRoundedRect(x, y, chipW, chipH, 20)
+    g.strokeRoundedRect(x, y, chipW, chipH, u(20))
   }
 
   private updateHud(ev: Evaluation) {
@@ -503,6 +508,7 @@ export class GameScene extends Phaser.Scene {
     const blocks = aboard.filter((v) => !v.isBalloon)
     const balloons = aboard.filter((v) => v.isBalloon)
 
+    let stackTop = 0
     blocks.forEach((view, i) => {
       const perRow = 3
       const row = Math.floor(i / perRow)
@@ -511,14 +517,16 @@ export class GameScene extends Phaser.Scene {
       const slotW = geo.panWidth * 0.31
       const x = anchor.x + (col - (inRow - 1) / 2) * slotW
       const bodyH = view.bodySize * 0.8 * this.panScale
-      const y = anchor.y - row * bodyH * 1.02 - bodyH / 2 - 2
+      const y = anchor.y - row * bodyH * 1.02 - bodyH / 2 - u(2)
+      stackTop = Math.max(stackTop, row * bodyH * 1.02 + bodyH)
       targets.set(view.index, { x, y, scale: this.panScale })
     })
 
+    // Balloons hover above whatever is stacked in the dish, strings down.
     const spread = [-0.3, 0.3, 0, -0.16, 0.16, -0.38, 0.38]
     balloons.forEach((view, i) => {
       const x = anchor.x + geo.panWidth * spread[i % spread.length]
-      const y = anchor.y - 6 - (i % 3) * 8
+      const y = anchor.y - stackTop - u(4) - (i % 3) * u(8)
       targets.set(view.index, { x, y, scale: this.panScale })
     })
 
@@ -582,27 +590,29 @@ export class GameScene extends Phaser.Scene {
     const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45)
     dim.setInteractive() // swallow taps behind the card
 
-    const cardW = Math.min(w - 48, 360)
-    const cardH = 330
+    const cardW = Math.min(w - u(48), u(360))
+    const cardH = u(330)
     const cx = w / 2
     const cy = h * 0.44
     const card = this.add.graphics()
     card.fillStyle(INK, 1)
-    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2 + 6, cardW, cardH, 26)
+    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2 + u(6), cardW, cardH, u(26))
     card.fillStyle(PAPER, 1)
-    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 26)
-    card.lineStyle(OUTLINE + 1, INK, 1)
-    card.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 26)
+    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, u(26))
+    card.lineStyle(OUTLINE + u(1), INK, 1)
+    card.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, u(26))
 
-    const title = this.add.text(cx, cy - cardH / 2 + 44, 'EXACTLY 67!', TEXT.ink(30, '800')).setOrigin(0.5)
+    const title = this.add
+      .text(cx, cy - cardH / 2 + u(44), 'EXACTLY 67!', TEXT.ink(30, '800'))
+      .setOrigin(0.5)
 
     // Three star slots; earned ones pop in.
-    const starR = 26
+    const starR = u(26)
     const starViews: Phaser.GameObjects.Graphics[] = []
     for (let i = 0; i < 3; i++) {
       const sg = this.add.graphics()
       const sx = cx + (i - 1) * (starR * 2.6)
-      const sy = cy - cardH / 2 + 108
+      const sy = cy - cardH / 2 + u(108)
       drawStar(sg, 0, 0, i === 1 ? starR * 1.25 : starR, i < stars)
       sg.setPosition(sx, sy)
       if (i < stars && !this.reducedMotion) {
@@ -624,28 +634,31 @@ export class GameScene extends Phaser.Scene {
         ? `Solved with ${used} — the perfect minimum!`
         : `Solved with ${used} · minimum is ${this.minWeights}` +
           (best !== undefined ? ` · your best ${best}` : '')
-    const sub = this.add.text(cx, cy - cardH / 2 + 156, summary, TEXT.ink(15, '600')).setOrigin(0.5)
+    const sub = this.add
+      .text(cx, cy - cardH / 2 + u(156), summary, TEXT.ink(15, '600'))
+      .setOrigin(0.5)
     sub.setColor(INK_SOFT)
-    sub.setWordWrapWidth(cardW - 40)
+    sub.setWordWrapWidth(cardW - u(40))
     sub.setAlign('center')
 
     const hasNext = this.ref.global < TOTAL_LEVELS
-    const btnY = cy + cardH / 2 - 56
+    const btnY = cy + cardH / 2 - u(56)
+    const btnH = u(56)
     const nextBtn = hasNext
-      ? makeButton(this, 'Next', cardW * 0.42, 56, 0xf5b942, '#2B2440', () => {
+      ? makeButton(this, 'Next', cardW * 0.42, btnH, 0xf5b942, '#2B2440', () => {
           this.scene.restart({ level: this.ref.global + 1 })
         })
-      : makeButton(this, 'The End!', cardW * 0.42, 56, 0xf5b942, '#2B2440', () => {
+      : makeButton(this, 'The End!', cardW * 0.42, btnH, 0xf5b942, '#2B2440', () => {
           this.scene.start('LevelMap', { scrollTo: this.ref.global })
         })
     nextBtn.setPosition(cx + cardW * 0.24, btnY)
 
-    const retryBtn = makeButton(this, 'Retry', cardW * 0.22, 56, PAPER, '#2B2440', () => {
+    const retryBtn = makeButton(this, 'Retry', cardW * 0.22, btnH, PAPER, '#2B2440', () => {
       this.scene.restart({ level: this.ref.global })
     })
     retryBtn.setPosition(cx - cardW * 0.36, btnY)
 
-    const mapBtn = makeButton(this, 'Map', cardW * 0.2, 56, PAPER, '#2B2440', () => {
+    const mapBtn = makeButton(this, 'Map', cardW * 0.2, btnH, PAPER, '#2B2440', () => {
       this.scene.start('LevelMap', { scrollTo: this.ref.global })
     })
     mapBtn.setPosition(cx - cardW * 0.13, btnY)

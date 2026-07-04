@@ -21,7 +21,9 @@ function context(): AudioContext | null {
   if (!enabled) return null
   try {
     ctx ??= new AudioContext()
-    if (ctx.state === 'suspended') void ctx.resume()
+    // iOS WebKit can also report the non-standard 'interrupted' (after a
+    // phone call or backgrounding) — resume on anything not running.
+    if (ctx.state !== 'running') void ctx.resume()
     return ctx
   } catch {
     return null

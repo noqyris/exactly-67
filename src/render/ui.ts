@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { u } from './layout'
 import { CREAM_CSS, FONT, INK, OUTLINE, PAPER, STAR, STAR_EMPTY } from './palette'
 
 /** Chunky rounded button: ink drop-shadow slab, candy fill, bold label. */
@@ -13,8 +14,8 @@ export function makeButton(
 ): Phaser.GameObjects.Container {
   const c = scene.add.container(0, 0)
   const g = scene.add.graphics()
-  const r = Math.min(18, height * 0.32)
-  const drop = Math.max(3, Math.round(height * 0.08))
+  const r = Math.min(u(18), height * 0.32)
+  const drop = Math.max(u(3), Math.round(height * 0.08))
 
   const draw = (pressed: boolean) => {
     const dy = pressed ? drop : 0
@@ -73,10 +74,10 @@ export function makeIconButton(
   const r = size * 0.3
 
   g.fillStyle(INK, 1)
-  g.fillRoundedRect(-size / 2, -size / 2 + 3, size, size, r)
+  g.fillRoundedRect(-size / 2, -size / 2 + u(3), size, size, r)
   g.fillStyle(PAPER, 1)
   g.fillRoundedRect(-size / 2, -size / 2, size, size, r)
-  g.lineStyle(OUTLINE - 1, INK, 1)
+  g.lineStyle(u(3), INK, 1)
   g.strokeRoundedRect(-size / 2, -size / 2, size, size, r)
 
   c.refresh = () => {
@@ -109,7 +110,7 @@ export function drawStar(
   }
   g.fillStyle(filled ? STAR : STAR_EMPTY, 1)
   g.fillPoints(points, true)
-  g.lineStyle(Math.max(2, radius * 0.14), INK, 1)
+  g.lineStyle(Math.max(u(2), radius * 0.14), INK, 1)
   g.strokePoints(points, true, true)
 }
 
@@ -155,16 +156,17 @@ export function drawBackIcon(g: Phaser.GameObjects.Graphics, size: number) {
   g.strokePath()
 }
 
+/** Text styles take design-unit sizes and scale them to device pixels. */
 export const TEXT = {
   ink: (size: number, weight = '700') => ({
     fontFamily: FONT,
-    fontSize: `${Math.round(size)}px`,
+    fontSize: `${Math.round(u(size))}px`,
     fontStyle: weight,
     color: '#2B2440',
   }),
   cream: (size: number, weight = '700') => ({
     fontFamily: FONT,
-    fontSize: `${Math.round(size)}px`,
+    fontSize: `${Math.round(u(size))}px`,
     fontStyle: weight,
     color: CREAM_CSS,
   }),

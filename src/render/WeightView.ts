@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { u } from './layout'
 import {
   BALLOON,
   BALLOON_DARK,
@@ -57,14 +58,14 @@ export class WeightView extends Phaser.GameObjects.Container {
     if (locked) this.drawLockBadge()
 
     const s = this.bodySize
-    this.setSize(Math.max(56, s * 1.15), Math.max(56, s * 1.15))
+    this.setSize(Math.max(u(56), s * 1.15), Math.max(u(56), s * 1.15))
     scene.add.existing(this)
   }
 
   /** Bigger numbers read as heavier, within touchable bounds. */
   static sizeFor(value: number): number {
     const v = Math.abs(value)
-    return Phaser.Math.Clamp(30 + 6.2 * Math.sqrt(v), 44, 84)
+    return u(Phaser.Math.Clamp(30 + 6.2 * Math.sqrt(v), 44, 84))
   }
 
   /** Vertical center of the visible body (balloons float above the origin). */
@@ -128,7 +129,7 @@ export class WeightView extends Phaser.GameObjects.Container {
     const dark = this.locked ? 0x7d7691 : BALLOON_DARK
 
     // String from the knot (origin) up to the balloon, with a little curve.
-    g.lineStyle(Math.max(2.5, s * 0.045), INK, 1)
+    g.lineStyle(Math.max(u(2.5), s * 0.045), INK, 1)
     g.beginPath()
     g.moveTo(0, 0)
     g.lineTo(s * 0.06, cy + r * 0.92)
@@ -161,7 +162,7 @@ export class WeightView extends Phaser.GameObjects.Container {
     g.fillStyle(INK, 1)
     g.fillCircle(bx, by, s * 0.19)
     // Padlock: shackle + body, drawn in cream.
-    g.lineStyle(Math.max(2, s * 0.035), 0xfff8ea, 1)
+    g.lineStyle(Math.max(u(2), s * 0.035), 0xfff8ea, 1)
     g.beginPath()
     g.arc(bx, by - s * 0.045, s * 0.055, Math.PI, 0)
     g.strokePath()
@@ -175,7 +176,7 @@ export class WeightView extends Phaser.GameObjects.Container {
    * the origin, so their hit box shifts up to cover the body AND the string).
    */
   makeInteractive() {
-    const hit = Math.max(60, this.bodySize * 1.2)
+    const hit = Math.max(u(60), this.bodySize * 1.2)
     const rect = this.isBalloon
       ? new Phaser.Geom.Rectangle(-hit / 2, this.bodyCenterY() - hit / 2, hit, hit * 1.5)
       : new Phaser.Geom.Rectangle(-hit / 2, -hit / 2, hit, hit)
