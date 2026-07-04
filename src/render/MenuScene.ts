@@ -26,7 +26,7 @@ export class MenuScene extends Phaser.Scene {
     const safe = safeArea()
 
     // Title: "EXACTLY" above a big chunky 67 block.
-    const titleY = safe.top + h * 0.11
+    const titleY = safe.top + h * 0.09
     this.add.text(w / 2, titleY, 'EXACTLY', TEXT.ink(34, '800')).setOrigin(0.5)
 
     const blockW = Math.min(w * 0.42, 190)
@@ -34,7 +34,8 @@ export class MenuScene extends Phaser.Scene {
     const bg = this.add.graphics()
     const { fill, dark } = weightColor(67)
     const bx = w / 2 - blockW / 2
-    const by = titleY + 32
+    // Leave room above the block for its handle so it clears the title.
+    const by = titleY + 24 + blockW * 0.22
     bg.lineStyle(OUTLINE + 2, INK, 1)
     bg.beginPath()
     bg.arc(w / 2, by, blockW * 0.2, Math.PI, 0)

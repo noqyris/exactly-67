@@ -74,6 +74,7 @@ export class GameScene extends Phaser.Scene {
   private dropZone!: Phaser.Geom.Rectangle
 
   private levelText!: Phaser.GameObjects.Text
+  private packText!: Phaser.GameObjects.Text
   private totalText!: Phaser.GameObjects.Text
   private gapText!: Phaser.GameObjects.Text
   private totalChipG!: Phaser.GameObjects.Graphics
@@ -147,14 +148,15 @@ export class GameScene extends Phaser.Scene {
     const w = this.scale.width
     const h = this.scale.height
     const safe = safeArea()
-    const halfBeam = Math.min(w * 0.36, 250)
+    const halfBeam = Math.min(w * 0.33, 240)
+    const panWidth = Math.min(w * 0.29, 190)
     return {
       cx: w / 2,
       cy: safe.top + h * 0.245,
       halfBeam,
       ropeLen: Math.min(h * 0.14, 130),
-      panWidth: Math.min(w * 0.32, 200),
-      panHeight: Math.min(w * 0.32, 200) * 0.22,
+      panWidth,
+      panHeight: panWidth * 0.22,
     }
   }
 
@@ -233,7 +235,9 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------------ HUD
 
   private buildHud() {
-    this.levelText = this.add.text(0, 0, '', TEXT.ink(19)).setOrigin(0.5, 0)
+    this.levelText = this.add.text(0, 0, '', TEXT.ink(20)).setOrigin(0.5, 0)
+    this.packText = this.add.text(0, 0, '', TEXT.ink(13, '600')).setOrigin(0.5, 0)
+    this.packText.setColor(INK_SOFT)
     this.totalChipG = this.add.graphics()
     this.totalText = this.add.text(0, 0, '0', TEXT.ink(40, '800')).setOrigin(0.5)
     this.gapText = this.add.text(0, 0, '', TEXT.ink(16, '600')).setOrigin(0.5, 0)
@@ -299,13 +303,16 @@ export class GameScene extends Phaser.Scene {
     this.hudButtons.haptics.setPosition(w - Math.max(16, safe.right) - size / 2, top + size / 2)
     this.hudButtons.sound.setPosition(this.hudButtons.haptics.x - size - 12, top + size / 2)
 
-    this.levelText.setPosition(w / 2, top + 2)
-    this.levelText.setText(`Level ${this.ref.global} · ${this.ref.pack.name}`)
+    this.levelText.setPosition(w / 2, top - 2)
+    this.levelText.setText(`Level ${this.ref.global}`)
+    this.packText.setPosition(w / 2, top + 24)
+    this.packText.setText(this.ref.pack.name)
 
-    // Total chip sits between the HUD row and the beam.
-    const chipY = top + size + 44
+    // Total chip sits between the HUD row and the beam; the gap message
+    // hangs just below it.
+    const chipY = top + size + 48
     this.totalText.setPosition(w / 2, chipY)
-    this.gapText.setPosition(w / 2, chipY + 30)
+    this.gapText.setPosition(w / 2, chipY + 43).setOrigin(0.5, 0)
 
     const constraintY = this.tray.y - 16
     this.budgetText?.setPosition(this.tray.x + 6, constraintY)
@@ -317,10 +324,10 @@ export class GameScene extends Phaser.Scene {
 
   private drawTotalChip(color: number) {
     const w = this.scale.width
-    const chipW = 150
-    const chipH = 84
+    const chipW = 132
+    const chipH = 66
     const x = w / 2 - chipW / 2
-    const y = this.totalText.y - 30
+    const y = this.totalText.y - chipH / 2
     const g = this.totalChipG
     g.clear()
     g.fillStyle(INK, 1)
