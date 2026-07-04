@@ -1,0 +1,102 @@
+default_platform(:ios)
+
+# App Store Connect API key — provide these via env before running:
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH (path to the AuthKey_XXXX.p8)
+def asc_api_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_filepath: ENV.fetch("ASC_KEY_PATH"),
+    in_house: false,
+  )
+end
+
+TEAM = "YMN45WC2QR"
+APP_ID = "com.noqyris.exactly67"
+
+def build_ipa
+  update_code_signing_settings(
+    use_automatic_signing: true,
+    team_id: TEAM,
+    path: "App.xcodeproj",
+    targets: ["App"],
+  )
+  build_app(
+    project: "App.xcodeproj",
+    scheme: "App",
+    configuration: "Release",
+    export_method: "app-store",
+    output_directory: "./build",
+    output_name: "Exactly67.ipa",
+    xcargs: "-allowProvisioningUpdates",
+    clean: true,
+  )
+end
+
+platform :ios do
+  desc "Full pipeline: create app record, build+sign, upload build, push metadata+screenshots, submit for review"
+  lane :release do
+    key = asc_api_key
+
+    # 1. Make sure the app exists in App Store Connect (no-op if it already does).
+    begin
+      produce(
+        api_key: key,
+        app_identifier: APP_ID,
+        app_name: "Exactly 67: Number Puzzle",
+        language: "en-US",
+        primary_language: "en-US",
+        sku: "exactly67",
+      )
+    rescue => e
+      UI.message("produce: #{e.message} — assuming the app already exists, continuing.")
+    end
+
+    # 2. Build a signed, store-ready IPA (Xcode + the API key create the
+    #    provisioning profile automatically via -allowProvisioningUpdates).
+    build_ipa
+
+    # 3. Upload the build, all metadata and screenshots, then submit for review.
+    upload_to_app_store(
+      api_key: key,
+      app_identifier: APP_ID,
+      force: true, # skip the HTML metadata preview/confirm
+      run_precheck_before_submit: true,
+      submit_for_review: true,
+      automatic_release: true,
+      submission_information: {
+        add_id_info_uses_idfa: false,
+        export_compliance_uses_encryption: false,
+        content_rights_contains_third_party_content: false,
+      },
+      metadata_path: "./fastlane/metadata",
+      screenshots_path: "./fastlane/screenshots",
+    )
+  end
+
+  desc "Upload only metadata + screenshots (no build, no submit) — safe dry-ish run to validate the listing"
+  lane :metadata do
+    upload_to_app_store(
+      api_key: asc_api_key,
+      app_identifier: APP_ID,
+      skip_binary_upload: true,
+      force: true,
+      submit_for_review: false,
+      metadata_path: "./fastlane/metadata",
+      screenshots_path: "./fastlane/screenshots",
+    )
+  end
+
+  desc "Build + upload the binary only (no metadata, no submit) — lands a build in TestFlight"
+  lane :build_and_upload do
+    key = asc_api_key
+    build_ipa
+    upload_to_app_store(
+      api_key: key,
+      app_identifier: APP_ID,
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: false,
+    )
+  end
+end

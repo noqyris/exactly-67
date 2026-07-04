@@ -1,0 +1,10 @@
+# Non-text App Store metadata for `deliver` (upload_to_app_store).
+# Text fields (name/subtitle/keywords/description/…) live under metadata/en-US/.
+
+app_rating_config_path("./fastlane/metadata/rating_config.json")
+
+# 4+ — nothing objectionable. Precheck also validates the listing before submit.
+precheck_include_in_app_purchases(false)
+
+# Copy is final; don't clobber it with anything not in ./metadata.
+overwrite_screenshots(true)

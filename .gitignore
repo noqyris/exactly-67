@@ -9,3 +9,11 @@ ios/App/App/public
 ios/App/output
 ios/DerivedData
 ios/capacitor-cordova-ios-plugins
+
+# Fastlane build output + secrets (NEVER commit the App Store Connect key)
+ios/App/build
+ios/App/fastlane/keys
+ios/App/fastlane/report.xml
+ios/App/fastlane/Preview.html
+**/AuthKey_*.p8
+*.p8
