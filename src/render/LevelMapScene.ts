@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { globalOf, PACKS, TOTAL_LEVELS } from '../game/levels'
 import { isUnlocked, starsFor, totalStars } from '../game/progress'
 import { progress } from '../services/progressStore'
-import { prefersReducedMotion, safeArea, u } from './layout'
+import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BEAM, BG, FONT, INK, INK_CSS, OUTLINE, PAPER } from './palette'
 import { drawBackIcon, drawStar, makeIconButton, TEXT } from './ui'
 
@@ -29,22 +29,23 @@ export class LevelMapScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor(BG)
     const w = this.scale.width
+    const f = contentFrame(w, this.scale.height)
     const safe = safeArea()
-    const top = safe.top + u(12)
+    const top = Math.max(f.oy, safe.top) + u(12)
 
     const back = makeIconButton(this, u(46), (g, s) => drawBackIcon(g, s), () => {
       this.scene.start('Menu')
     })
-    back.setPosition(Math.max(u(16), safe.left) + u(23), top + u(23)).setDepth(10)
+    back.setPosition(f.ox + Math.max(u(16), safe.left) + u(23), top + u(23)).setDepth(10)
 
     this.add
-      .text(w / 2, top + u(10), 'Levels', TEXT.ink(26, '800'))
+      .text(f.cx, top + u(10), 'Levels', TEXT.ink(26, '800'))
       .setOrigin(0.5, 0)
       .setDepth(10)
 
     // Total-stars chip on the right.
     const starsChip = this.add
-      .container(w - Math.max(u(16), safe.right) - u(54), top + u(23))
+      .container(f.ox + f.ew - Math.max(u(16), safe.right) - u(54), top + u(23))
       .setDepth(10)
     const chipG = this.add.graphics()
     chipG.fillStyle(PAPER, 1)
@@ -89,14 +90,16 @@ export class LevelMapScene extends Phaser.Scene {
   }
 
   private buildContent() {
-    const w = this.scale.width
+    const f = contentFrame(this.scale.width, this.scale.height)
     const safe = safeArea()
-    const margin = Math.max(u(20), safe.left, safe.right)
+    const pad = Math.max(u(20), safe.left, safe.right)
+    const margin = f.ox + pad
+    const inner = f.ew - pad * 2
     const cols = 4
     const gap = u(12)
-    const cell = Math.min(u(84), (w - margin * 2 - gap * (cols - 1)) / cols)
+    const cell = Math.min(u(88), (inner - gap * (cols - 1)) / cols)
     const gridW = cell * cols + gap * (cols - 1)
-    const startX = (w - gridW) / 2 + cell / 2
+    const startX = f.cx - gridW / 2 + cell / 2
 
     let y = u(16)
     PACKS.forEach((pack, packIndex) => {
@@ -104,8 +107,8 @@ export class LevelMapScene extends Phaser.Scene {
       const tagline = this.add
         .text(margin, y + u(30), pack.tagline, TEXT.ink(14, '600'))
         .setColor(INK_SOFT)
-      // Keep the tagline inside the screen; grow the header if it wraps.
-      tagline.setWordWrapWidth(w - margin * 2)
+      // Keep the tagline inside the frame; grow the header if it wraps.
+      tagline.setWordWrapWidth(inner)
       this.content.add([name, tagline])
       y += u(30) + tagline.height + u(14)
 

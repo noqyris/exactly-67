@@ -35,7 +35,7 @@ import {
 import { progress, recordClear } from '../services/progressStore'
 import { bestFor } from '../game/progress'
 import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
-import { prefersReducedMotion, safeArea, u } from './layout'
+import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, GOOD, INK, OVER, OUTLINE, PAPER, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
 import type { ScaleGeometry } from './ScaleView'
@@ -145,37 +145,36 @@ export class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------- layout
 
   private scaleGeometry(): ScaleGeometry {
-    const w = this.scale.width
-    const h = this.scale.height
+    const f = contentFrame(this.scale.width, this.scale.height)
     const safe = safeArea()
-    const halfBeam = Math.min(w * 0.33, u(240))
-    const panWidth = Math.min(w * 0.29, u(190))
+    const halfBeam = Math.min(f.ew * 0.33, u(240))
+    const panWidth = Math.min(f.ew * 0.29, u(190))
     return {
-      cx: w / 2,
-      cy: safe.top + h * 0.245,
+      cx: f.cx,
+      cy: Math.max(f.oy, safe.top) + f.eh * 0.245,
       halfBeam,
-      ropeLen: Math.min(h * 0.14, u(130)),
+      ropeLen: Math.min(f.eh * 0.14, u(130)),
       panWidth,
       panHeight: panWidth * 0.22,
     }
   }
 
   private layoutAll() {
-    const w = this.scale.width
     const h = this.scale.height
+    const f = contentFrame(this.scale.width, this.scale.height)
     const safe = safeArea()
     const geo = this.scaleGeometry()
     this.scaleView.layout(geo)
     this.panScale = Math.min(1, (geo.panWidth * 0.34) / u(84))
 
-    // Tray panel: bottom band above the home indicator.
+    // Tray panel: centered in the content frame, above the home indicator.
     const trayMargin = Math.max(u(12), safe.left, safe.right)
-    const trayTop = h * 0.635
-    const trayBottom = h - safe.bottom - u(10)
+    const trayTop = f.oy + f.eh * 0.635
+    const trayBottom = Math.min(f.oy + f.eh, h - safe.bottom) - u(10)
     this.tray = {
-      x: trayMargin,
+      x: f.ox + trayMargin,
       y: trayTop,
-      width: w - trayMargin * 2,
+      width: f.ew - trayMargin * 2,
       height: trayBottom - trayTop,
       homes: [],
     }
@@ -294,44 +293,45 @@ export class GameScene extends Phaser.Scene {
   }
 
   private layoutHud() {
-    const w = this.scale.width
+    const f = contentFrame(this.scale.width, this.scale.height)
     const safe = safeArea()
-    const top = safe.top + u(12)
+    const top = Math.max(f.oy, safe.top) + u(12)
     const size = u(46)
+    const leftX = f.ox + Math.max(u(16), safe.left) + size / 2
+    const rightX = f.ox + f.ew - Math.max(u(16), safe.right) - size / 2
 
-    this.hudButtons.back.setPosition(Math.max(u(16), safe.left) + size / 2, top + size / 2)
-    this.hudButtons.haptics.setPosition(w - Math.max(u(16), safe.right) - size / 2, top + size / 2)
-    this.hudButtons.sound.setPosition(this.hudButtons.haptics.x - size - u(12), top + size / 2)
+    this.hudButtons.back.setPosition(leftX, top + size / 2)
+    this.hudButtons.haptics.setPosition(rightX, top + size / 2)
+    this.hudButtons.sound.setPosition(rightX - size - u(12), top + size / 2)
 
-    this.levelText.setPosition(w / 2, top - u(2))
+    this.levelText.setPosition(f.cx, top - u(2))
     this.levelText.setText(`Level ${this.ref.global}`)
-    this.packText.setPosition(w / 2, top + u(24))
+    this.packText.setPosition(f.cx, top + u(24))
     this.packText.setText(this.ref.pack.name)
 
     // Total chip sits between the HUD row and the beam; the gap message
     // hangs just below it.
     const chipY = top + size + u(48)
-    this.totalText.setPosition(w / 2, chipY)
-    this.gapText.setPosition(w / 2, chipY + u(43)).setOrigin(0.5, 0)
+    this.totalText.setPosition(f.cx, chipY)
+    this.gapText.setPosition(f.cx, chipY + u(43)).setOrigin(0.5, 0)
 
     const constraintY = this.tray.y - u(16)
     this.budgetText?.setPosition(this.tray.x + u(6), constraintY)
     this.useAllText?.setPosition(this.tray.x + this.tray.width - u(6), constraintY)
     this.hintText?.setPosition(
-      w / 2,
+      f.cx,
       this.tray.y - (this.budgetText || this.useAllText ? u(38) : u(16)),
     )
     this.hintText?.setWordWrapWidth(this.tray.width - u(20))
-    this.toastText.setPosition(w / 2, this.tray.y - u(60))
+    this.toastText.setPosition(f.cx, this.tray.y - u(60))
     this.toastText.setWordWrapWidth(this.tray.width - u(20))
     this.toastText.setAlign('center')
   }
 
   private drawTotalChip(color: number) {
-    const w = this.scale.width
     const chipW = u(132)
     const chipH = u(66)
-    const x = w / 2 - chipW / 2
+    const x = contentFrame(this.scale.width, this.scale.height).cx - chipW / 2
     const y = this.totalText.y - chipH / 2
     const g = this.totalChipG
     g.clear()

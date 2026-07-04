@@ -9,6 +9,32 @@ export function u(n: number): number {
   return n * DPR
 }
 
+/**
+ * Largest play area we let the game occupy, in design points. On a phone the
+ * screen is narrower/shorter than these, so the frame is the whole screen and
+ * nothing changes. On a tablet the frame caps out and is centered, so the game
+ * reads as a large, well-proportioned column instead of a stretched phone.
+ */
+export const MAX_CONTENT_W = 680
+export const MAX_CONTENT_H = 940
+
+export interface ContentFrame {
+  /** Left/top offset of the centered frame within the screen (0 on phones). */
+  ox: number
+  oy: number
+  /** Effective width/height of the play area, in device pixels. */
+  ew: number
+  eh: number
+  /** Horizontal screen centre (frame is centered, so this is the frame centre). */
+  cx: number
+}
+
+export function contentFrame(screenW: number, screenH: number): ContentFrame {
+  const ew = Math.min(screenW, u(MAX_CONTENT_W))
+  const eh = Math.min(screenH, u(MAX_CONTENT_H))
+  return { ox: (screenW - ew) / 2, oy: (screenH - eh) / 2, ew, eh, cx: screenW / 2 }
+}
+
 export interface SafeArea {
   top: number
   bottom: number
