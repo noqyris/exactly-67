@@ -3,7 +3,7 @@ import { globalOf, PACKS, TOTAL_LEVELS } from '../game/levels'
 import { isUnlocked, starsFor, totalStars } from '../game/progress'
 import { progress } from '../services/progressStore'
 import { prefersReducedMotion, safeArea, u } from './layout'
-import { BEAM, BG, INK, OUTLINE, PAPER } from './palette'
+import { BEAM, BG, FONT, INK, INK_CSS, OUTLINE, PAPER } from './palette'
 import { drawBackIcon, drawStar, makeIconButton, TEXT } from './ui'
 
 const INK_SOFT = '#5D5470'
@@ -52,10 +52,12 @@ export class LevelMapScene extends Phaser.Scene {
     chipG.lineStyle(u(3), INK, 1)
     chipG.strokeRoundedRect(-u(52), -u(20), u(104), u(40), u(14))
     const starG = this.add.graphics()
-    drawStar(starG, -u(26), 0, u(11), true)
+    drawStar(starG, -u(32), 0, u(11), true)
+    // Left-align the count just right of the star so its point never
+    // overlaps the first digit.
     const totals = this.add
-      .text(u(6), 0, `${totalStars(progress())}/${TOTAL_LEVELS * 3}`, TEXT.ink(16))
-      .setOrigin(0.5)
+      .text(-u(16), 0, `${totalStars(progress())}/${TOTAL_LEVELS * 3}`, TEXT.ink(16))
+      .setOrigin(0, 0.5)
     starsChip.add([chipG, starG, totals])
 
     // Header backdrop so scrolled content slides underneath. It is
@@ -100,10 +102,12 @@ export class LevelMapScene extends Phaser.Scene {
     PACKS.forEach((pack, packIndex) => {
       const name = this.add.text(margin, y, pack.name, TEXT.ink(21, '800'))
       const tagline = this.add
-        .text(margin, y + u(28), pack.tagline, TEXT.ink(14, '600'))
+        .text(margin, y + u(30), pack.tagline, TEXT.ink(14, '600'))
         .setColor(INK_SOFT)
+      // Keep the tagline inside the screen; grow the header if it wraps.
+      tagline.setWordWrapWidth(w - margin * 2)
       this.content.add([name, tagline])
-      y += u(58)
+      y += u(30) + tagline.height + u(14)
 
       pack.levels.forEach((_, levelIndex) => {
         const global = globalOf(packIndex, levelIndex)
@@ -139,14 +143,23 @@ export class LevelMapScene extends Phaser.Scene {
     c.add(g)
 
     if (unlocked) {
+      // `size` is already in device pixels, so use a raw px font here — going
+      // through TEXT.ink() would apply the DPR scale a second time and blow
+      // the number up over the stars.
+      const hasStars = stars > 0
       const num = this.add
-        .text(0, stars > 0 ? -size * 0.13 : 0, String(global), TEXT.ink(Math.round(size * 0.34), '800'))
+        .text(0, hasStars ? -size * 0.16 : 0, String(global), {
+          fontFamily: FONT,
+          fontSize: `${Math.round(size * (hasStars ? 0.34 : 0.42))}px`,
+          fontStyle: '800',
+          color: INK_CSS,
+        })
         .setOrigin(0.5)
       c.add(num)
-      if (stars > 0) {
+      if (hasStars) {
         const sg = this.add.graphics()
         for (let i = 0; i < 3; i++) {
-          drawStar(sg, (i - 1) * size * 0.24, size * 0.24, size * 0.1, i < stars)
+          drawStar(sg, (i - 1) * size * 0.26, size * 0.31, size * 0.11, i < stars)
         }
         c.add(sg)
       }

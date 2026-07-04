@@ -14,7 +14,7 @@ import type { LevelPack } from '../types'
 export const pack3: LevelPack = {
   id: 'pack-3',
   name: 'Heavy Lifting',
-  tagline: 'Massive weights, deep overshoots — only balloons can save you now.',
+  tagline: 'Massive weights, deep overshoots.',
   levels: [
     // 49 — big numbers arrive: 90−23 or 55+12; the 56 baits 56+12=68.
     { weights: [90, 56, 55, -23, 12] },
