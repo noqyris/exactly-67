@@ -172,14 +172,26 @@ export class WeightView extends Phaser.GameObjects.Container {
   }
 
   /**
-   * Generous touch box centered on the visible body (balloons float above
-   * the origin, so their hit box shifts up to cover the body AND the string).
+   * Generous touch box covering the whole drawn weight — the block body (or
+   * balloon body plus its string down to the origin), padded out to a
+   * comfortable minimum.
+   *
+   * Phaser hit-tests a Container by adding its displayOrigin to the local
+   * pointer point before the Contains check, so the hit rectangle must be
+   * authored in that displayOrigin-relative frame (NOT origin-centered) or
+   * only one quadrant of the weight registers a drag.
    */
   makeInteractive() {
-    const hit = Math.max(u(60), this.bodySize * 1.2)
-    const rect = this.isBalloon
-      ? new Phaser.Geom.Rectangle(-hit / 2, this.bodyCenterY() - hit / 2, hit, hit * 1.5)
-      : new Phaser.Geom.Rectangle(-hit / 2, -hit / 2, hit, hit)
+    const body = this.bodyRect()
+    // Pad so the whole square touch area is at least a finger wide.
+    const padX = Math.max(u(4), (u(60) - body.width) / 2)
+    const padY = Math.max(u(4), (u(60) - body.height) / 2)
+    const rect = new Phaser.Geom.Rectangle(
+      this.displayOriginX + body.x - padX,
+      this.displayOriginY + body.y - padY,
+      body.width + padX * 2,
+      body.height + padY * 2,
+    )
     this.setInteractive({
       hitArea: rect,
       hitAreaCallback: Phaser.Geom.Rectangle.Contains,
