@@ -44,6 +44,13 @@ describe('unlocking', () => {
     expect(isUnlocked(p, 2)).toBe(true)
     expect(isUnlocked(p, 3)).toBe(false)
   })
+
+  it('a cleared level stays replayable even if its predecessor is not cleared', () => {
+    const p = mergeClear(emptyProgress(), 5, 3, 2)
+    expect(isUnlocked(p, 5)).toBe(true)
+    expect(isUnlocked(p, 6)).toBe(true)
+    expect(isUnlocked(p, 4)).toBe(false)
+  })
 })
 
 describe('totalStars', () => {

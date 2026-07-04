@@ -45,9 +45,16 @@ export function isCleared(progress: Progress, globalLevel: number): boolean {
   return starsFor(progress, globalLevel) > 0
 }
 
-/** Level 1 is always open; each level unlocks when the previous is cleared. */
+/**
+ * Level 1 is always open; each level unlocks when the previous is cleared.
+ * A cleared level itself always stays replayable.
+ */
 export function isUnlocked(progress: Progress, globalLevel: number): boolean {
-  return globalLevel === 1 || isCleared(progress, globalLevel - 1)
+  return (
+    globalLevel === 1 ||
+    isCleared(progress, globalLevel) ||
+    isCleared(progress, globalLevel - 1)
+  )
 }
 
 export function totalStars(progress: Progress): number {
