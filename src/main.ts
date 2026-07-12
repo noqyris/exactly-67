@@ -10,6 +10,7 @@ import { LevelMapScene } from './render/LevelMapScene'
 import { MenuScene } from './render/MenuScene'
 import { BG_CSS } from './render/palette'
 import { BANNER_RESERVE_DESIGN_PX, adsSupported, initAds, showBanner } from './services/ads'
+import { initIap } from './services/iap'
 import { setSoundEnabled } from './services/audio'
 import { setHapticsEnabled } from './services/haptics'
 import { initProgress } from './services/progressStore'
@@ -58,6 +59,10 @@ async function boot() {
   // No-ops on web/dev; on device it initializes, collects consent + ATT, then
   // shows the persistent bottom banner in the strip reserved above.
   if (wantAds) void initAds().then(showBanner)
+
+  // IAP boots regardless (also on already-removed installs) so "Remove Ads"
+  // ownership is reconciled — e.g. a restore after reinstall clears the banner.
+  void initIap()
 }
 
 void boot()

@@ -6,7 +6,9 @@ take it from **test ads** to **live, App-Store-approved revenue**.
 > **Status:** Phase 1 (ads) is implemented against **Google test ad units** and
 > is safe to run today. It will not earn or risk your AdMob account until you
 > drop in real IDs and flip one flag (see [Going live](#going-live)). Phase 2
-> (Remove-Ads IAP) is designed but not yet built.
+> (Remove-Ads IAP) is implemented against StoreKit via `cordova-plugin-purchase`;
+> it just needs an App Store Connect product before it can transact (see
+> [Phase 2](#phase-2--remove-ads-099-iap)).
 
 ---
 
@@ -56,7 +58,9 @@ solver query); all ad code lives in `services` + `render`.
 | [`src/render/GameScene.ts`](../src/render/GameScene.ts) | 💡 hint button → rewarded ad → `WeightView.highlight()`; `noteCleared()` on win; interstitial on Next/Map/End (not Retry). |
 | [`src/render/WeightView.ts`](../src/render/WeightView.ts) | `highlight()` — expanding pulse ring to point the eye at the hinted weight. |
 | [`src/render/ui.ts`](../src/render/ui.ts) | `drawHintIcon` (lightbulb). |
-| [`src/main.ts`](../src/main.ts) | Reserves the banner strip pre-layout, then `initAds().then(showBanner)` after boot. |
+| [`src/main.ts`](../src/main.ts) | Reserves the banner strip pre-layout, then `initAds().then(showBanner)` + `initIap()` after boot. |
+| [`src/services/iap.ts`](../src/services/iap.ts) | **Remove-Ads IAP wrapper** (Phase 2). StoreKit via `CdvPurchase`, web-no-op, mirrors ownership into `setAdsRemoved()`. |
+| [`src/render/MenuScene.ts`](../src/render/MenuScene.ts) | "Remove ads · _price_" + "Restore purchases" — device only, hidden once bought. |
 | [`ios/App/App/Info.plist`](../ios/App/App/Info.plist) | `GADApplicationIdentifier`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems`. |
 
 **Tuning knobs** live at the top of [`ads.ts`](../src/services/ads.ts):
@@ -108,16 +112,23 @@ the app serves Google's safe test fillers.
 
 ## Phase 2 — Remove Ads ($0.99 IAP)
 
-Designed, not yet built. Plan:
+Implemented as a skeleton against **StoreKit via `cordova-plugin-purchase`** (the
+`CdvPurchase` global) — no third-party backend or account. It lives in
+[`src/services/iap.ts`](../src/services/iap.ts): registers one non-consumable,
+verifies + finishes transactions, mirrors ownership into `setAdsRemoved()`
+(hides the banner, skips interstitials, **keeps** the rewarded hint), and exposes
+buy / restore. The menu surfaces "Remove ads" + "Restore purchases". The
+`exactly67.adsRemoved` flag persists and gates `main.ts` on boot; `initIap()`
+reconciles on every launch, so a restore after reinstall clears the banner.
 
-1. Add an IAP plugin — **RevenueCat** (easier receipts/restore) or
-   `@capacitor-community/in-app-purchases`.
-2. App Store Connect: **Non-Consumable** "Remove Ads", product id e.g.
-   `com.noqyris.exactly67.removeads`, tier $0.99.
-3. On purchase/restore → `setAdsRemoved(true)` (already in `ads.ts`): hides the
-   banner, skips interstitials, **keeps** the rewarded hint. The
-   `exactly67.adsRemoved` flag already persists and gates `main.ts` on boot.
-4. Add a **"Restore Purchases"** button (Apple requires it).
+**To make it transact:**
+1. App Store Connect → create a **Non-Consumable** IAP with product id
+   `com.noqyris.exactly67.removeads` (must match `REMOVE_ADS_ID` in `iap.ts`),
+   price tier $0.99.
+2. `cap sync ios` (**Node ≥ 22**) to pull the Cordova plugin's native code in.
+3. Test with a **sandbox tester** on a real device.
+4. The web bundle never includes the plugin (no import; types via a `///
+   <reference>`), so dev/browser stays unaffected.
 
 > Pricing note: $0.99 is an easy yes; under Apple's **Small Business Program**
 > (likely eligible, revenue < $1M) commission is 15%, so ~$0.84 nets through.

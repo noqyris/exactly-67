@@ -1,8 +1,10 @@
 import Phaser from 'phaser'
 import { TOTAL_LEVELS } from '../game/levels'
 import { isCleared, totalStars } from '../game/progress'
+import { adsRemoved, adsSupported } from '../services/ads'
 import { playPlace, setSoundEnabled, soundEnabled } from '../services/audio'
 import { hapticsEnabled, placeTap, setHapticsEnabled } from '../services/haptics'
+import { buyRemoveAds, removeAdsPrice, restorePurchases, setIapListener } from '../services/iap'
 import { progress } from '../services/progressStore'
 import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, safeArea, u } from './layout'
@@ -101,6 +103,35 @@ export class MenuScene extends Phaser.Scene {
     )
     levels.setPosition(cx, playY + u(74))
 
+    // Optional "Remove Ads" purchase + Restore link — device only, and hidden
+    // once bought. Pushes the toggle row down when present.
+    let toggleRowY = playY + u(74) + u(64)
+    if (adsSupported() && !adsRemoved()) {
+      const price = removeAdsPrice()
+      const removeAds = makeButton(
+        this,
+        price ? `Remove ads · ${price}` : 'Remove ads',
+        Math.min(f.ew * 0.6, u(260)),
+        u(46),
+        PAPER,
+        '#2B2440',
+        () => void buyRemoveAds(),
+      )
+      removeAds.setPosition(cx, playY + u(74) + u(56))
+      const restore = this.add
+        .text(cx, playY + u(74) + u(56) + u(32), 'Restore purchases', TEXT.ink(12, '600'))
+        .setOrigin(0.5)
+        .setColor(INK_SOFT)
+        .setInteractive({ useHandCursor: true })
+      restore.on('pointerup', () => void restorePurchases())
+      toggleRowY = playY + u(74) + u(56) + u(32) + u(36)
+      // Rebuild the menu once the purchase lands so the button clears out.
+      setIapListener(() => {
+        if (adsRemoved()) this.scene.restart()
+      })
+      this.events.once('shutdown', () => setIapListener(null))
+    }
+
     // Sound + haptics toggles.
     const size = u(46)
     const sound = makeIconButton(
@@ -114,7 +145,7 @@ export class MenuScene extends Phaser.Scene {
         if (soundEnabled()) playPlace()
       },
     )
-    sound.setPosition(cx - size * 0.75, playY + u(74) + u(64))
+    sound.setPosition(cx - size * 0.75, toggleRowY)
     const haptics = makeIconButton(
       this,
       size,
@@ -126,7 +157,7 @@ export class MenuScene extends Phaser.Scene {
         if (hapticsEnabled()) placeTap()
       },
     )
-    haptics.setPosition(cx + size * 0.75, playY + u(74) + u(64))
+    haptics.setPosition(cx + size * 0.75, toggleRowY)
 
     // Portrait-locked on device, but dev browsers can resize: rebuild once.
     this.scale.once('resize', () => {

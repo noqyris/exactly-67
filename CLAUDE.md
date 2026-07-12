@@ -57,6 +57,7 @@ Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `s
 | `audio.ts` | Web Audio **synth** — every SFX generated from oscillators + gain envelopes at play time. No audio files. |
 | `haptics.ts` | Toggle-gated `@capacitor/haptics` wrapper; fire-and-forget, silently no-ops on web. |
 | `ads.ts` | Toggle-gated `@capacitor-community/admob` wrapper (banner / interstitial / rewarded-hint); same fire-and-forget, web-no-op pattern as `haptics.ts`. Runs on **Google test ad units** until real IDs are wired — see [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
+| `iap.ts` | "Remove Ads" IAP wrapper — StoreKit via `cordova-plugin-purchase` (`CdvPurchase` global; no bundler import, injected natively). Web-no-op; mirrors ownership into `ads.setAdsRemoved`. Needs an App Store Connect product — see [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
 | `storage.ts` | `@capacitor/preferences` wrapper. Keys: `exactly67.progress` (JSON), `exactly67.sound`, `exactly67.haptics` (`'on'`/`'off'`), `exactly67.adClears`, `exactly67.adsRemoved`. |
 | `progressStore.ts` | In-memory cache of `Progress` so scenes read synchronously; write-through on every clear. |
 
