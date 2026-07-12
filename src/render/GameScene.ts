@@ -12,7 +12,7 @@ import {
   remove,
 } from '../game/rules'
 import type { Placement } from '../game/rules'
-import { solveLevel } from '../game/solver'
+import { minimalSolution, solveLevel } from '../game/solver'
 import { starsForClear } from '../game/stars'
 import type { Evaluation } from '../game/types'
 import {
@@ -34,12 +34,13 @@ import {
 } from '../services/haptics'
 import { progress, recordClear } from '../services/progressStore'
 import { bestFor } from '../game/progress'
+import { maybeShowInterstitial, noteCleared, showRewardedHint } from '../services/ads'
 import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, GOOD, INK, OVER, OUTLINE, PAPER, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
 import type { ScaleGeometry } from './ScaleView'
-import { drawBackIcon, drawHapticsIcon, drawSoundIcon, drawStar, makeButton, makeIconButton, TEXT } from './ui'
+import { drawBackIcon, drawHapticsIcon, drawHintIcon, drawSoundIcon, drawStar, makeButton, makeIconButton, TEXT } from './ui'
 import { WeightView } from './WeightView'
 
 const GOOD_CSS = '#37B24D'
@@ -61,6 +62,7 @@ export class GameScene extends Phaser.Scene {
   private minWeights = 1
   private wonState = false
   private reducedMotion = false
+  private hintBusy = false
 
   private scaleView!: ScaleView
   private weights: WeightView[] = []
@@ -283,13 +285,17 @@ export class GameScene extends Phaser.Scene {
         if (hapticsEnabled()) placeTap()
       },
     )
-    this.hudButtons = { back, sound, haptics }
+    const hint = makeIconButton(this, size, (g, s) => drawHintIcon(g, s), () => {
+      void this.doHint()
+    })
+    this.hudButtons = { back, sound, haptics, hint }
   }
 
   private hudButtons!: {
     back: ReturnType<typeof makeIconButton>
     sound: ReturnType<typeof makeIconButton>
     haptics: ReturnType<typeof makeIconButton>
+    hint: ReturnType<typeof makeIconButton>
   }
 
   private layoutHud() {
@@ -301,6 +307,7 @@ export class GameScene extends Phaser.Scene {
     const rightX = f.ox + f.ew - Math.max(u(16), safe.right) - size / 2
 
     this.hudButtons.back.setPosition(leftX, top + size / 2)
+    this.hudButtons.hint.setPosition(leftX + size + u(12), top + size / 2)
     this.hudButtons.haptics.setPosition(rightX, top + size / 2)
     this.hudButtons.sound.setPosition(rightX - size - u(12), top + size / 2)
 
@@ -389,6 +396,36 @@ export class GameScene extends Phaser.Scene {
       delay: 1500,
       duration: 350,
     })
+  }
+
+  /** Rewarded hint: watch an ad, then pulse one weight from a winning build. */
+  private async doHint() {
+    if (this.wonState || this.hintBusy) return
+    const level = this.ref.def
+    const solution = minimalSolution(level)
+    if (!solution) return
+    // Prefer an unplaced, unlocked piece of the solution; else any unlocked one.
+    const unplaced = solution.filter((i) => !this.placed[i] && !this.weights[i].locked)
+    const pool = unplaced.length ? unplaced : solution.filter((i) => !this.weights[i].locked)
+    if (!pool.length) return
+
+    this.hintBusy = true
+    const granted = await showRewardedHint()
+    this.hintBusy = false
+    if (this.wonState) return
+    if (!granted) {
+      this.showToast('No ad available right now — try again soon')
+      return
+    }
+    const index = pool[0]
+    this.weights[index].highlight()
+    const v = level.weights[index]
+    this.showToast(v < 0 ? `Hint: add the −${-v} balloon` : `Hint: add the ${v} weight`)
+  }
+
+  /** Show a cadence-gated interstitial, then run the navigation either way. */
+  private leaveAfterClear(go: () => void) {
+    void maybeShowInterstitial(this.ref.global).finally(go)
   }
 
   // -------------------------------------------------------------- weights
@@ -573,6 +610,7 @@ export class GameScene extends Phaser.Scene {
     const used = placedCount(this.placed)
     const stars = starsForClear(used, this.minWeights)
     recordClear(this.ref.global, stars, used)
+    noteCleared() // count this clear toward the interstitial cadence
 
     this.time.delayedCall(500, () => {
       if (!this.reducedMotion) this.cameras.main.shake(180, 0.007)
@@ -646,10 +684,10 @@ export class GameScene extends Phaser.Scene {
     const btnH = u(56)
     const nextBtn = hasNext
       ? makeButton(this, 'Next', cardW * 0.42, btnH, 0xf5b942, '#2B2440', () => {
-          this.scene.restart({ level: this.ref.global + 1 })
+          this.leaveAfterClear(() => this.scene.restart({ level: this.ref.global + 1 }))
         })
       : makeButton(this, 'The End!', cardW * 0.42, btnH, 0xf5b942, '#2B2440', () => {
-          this.scene.start('LevelMap', { scrollTo: this.ref.global })
+          this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
         })
     nextBtn.setPosition(cx + cardW * 0.24, btnY)
 
@@ -659,7 +697,7 @@ export class GameScene extends Phaser.Scene {
     retryBtn.setPosition(cx - cardW * 0.36, btnY)
 
     const mapBtn = makeButton(this, 'Map', cardW * 0.2, btnH, PAPER, '#2B2440', () => {
-      this.scene.start('LevelMap', { scrollTo: this.ref.global })
+      this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
     })
     mapBtn.setPosition(cx - cardW * 0.13, btnY)
 

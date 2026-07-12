@@ -6,6 +6,10 @@ import { emptyProgress, parseProgress } from '../game/progress'
 const PROGRESS_KEY = 'exactly67.progress'
 const SOUND_KEY = 'exactly67.sound'
 const HAPTICS_KEY = 'exactly67.haptics'
+// Level clears counted since the last interstitial (drives the ad cadence).
+const AD_CLEARS_KEY = 'exactly67.adClears'
+// Whether the player bought "Remove Ads" (Phase 2 IAP).
+const ADS_REMOVED_KEY = 'exactly67.adsRemoved'
 
 export async function loadProgress(): Promise<Progress> {
   try {
@@ -45,3 +49,38 @@ export const loadSoundEnabled = () => loadFlag(SOUND_KEY)
 export const saveSoundEnabled = (on: boolean) => saveFlag(SOUND_KEY, on)
 export const loadHapticsEnabled = () => loadFlag(HAPTICS_KEY)
 export const saveHapticsEnabled = (on: boolean) => saveFlag(HAPTICS_KEY, on)
+
+export async function loadAdClears(): Promise<number> {
+  try {
+    const { value } = await Preferences.get({ key: AD_CLEARS_KEY })
+    const n = value ? parseInt(value, 10) : 0
+    return Number.isFinite(n) && n >= 0 ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+export async function saveAdClears(n: number): Promise<void> {
+  try {
+    await Preferences.set({ key: AD_CLEARS_KEY, value: String(Math.max(0, Math.floor(n))) })
+  } catch {
+    // non-fatal: cadence just resets next launch
+  }
+}
+
+export async function loadAdsRemoved(): Promise<boolean> {
+  try {
+    const { value } = await Preferences.get({ key: ADS_REMOVED_KEY })
+    return value === 'on'
+  } catch {
+    return false
+  }
+}
+
+export async function saveAdsRemoved(on: boolean): Promise<void> {
+  try {
+    await Preferences.set({ key: ADS_REMOVED_KEY, value: on ? 'on' : 'off' })
+  } catch {
+    // non-fatal
+  }
+}

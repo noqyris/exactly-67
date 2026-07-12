@@ -24,7 +24,14 @@ function popcount(mask: number): number {
  * constraints: locked weights are in every candidate subset, `useAll`
  * forces the full set, `maxWeights` caps the subset size.
  */
-export function solveLevel(level: LevelDef): SolveResult {
+interface Search {
+  /** Fewest weights that total 67, or null if unsolvable. */
+  best: number | null
+  /** Bitmask of that minimal subset (0 when unsolvable). */
+  bestMask: number
+}
+
+function search(level: LevelDef): Search {
   const n = level.weights.length
   if (n > MAX_LEVEL_WEIGHTS) {
     throw new Error(`Level has ${n} weights; solver supports at most ${MAX_LEVEL_WEIGHTS}`)
@@ -35,6 +42,7 @@ export function solveLevel(level: LevelDef): SolveResult {
 
   const full = (1 << n) - 1
   let best: number | null = null
+  let bestMask = 0
 
   for (let mask = 0; mask <= full; mask++) {
     if ((mask & lockedMask) !== lockedMask) continue
@@ -47,10 +55,34 @@ export function solveLevel(level: LevelDef): SolveResult {
     for (let i = 0; i < n; i++) {
       if (mask & (1 << i)) sum += level.weights[i]
     }
-    if (sum === TARGET) best = count
+    if (sum === TARGET) {
+      best = count
+      bestMask = mask
+    }
   }
 
+  return { best, bestMask }
+}
+
+export function solveLevel(level: LevelDef): SolveResult {
+  const { best } = search(level)
   return { solvable: best !== null, minWeights: best }
+}
+
+/**
+ * Indices of one minimal exact-67 subset (locked pieces included), or null if
+ * the level has no solution. Powers the rewarded "hint": highlight a weight
+ * that belongs to a winning build. Same exhaustive search as `solveLevel`, so
+ * it honors `locked` / `useAll` / `maxWeights` and stays instant (≤ 2^16).
+ */
+export function minimalSolution(level: LevelDef): number[] | null {
+  const { best, bestMask } = search(level)
+  if (best === null) return null
+  const indices: number[] = []
+  for (let i = 0; i < level.weights.length; i++) {
+    if (bestMask & (1 << i)) indices.push(i)
+  }
+  return indices
 }
 
 /**

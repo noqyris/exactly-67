@@ -56,7 +56,8 @@ Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `s
 |---|---|
 | `audio.ts` | Web Audio **synth** — every SFX generated from oscillators + gain envelopes at play time. No audio files. |
 | `haptics.ts` | Toggle-gated `@capacitor/haptics` wrapper; fire-and-forget, silently no-ops on web. |
-| `storage.ts` | `@capacitor/preferences` wrapper. Keys: `exactly67.progress` (JSON), `exactly67.sound`, `exactly67.haptics` (`'on'`/`'off'`). |
+| `ads.ts` | Toggle-gated `@capacitor-community/admob` wrapper (banner / interstitial / rewarded-hint); same fire-and-forget, web-no-op pattern as `haptics.ts`. Runs on **Google test ad units** until real IDs are wired — see [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
+| `storage.ts` | `@capacitor/preferences` wrapper. Keys: `exactly67.progress` (JSON), `exactly67.sound`, `exactly67.haptics` (`'on'`/`'off'`), `exactly67.adClears`, `exactly67.adsRemoved`. |
 | `progressStore.ts` | In-memory cache of `Progress` so scenes read synchronously; write-through on every clear. |
 
 ## Core data flow
@@ -118,6 +119,7 @@ For the full authoring guide — every constraint explained, the star economy, t
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — deeper engineering reference: layer diagram, the pure-logic core, render/scene flow, services & persistence, native iOS, and an end-to-end "playing a level" walkthrough.
 - [`docs/LEVEL_DESIGN.md`](docs/LEVEL_DESIGN.md) — how to author and tune levels: the `LevelDef` schema, constraints, solver & star economy, the build gate, and annotated example levels.
+- [`docs/MONETIZATION.md`](docs/MONETIZATION.md) — ads & IAP: the strategy, how `ads.ts` is wired, and the exact steps to go from test ads to live App-Store-approved revenue.
 - `README.md` — project overview + command summary.
 - `src/game/levels/pack1.ts` … `pack3.ts` — annotated level data and difficulty ramp.
 - `store/` — App Store release collateral: `STORE_LISTING.md`, `PRIVACY_POLICY.md`, `SUBMISSION.md` (runbook), `icon-1024.png`, `screenshots/`.

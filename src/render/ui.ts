@@ -156,6 +156,21 @@ export function drawBackIcon(g: Phaser.GameObjects.Graphics, size: number) {
   g.strokePath()
 }
 
+/** Lightbulb icon for the rewarded-hint button. */
+export function drawHintIcon(g: Phaser.GameObjects.Graphics, size: number) {
+  const s = size / 44
+  // Glass bulb.
+  g.fillStyle(STAR, 1)
+  g.fillCircle(0, -3 * s, 8.5 * s)
+  g.lineStyle(2.8 * s, INK, 1)
+  g.strokeCircle(0, -3 * s, 8.5 * s)
+  // Screw base.
+  g.fillStyle(INK, 1)
+  g.fillRoundedRect(-4.5 * s, 4.2 * s, 9 * s, 6 * s, 1.6 * s)
+  g.lineStyle(1.8 * s, INK, 1)
+  g.lineBetween(-2.6 * s, 8.2 * s, 2.6 * s, 8.2 * s)
+}
+
 /** Text styles take design-unit sizes and scale them to device pixels. */
 export const TEXT = {
   ink: (size: number, weight = '700') => ({

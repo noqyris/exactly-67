@@ -42,6 +42,23 @@ export interface SafeArea {
   right: number
 }
 
+/**
+ * Device-pixel height reserved at the physical bottom of the screen for the
+ * native ad banner (0 when no banner is shown / ads removed). It is folded
+ * into safeArea().bottom, so every scene automatically keeps its content — and
+ * crucially its drag targets — above the banner strip. Set once at boot before
+ * scenes lay out (see main.ts); the banner overlays this reserved gap.
+ */
+let adBannerReservePx = 0
+
+export function setAdBannerReserve(px: number): void {
+  adBannerReservePx = Math.max(0, px)
+}
+
+export function adBannerReserve(): number {
+  return adBannerReservePx
+}
+
 function cssPx(name: string): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name)
   const n = parseFloat(raw)
@@ -55,7 +72,8 @@ function cssPx(name: string): number {
 export function safeArea(): SafeArea {
   return {
     top: u(cssPx('--safe-top')),
-    bottom: u(cssPx('--safe-bottom')),
+    // Home-indicator inset plus any reserved ad-banner strip at the bottom.
+    bottom: u(cssPx('--safe-bottom')) + adBannerReservePx,
     left: u(cssPx('--safe-left')),
     right: u(cssPx('--safe-right')),
   }

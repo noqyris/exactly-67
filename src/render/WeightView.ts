@@ -7,6 +7,7 @@ import {
   INK,
   LOCKED_TINT,
   OUTLINE,
+  STAR,
   weightColor,
   labelColorFor,
 } from './palette'
@@ -217,6 +218,28 @@ export class WeightView extends Phaser.GameObjects.Container {
       yoyo: true,
       repeat: 2,
       onComplete: () => this.setAngle(0),
+    })
+  }
+
+  /**
+   * A friendly expanding pulse ring to point the eye at this weight (used to
+   * reveal a hint). It is a child, so it rides along with the container's
+   * steered position/scale without fighting the per-frame lerp.
+   */
+  highlight() {
+    const s = this.bodySize
+    const cy = this.bodyCenterY()
+    const ring = this.scene.add.graphics()
+    ring.lineStyle(Math.max(u(3), s * 0.09), STAR, 1)
+    ring.strokeCircle(0, cy, s * 0.62)
+    this.add(ring)
+    this.scene.tweens.add({
+      targets: ring,
+      scale: { from: 0.7, to: 1.7 },
+      alpha: { from: 1, to: 0 },
+      duration: 640,
+      repeat: 2,
+      onComplete: () => ring.destroy(),
     })
   }
 }

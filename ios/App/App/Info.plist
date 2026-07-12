@@ -47,5 +47,24 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- ===== AdMob / ads (see docs/MONETIZATION.md) ===== -->
+	<!-- Google's PUBLIC TEST App ID. Replace with your real AdMob App ID
+	     (ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY) before shipping live ads. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<!-- Message shown in the iOS App Tracking Transparency prompt. Required:
+	     a missing key = immediate App Store rejection once the SDK links. -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>Allow tracking so the ads you see stay relevant. The game plays the same either way.</string>
+	<!-- SKAdNetwork attribution without IDFA. This is Google's primary ID;
+	     paste the full current partner list from Google's AdMob iOS setup
+	     docs before launch to maximize ad revenue. -->
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 </dict>
 </plist>

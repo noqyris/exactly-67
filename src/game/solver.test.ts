@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { starsForClear } from './stars'
-import { solveLevel, validatePacks } from './solver'
+import { minimalSolution, solveLevel, validatePacks } from './solver'
 import type { LevelDef, LevelPack } from './types'
 
 describe('solveLevel', () => {
@@ -55,6 +55,35 @@ describe('solveLevel', () => {
 
   it('rejects oversized levels loudly', () => {
     expect(() => solveLevel({ weights: new Array(17).fill(1) })).toThrow()
+  })
+})
+
+describe('minimalSolution', () => {
+  const sumOf = (level: LevelDef, idx: number[] | null) =>
+    (idx ?? []).reduce((s, i) => s + level.weights[i], 0)
+
+  it('returns indices of a minimal subset that totals 67', () => {
+    const level: LevelDef = { weights: [20, 47, 10, 30, 7] }
+    const sol = minimalSolution(level)
+    expect(sol).not.toBeNull()
+    expect(sumOf(level, sol)).toBe(67)
+    expect(sol).toHaveLength(2) // matches solveLevel's minWeights
+  })
+
+  it('includes every locked index in the returned subset', () => {
+    const level: LevelDef = { weights: [30, 67, 37], locked: [0] }
+    const sol = minimalSolution(level)
+    expect(sol).toContain(0)
+    expect(sumOf(level, sol)).toBe(67)
+  })
+
+  it('uses a balloon to land on 67', () => {
+    const level: LevelDef = { weights: [72, -5] }
+    expect(minimalSolution(level)).toEqual([0, 1])
+  })
+
+  it('returns null when there is no solution', () => {
+    expect(minimalSolution({ weights: [2, 4, 8, 16] })).toBeNull()
   })
 })
 
