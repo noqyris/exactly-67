@@ -137,7 +137,6 @@ platform :ios do
       run_precheck_before_submit: false,
       submit_for_review: true,
       automatic_release: true,
-      wait_for_uploaded_build: true,
       submission_information: {
         # App now shows AdMob ads, which use the IDFA (gated by ATT consent).
         add_id_info_uses_idfa: true,
