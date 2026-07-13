@@ -1,6 +1,14 @@
 import { Capacitor } from '@capacitor/core'
-import { AdMob, BannerAdPosition, BannerAdSize } from '@capacitor-community/admob'
-import { loadAdClears, loadAdsRemoved, saveAdClears, saveAdsRemoved } from './storage'
+import { AdMob, BannerAdPluginEvents, BannerAdPosition, BannerAdSize } from '@capacitor-community/admob'
+import type { AdMobBannerSize } from '@capacitor-community/admob'
+import {
+  loadAdClears,
+  loadAdsRemoved,
+  loadFreeHintDate,
+  saveAdClears,
+  saveAdsRemoved,
+  saveFreeHintDate,
+} from './storage'
 
 /**
  * Ads service — mirrors the audio/haptics pattern: a thin, toggle-gated,
@@ -19,8 +27,13 @@ import { loadAdClears, loadAdsRemoved, saveAdClears, saveAdsRemoved } from './st
 
 // --- configuration -------------------------------------------------------
 
-/** true = serve Google *test* ads (safe to click). Flip to false to ship. */
-const TESTING = false
+/**
+ * true = serve Google *test* ads (safe to click). Flip to false to ship.
+ * NOTE: currently TRUE for TestFlight verification — real ads don't serve until
+ * AdMob approves the new app, so test ads are the only way to see the banner /
+ * rewarded flow on device. **Must be false for the App Store submission.**
+ */
+const TESTING = true
 
 /** Google's official iOS test ad units — safe, never billed. */
 const TEST_UNITS = {
@@ -44,18 +57,29 @@ const CLEARS_PER_INTERSTITIAL = 5
 const ONBOARDING_LEVELS = 5
 
 /**
- * Design-pixel height the layout should reserve at the screen bottom for the
- * banner so nothing draggable sits under it. main.ts multiplies by DPR.
- * Comfortably covers an iOS adaptive-anchored banner (~50pt) plus a hair.
+ * Initial design-pixel reserve at the screen bottom for the banner (before it
+ * loads). Once the banner reports its real height via the SizeChanged event we
+ * replace this with the exact value (see `setBannerHeightHandler`), so nothing
+ * draggable ever sits under the ad. main.ts multiplies by DPR.
  */
-export const BANNER_RESERVE_DESIGN_PX = 56
+export const BANNER_RESERVE_DESIGN_PX = 60
 
 // --- state ---------------------------------------------------------------
 
 let initialized = false
 let bannerShown = false
+let bannerListening = false
 let removed = false
 let clearsSinceInterstitial = 0
+let lastFreeHintDate = ''
+
+/** Called with the banner's real height (design px + margin) when it loads. */
+let onBannerHeight: ((designPx: number) => void) | null = null
+
+/** Register a handler that reserves layout space for the actual banner height. */
+export function setBannerHeightHandler(cb: (designPx: number) => void): void {
+  onBannerHeight = cb
+}
 
 /** Native (iOS/Android) only — everything below no-ops on web/dev. */
 export function adsSupported(): boolean {
@@ -108,6 +132,15 @@ async function requestConsent(): Promise<void> {
 
 export async function showBanner(): Promise<void> {
   if (!adsSupported() || removed || bannerShown) return
+  // Reserve the exact banner height once it reports its size (points → design
+  // px), plus a small margin, so the tray/UI clears it precisely.
+  if (!bannerListening) {
+    bannerListening = true
+    void AdMob.addListener(BannerAdPluginEvents.SizeChanged, (size: AdMobBannerSize) => {
+      const h = size?.height ?? 0
+      if (h > 0) onBannerHeight?.(Math.min(Math.max(h + 8, 52), 120))
+    })
+  }
   try {
     await AdMob.showBanner({
       adId: UNITS.banner,
@@ -185,4 +218,26 @@ export async function showRewardedHint(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+// --- daily free hint -----------------------------------------------------
+
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+/** Load the persisted free-hint date. Call once at boot. */
+export async function initHintState(): Promise<void> {
+  lastFreeHintDate = await loadFreeHintDate()
+}
+
+/** True when the player still has today's one free hint (no ad needed). */
+export function freeHintAvailable(): boolean {
+  return lastFreeHintDate !== todayUtc()
+}
+
+/** Spend today's free hint (persist the date so it resets tomorrow). */
+export function consumeFreeHint(): void {
+  lastFreeHintDate = todayUtc()
+  void saveFreeHintDate(lastFreeHintDate)
 }

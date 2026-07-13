@@ -10,6 +10,8 @@ const HAPTICS_KEY = 'exactly67.haptics'
 const AD_CLEARS_KEY = 'exactly67.adClears'
 // Whether the player bought "Remove Ads" (Phase 2 IAP).
 const ADS_REMOVED_KEY = 'exactly67.adsRemoved'
+// UTC date (YYYY-MM-DD) the last *free* daily hint was used.
+const HINT_DATE_KEY = 'exactly67.hintFreeDate'
 
 export async function loadProgress(): Promise<Progress> {
   try {
@@ -65,6 +67,23 @@ export async function saveAdClears(n: number): Promise<void> {
     await Preferences.set({ key: AD_CLEARS_KEY, value: String(Math.max(0, Math.floor(n))) })
   } catch {
     // non-fatal: cadence just resets next launch
+  }
+}
+
+export async function loadFreeHintDate(): Promise<string> {
+  try {
+    const { value } = await Preferences.get({ key: HINT_DATE_KEY })
+    return value ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export async function saveFreeHintDate(date: string): Promise<void> {
+  try {
+    await Preferences.set({ key: HINT_DATE_KEY, value: date })
+  } catch {
+    // non-fatal: player just gets an extra free hint
   }
 }
 

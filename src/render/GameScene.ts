@@ -34,7 +34,13 @@ import {
 } from '../services/haptics'
 import { progress, recordClear } from '../services/progressStore'
 import { bestFor } from '../game/progress'
-import { maybeShowInterstitial, noteCleared, showRewardedHint } from '../services/ads'
+import {
+  consumeFreeHint,
+  freeHintAvailable,
+  maybeShowInterstitial,
+  noteCleared,
+  showRewardedHint,
+} from '../services/ads'
 import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, GOOD, INK, OVER, OUTLINE, PAPER, UNDER } from './palette'
@@ -398,8 +404,8 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  /** Rewarded hint: watch an ad, then pulse one weight from a winning build. */
-  private async doHint() {
+  /** Hint: the first each day is free, then a rewarded ad earns another. */
+  private doHint() {
     if (this.wonState || this.hintBusy) return
     const level = this.ref.def
     const solution = minimalSolution(level)
@@ -408,7 +414,25 @@ export class GameScene extends Phaser.Scene {
     const unplaced = solution.filter((i) => !this.placed[i] && !this.weights[i].locked)
     const pool = unplaced.length ? unplaced : solution.filter((i) => !this.weights[i].locked)
     if (!pool.length) return
+    const index = pool[0]
 
+    if (freeHintAvailable()) {
+      consumeFreeHint()
+      this.revealHint(index, true)
+    } else {
+      this.showHintAdPrompt(index)
+    }
+  }
+
+  private revealHint(index: number, free: boolean) {
+    this.weights[index].highlight()
+    const v = this.ref.def.weights[index]
+    const what = v < 0 ? `the −${-v} balloon` : `the ${v} weight`
+    this.showToast(free ? `Free hint — add ${what}` : `Hint — add ${what}`)
+  }
+
+  private async runHintAd(index: number) {
+    if (this.hintBusy || this.wonState) return
     this.hintBusy = true
     const granted = await showRewardedHint()
     this.hintBusy = false
@@ -417,10 +441,53 @@ export class GameScene extends Phaser.Scene {
       this.showToast('No ad available right now — try again soon')
       return
     }
-    const index = pool[0]
-    this.weights[index].highlight()
-    const v = level.weights[index]
-    this.showToast(v < 0 ? `Hint: add the −${-v} balloon` : `Hint: add the ${v} weight`)
+    this.revealHint(index, false)
+  }
+
+  /** Modal offering a rewarded ad for a hint once the free daily one is spent. */
+  private showHintAdPrompt(index: number) {
+    const w = this.scale.width
+    const h = this.scale.height
+    const overlay = this.add.container(0, 0).setDepth(120)
+    const close = () => overlay.destroy()
+
+    const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45).setInteractive()
+
+    const cardW = Math.min(w - u(48), u(340))
+    const cardH = u(236)
+    const cx = w / 2
+    const cy = h * 0.42
+    const card = this.add.graphics()
+    card.fillStyle(INK, 1)
+    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2 + u(6), cardW, cardH, u(24))
+    card.fillStyle(PAPER, 1)
+    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, u(24))
+    card.lineStyle(OUTLINE + u(1), INK, 1)
+    card.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, u(24))
+
+    const title = this.add
+      .text(cx, cy - cardH / 2 + u(38), 'Need another hint?', TEXT.ink(21, '800'))
+      .setOrigin(0.5)
+    const body = this.add
+      .text(cx, cy - u(4), "You've used today's free hint.\nWatch a short video to earn another.", TEXT.ink(15, '600'))
+      .setOrigin(0.5)
+    body.setColor(INK_SOFT).setAlign('center').setWordWrapWidth(cardW - u(44))
+
+    const btnY = cy + cardH / 2 - u(44)
+    const btnH = u(52)
+    const watch = makeButton(this, 'Watch ad', cardW * 0.5, btnH, 0xf5b942, '#2B2440', () => {
+      close()
+      void this.runHintAd(index)
+    })
+    watch.setPosition(cx + cardW * 0.23, btnY)
+    const cancel = makeButton(this, 'Cancel', cardW * 0.34, btnH, PAPER, '#2B2440', () => close())
+    cancel.setPosition(cx - cardW * 0.29, btnY)
+
+    overlay.add([dim, card, title, body, watch, cancel])
+    if (!this.reducedMotion) {
+      overlay.setAlpha(0)
+      this.tweens.add({ targets: overlay, alpha: 1, duration: 160 })
+    }
   }
 
   /** Show a cadence-gated interstitial, then run the navigation either way. */
