@@ -77,7 +77,7 @@ Upload only metadata + screenshots (no build, no submit) — safe dry-ish run to
 [bundle exec] fastlane ios build_and_upload
 ```
 
-Build + upload the binary only (no metadata, no submit) — lands a build in TestFlight
+Build + upload the binary to TestFlight (no App Store version, no submit)
 
 ----
 
