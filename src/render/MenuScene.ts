@@ -86,7 +86,14 @@ export class MenuScene extends Phaser.Scene {
     while (next < TOTAL_LEVELS && isCleared(p, next)) next++
     const started = totalStars(p) > 0
 
-    const playY = Math.min(f.oy + f.eh, h - safe.bottom) - f.eh * 0.19
+    // Whether the "Remove Ads" block will be shown (device only, IAP product
+    // loaded, not yet bought). It adds ~one button of height, so lift the whole
+    // column by that much to keep the sound/haptics row clear of the banner.
+    const showRemoveAds = () => adsSupported() && !adsRemoved() && removeAdsPrice() !== null
+    const removeAdsVisible = showRemoveAds()
+
+    const playY =
+      Math.min(f.oy + f.eh, h - safe.bottom) - f.eh * 0.19 - (removeAdsVisible ? u(60) : 0)
     const play = makeButton(
       this,
       started ? `Play  ·  level ${next}` : 'Play',
@@ -103,19 +110,13 @@ export class MenuScene extends Phaser.Scene {
     )
     levels.setPosition(cx, playY + u(74))
 
-    // Optional "Remove Ads" purchase + Restore link — device only, hidden once
-    // bought, and only shown when the IAP product has actually loaded (never a
-    // dead button). The product loads asynchronously from StoreKit, so we also
-    // refresh the menu when its availability flips. Pushes the toggle row down.
     let toggleRowY = playY + u(74) + u(64)
-    const showRemoveAds = () => adsSupported() && !adsRemoved() && removeAdsPrice() !== null
 
     if (adsSupported() && !adsRemoved()) {
       // Rebuild the menu when the button's visibility changes: the product
       // finishes loading (button appears) or the purchase lands (button clears).
-      const shownNow = showRemoveAds()
       setIapListener(() => {
-        if (showRemoveAds() !== shownNow) {
+        if (showRemoveAds() !== removeAdsVisible) {
           setIapListener(null)
           this.scene.restart()
         }
@@ -123,7 +124,7 @@ export class MenuScene extends Phaser.Scene {
       this.events.once('shutdown', () => setIapListener(null))
     }
 
-    if (showRemoveAds()) {
+    if (removeAdsVisible) {
       const removeAds = makeButton(
         this,
         `Remove ads · ${removeAdsPrice()}`,

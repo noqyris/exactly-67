@@ -13,9 +13,18 @@ import { adsRemoved, setAdsRemoved } from './ads'
  * reference directive above. Every entry point guards on `iapSupported()`, and
  * that guard uses `typeof` so touching `CdvPurchase` can never ReferenceError
  * on web.
+ *
+ * Entitlement is granted ONLY when StoreKit delivers an `approved` transaction
+ * that (a) is in a purchased state and (b) actually contains our product — a
+ * genuine purchase or a restore. A cancelled payment fires `error`, never
+ * `approved`, so it can't remove ads. We deliberately do NOT grant off
+ * `store.owned()` / `receiptUpdated`, which can read true for a cancelled
+ * transaction in the sandbox when no receipt validator is configured. Once
+ * granted, `setAdsRemoved` persists locally, so relaunch needs no store round
+ * trip; a fresh install restores via the "Restore purchases" button.
  */
 
-/** App Store Connect product id — create this as a Non-Consumable IAP ($0.99). */
+/** App Store Connect product id — a Non-Consumable IAP ($0.99). */
 export const REMOVE_ADS_ID = 'com.noqyris.exactly67.removeads'
 
 let initialized = false
@@ -30,10 +39,6 @@ export function setIapListener(cb: (() => void) | null): void {
   onChange = cb
 }
 
-export function isRemoveAdsOwned(): boolean {
-  return iapSupported() && CdvPurchase.store.owned(REMOVE_ADS_ID)
-}
-
 /** Localized price (e.g. "$0.99"), or null before the product metadata loads. */
 export function removeAdsPrice(): string | null {
   if (!iapSupported()) return null
@@ -41,7 +46,7 @@ export function removeAdsPrice(): string | null {
   return offer?.pricingPhases?.[0]?.price ?? null
 }
 
-/** Initialize StoreKit, register the product, and reconcile ownership. Once. */
+/** Initialize StoreKit and wire the purchase flow. Safe to call once. */
 export async function initIap(): Promise<void> {
   if (!iapSupported() || initialized) return
   initialized = true
@@ -55,26 +60,37 @@ export async function initIap(): Promise<void> {
   ])
   store
     .when()
-    .approved((transaction) => transaction.verify())
-    .verified((receipt) => receipt.finish())
-    .receiptUpdated(() => reconcile())
+    .approved((transaction) => {
+      // Genuine purchase or restore delivered by StoreKit — grant iff it really
+      // is our product in a purchased state, then acknowledge it. (Cancel never
+      // reaches here; it fires `error`.)
+      if (grantsRemoveAds(transaction)) grant()
+      void transaction.finish()
+    })
     .productUpdated(() => onChange?.())
   store.error(() => {
-    // swallow: leave the UI as-is on any store error
+    // Cancelled payment / no fill / offline — never grant anything.
   })
   try {
     await store.initialize([CdvPurchase.Platform.APPLE_APPSTORE])
   } catch {
     // offline / unavailable — buttons just no-op
   }
-  reconcile()
+  onChange?.()
 }
 
-/** Mirror store ownership into the ads flag, then notify the UI. */
-function reconcile(): void {
-  if (iapSupported() && CdvPurchase.store.owned(REMOVE_ADS_ID) && !adsRemoved()) {
-    setAdsRemoved(true)
-  }
+/** True only for an approved/finished transaction that includes our product. */
+function grantsRemoveAds(t: CdvPurchase.Transaction): boolean {
+  const state = t.state
+  const purchased =
+    state === CdvPurchase.TransactionState.APPROVED ||
+    state === CdvPurchase.TransactionState.FINISHED
+  const mine = (t.products ?? []).some((p) => p.id === REMOVE_ADS_ID)
+  return purchased && mine
+}
+
+function grant(): void {
+  if (!adsRemoved()) setAdsRemoved(true)
   onChange?.()
 }
 
@@ -82,6 +98,8 @@ function reconcile(): void {
 export async function buyRemoveAds(): Promise<void> {
   if (!iapSupported()) return
   const offer = CdvPurchase.store.get(REMOVE_ADS_ID)?.getOffer()
+  // On success StoreKit delivers an `approved` transaction (grants above); on
+  // cancel it rejects / fires `error` — nothing is granted.
   if (offer) await offer.order()
 }
 
@@ -89,9 +107,10 @@ export async function buyRemoveAds(): Promise<void> {
 export async function restorePurchases(): Promise<void> {
   if (!iapSupported()) return
   try {
+    // Re-delivers owned non-consumables as `approved` transactions → grant.
     await CdvPurchase.store.restorePurchases()
   } catch {
     // noop
   }
-  reconcile()
+  onChange?.()
 }
