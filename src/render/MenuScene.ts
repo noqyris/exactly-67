@@ -104,15 +104,29 @@ export class MenuScene extends Phaser.Scene {
     levels.setPosition(cx, playY + u(74))
 
     // Optional "Remove Ads" purchase + Restore link — device only, hidden once
-    // bought, and only shown when the IAP product actually loaded (so there's
-    // never a dead button if the product isn't live in App Store Connect yet).
-    // Pushes the toggle row down when present.
+    // bought, and only shown when the IAP product has actually loaded (never a
+    // dead button). The product loads asynchronously from StoreKit, so we also
+    // refresh the menu when its availability flips. Pushes the toggle row down.
     let toggleRowY = playY + u(74) + u(64)
-    const price = removeAdsPrice()
-    if (adsSupported() && !adsRemoved() && price !== null) {
+    const showRemoveAds = () => adsSupported() && !adsRemoved() && removeAdsPrice() !== null
+
+    if (adsSupported() && !adsRemoved()) {
+      // Rebuild the menu when the button's visibility changes: the product
+      // finishes loading (button appears) or the purchase lands (button clears).
+      const shownNow = showRemoveAds()
+      setIapListener(() => {
+        if (showRemoveAds() !== shownNow) {
+          setIapListener(null)
+          this.scene.restart()
+        }
+      })
+      this.events.once('shutdown', () => setIapListener(null))
+    }
+
+    if (showRemoveAds()) {
       const removeAds = makeButton(
         this,
-        price ? `Remove ads · ${price}` : 'Remove ads',
+        `Remove ads · ${removeAdsPrice()}`,
         Math.min(f.ew * 0.6, u(260)),
         u(46),
         PAPER,
@@ -127,11 +141,6 @@ export class MenuScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true })
       restore.on('pointerup', () => void restorePurchases())
       toggleRowY = playY + u(74) + u(56) + u(32) + u(36)
-      // Rebuild the menu once the purchase lands so the button clears out.
-      setIapListener(() => {
-        if (adsRemoved()) this.scene.restart()
-      })
-      this.events.once('shutdown', () => setIapListener(null))
     }
 
     // Sound + haptics toggles.
