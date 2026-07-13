@@ -17,3 +17,7 @@ ios/App/fastlane/report.xml
 ios/App/fastlane/Preview.html
 **/AuthKey_*.p8
 *.p8
+
+# Playwright MCP browser-automation artifacts
+.playwright-mcp/
+admob-login.png

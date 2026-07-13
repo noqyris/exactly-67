@@ -48,10 +48,9 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<!-- ===== AdMob / ads (see docs/MONETIZATION.md) ===== -->
-	<!-- Google's PUBLIC TEST App ID. Replace with your real AdMob App ID
-	     (ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY) before shipping live ads. -->
+	<!-- Real AdMob App ID for Exactly 67 (com.noqyris.exactly67). -->
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<string>ca-app-pub-3307486877162157~1451034229</string>
 	<!-- Message shown in the iOS App Tracking Transparency prompt. Required:
 	     a missing key = immediate App Store rejection once the SDK links. -->
 	<key>NSUserTrackingUsageDescription</key>

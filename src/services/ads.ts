@@ -20,7 +20,7 @@ import { loadAdClears, loadAdsRemoved, saveAdClears, saveAdsRemoved } from './st
 // --- configuration -------------------------------------------------------
 
 /** true = serve Google *test* ads (safe to click). Flip to false to ship. */
-const TESTING = true
+const TESTING = false
 
 /** Google's official iOS test ad units — safe, never billed. */
 const TEST_UNITS = {
@@ -29,11 +29,11 @@ const TEST_UNITS = {
   rewarded: 'ca-app-pub-3940256099942544/1712485313',
 }
 
-/** Your real AdMob ad units — fill these in, then set TESTING = false. */
+/** Real AdMob ad units for Exactly 67 (app ID ...~1451034229). */
 const LIVE_UNITS = {
-  banner: 'ca-app-pub-0000000000000000/0000000000',
-  interstitial: 'ca-app-pub-0000000000000000/0000000000',
-  rewarded: 'ca-app-pub-0000000000000000/0000000000',
+  banner: 'ca-app-pub-3307486877162157/9242462556',
+  interstitial: 'ca-app-pub-3307486877162157/9437490984',
+  rewarded: 'ca-app-pub-3307486877162157/2677054209',
 }
 
 const UNITS = TESTING ? TEST_UNITS : LIVE_UNITS
