@@ -14,6 +14,7 @@ import {
   adsSupported,
   initAds,
   initHintState,
+  primeAdsRemoved,
   setBannerHeightHandler,
   showBanner,
 } from './services/ads'
@@ -35,6 +36,11 @@ async function boot() {
   ])
   setSoundEnabled(soundOn)
   setHapticsEnabled(hapticsOn)
+
+  // Reflect the persisted remove-ads flag into the ads service before scenes
+  // read adsRemoved() — initAds (which also loads it) is skipped for owners, so
+  // without this an owner would see the banner/interstitial + buy button again.
+  primeAdsRemoved(adsAlreadyRemoved)
 
   // Reserve the bottom banner strip before scenes lay out, so the drag area
   // and tray sit above the ad from the very first frame (no reflow jank).
@@ -75,8 +81,8 @@ async function boot() {
     void initAds().then(showBanner)
   }
 
-  // IAP boots regardless (also on already-removed installs) so "Remove Ads"
-  // ownership is reconciled — e.g. a restore after reinstall clears the banner.
+  // IAP boots regardless so a fresh purchase or "Restore purchases" can grant.
+  // (Relaunch of an owner is handled by the persisted flag primed above.)
   void initIap()
 
   // Load the daily-free-hint date so the first hint each day needs no ad.

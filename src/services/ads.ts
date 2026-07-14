@@ -90,6 +90,16 @@ export function adsRemoved(): boolean {
   return removed
 }
 
+/**
+ * Reflect the persisted remove-ads flag into memory at boot, before scenes read
+ * `adsRemoved()`. Needed because `initAds()` — which also loads it — is skipped
+ * for owners (no SDK init when ads are off), so it can't be the only source.
+ * Does NOT persist (the value came from storage).
+ */
+export function primeAdsRemoved(value: boolean): void {
+  removed = value
+}
+
 /** Flip the remove-ads flag (call after a successful IAP purchase / restore). */
 export function setAdsRemoved(value: boolean): void {
   removed = value
