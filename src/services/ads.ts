@@ -59,11 +59,11 @@ const LIVE_UNITS_IOS: AdUnits = {
   interstitial: 'ca-app-pub-3307486877162157/9437490984',
   rewarded: 'ca-app-pub-3307486877162157/2677054209',
 }
-/** TODO: fill from the AdMob **Android** app, then flip TESTING to false. */
+/** Real AdMob **Android** units (AdMob app id ...~2480617239). */
 const LIVE_UNITS_ANDROID: AdUnits = {
-  banner: 'ca-app-pub-0000000000000000/0000000000',
-  interstitial: 'ca-app-pub-0000000000000000/0000000000',
-  rewarded: 'ca-app-pub-0000000000000000/0000000000',
+  banner: 'ca-app-pub-3307486877162157/3342538697',
+  interstitial: 'ca-app-pub-3307486877162157/1989662641',
+  rewarded: 'ca-app-pub-3307486877162157/2097473852',
 }
 
 const IS_ANDROID = Capacitor.getPlatform() === 'android'

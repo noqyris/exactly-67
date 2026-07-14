@@ -9,11 +9,11 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
-        <!-- AdMob app ID. Google's PUBLIC TEST id — replace with the real
-             AdMob *Android* app id before shipping live ads. -->
+        <!-- AdMob *Android* app ID for Exactly 67 (real). Test ads still serve
+             while ads.ts TESTING=true; live ad units activate when TESTING=false. -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-3307486877162157~2480617239" />
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
