@@ -51,11 +51,15 @@ export async function initIap(): Promise<void> {
   if (!iapSupported() || initialized) return
   initialized = true
   const store = CdvPurchase.store
+  const storePlatform =
+    Capacitor.getPlatform() === 'android'
+      ? CdvPurchase.Platform.GOOGLE_PLAY
+      : CdvPurchase.Platform.APPLE_APPSTORE
   store.register([
     {
       id: REMOVE_ADS_ID,
       type: CdvPurchase.ProductType.NON_CONSUMABLE,
-      platform: CdvPurchase.Platform.APPLE_APPSTORE,
+      platform: storePlatform,
     },
   ])
   store
@@ -72,7 +76,7 @@ export async function initIap(): Promise<void> {
     // Cancelled payment / no fill / offline — never grant anything.
   })
   try {
-    await store.initialize([CdvPurchase.Platform.APPLE_APPSTORE])
+    await store.initialize([storePlatform])
   } catch {
     // offline / unavailable — buttons just no-op
   }

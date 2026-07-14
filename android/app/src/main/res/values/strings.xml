@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Exactly 67</string>
+    <string name="title_activity_main">Exactly 67</string>
+    <string name="package_name">com.noqyris.exactly67</string>
+    <string name="custom_url_scheme">com.noqyris.exactly67</string>
+</resources>

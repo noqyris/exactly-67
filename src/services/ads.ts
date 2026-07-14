@@ -35,21 +35,45 @@ import {
  */
 const TESTING = true
 
-/** Google's official iOS test ad units — safe, never billed. */
-const TEST_UNITS = {
+interface AdUnits {
+  banner: string
+  interstitial: string
+  rewarded: string
+}
+
+/** Google's official test ad units — per platform, safe, never billed. */
+const TEST_UNITS_IOS: AdUnits = {
   banner: 'ca-app-pub-3940256099942544/2934735716',
   interstitial: 'ca-app-pub-3940256099942544/4411468910',
   rewarded: 'ca-app-pub-3940256099942544/1712485313',
 }
+const TEST_UNITS_ANDROID: AdUnits = {
+  banner: 'ca-app-pub-3940256099942544/6300978111',
+  interstitial: 'ca-app-pub-3940256099942544/1033173712',
+  rewarded: 'ca-app-pub-3940256099942544/5224354917',
+}
 
-/** Real AdMob ad units for Exactly 67 (app ID ...~1451034229). */
-const LIVE_UNITS = {
+/** Real AdMob ad units for Exactly 67. AdMob apps are per platform. */
+const LIVE_UNITS_IOS: AdUnits = {
   banner: 'ca-app-pub-3307486877162157/9242462556',
   interstitial: 'ca-app-pub-3307486877162157/9437490984',
   rewarded: 'ca-app-pub-3307486877162157/2677054209',
 }
+/** TODO: fill from the AdMob **Android** app, then flip TESTING to false. */
+const LIVE_UNITS_ANDROID: AdUnits = {
+  banner: 'ca-app-pub-0000000000000000/0000000000',
+  interstitial: 'ca-app-pub-0000000000000000/0000000000',
+  rewarded: 'ca-app-pub-0000000000000000/0000000000',
+}
 
-const UNITS = TESTING ? TEST_UNITS : LIVE_UNITS
+const IS_ANDROID = Capacitor.getPlatform() === 'android'
+const UNITS: AdUnits = TESTING
+  ? IS_ANDROID
+    ? TEST_UNITS_ANDROID
+    : TEST_UNITS_IOS
+  : IS_ANDROID
+    ? LIVE_UNITS_ANDROID
+    : LIVE_UNITS_IOS
 
 /** Show an interstitial once this many levels have been cleared since the last. */
 const CLEARS_PER_INTERSTITIAL = 5
