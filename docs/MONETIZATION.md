@@ -3,12 +3,17 @@
 How *Exactly 67* makes money, how the ad code is wired, and the exact steps to
 take it from **test ads** to **live, App-Store-approved revenue**.
 
-> **Status:** Phase 1 (ads) is implemented against **Google test ad units** and
-> is safe to run today. It will not earn or risk your AdMob account until you
-> drop in real IDs and flip one flag (see [Going live](#going-live)). Phase 2
-> (Remove-Ads IAP) is implemented against StoreKit via `cordova-plugin-purchase`;
-> it just needs an App Store Connect product before it can transact (see
-> [Phase 2](#phase-2--remove-ads-099-iap)).
+> **Status (2026-07-15):** Ads + IAP are wired for **both platforms**. Real
+> AdMob apps and ad units exist for **iOS and Android**, and their IDs are in
+> `LIVE_UNITS_IOS` / `LIVE_UNITS_ANDROID` — but `ads.ts` `TESTING = true`, so the
+> app still serves Google's safe **test** fillers everywhere. The Android app is
+> live on **Play internal testing** with the full store listing + all 9 App
+> content declarations done; the privacy policy is hosted at
+> <https://noqyris.github.io/exactly-67/privacy.html>. The one remaining step to
+> real revenue is flipping **`TESTING = false`** and shipping to production on
+> each store (see [Going live](#going-live)). The Remove-Ads IAP transacts once
+> its store product exists (App Store product is created; Play needs the same —
+> see [Phase 2](#phase-2--remove-ads-099-iap)).
 
 ---
 
@@ -64,49 +69,73 @@ solver query); all ad code lives in `services` + `render`.
 | [`ios/App/App/Info.plist`](../ios/App/App/Info.plist) | `GADApplicationIdentifier`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems`. |
 
 **Tuning knobs** live at the top of [`ads.ts`](../src/services/ads.ts):
-`TESTING`, `TEST_UNITS` / `LIVE_UNITS`, `CLEARS_PER_INTERSTITIAL` (5),
-`ONBOARDING_LEVELS` (5), `BANNER_RESERVE_DESIGN_PX` (56).
+`TESTING`, the per-platform `TEST_UNITS_IOS` / `TEST_UNITS_ANDROID` /
+`LIVE_UNITS_IOS` / `LIVE_UNITS_ANDROID` (picked by `IS_ANDROID`),
+`CLEARS_PER_INTERSTITIAL` (5), `ONBOARDING_LEVELS` (5),
+`BANNER_RESERVE_DESIGN_PX` (60). The banner also reports its real height at
+runtime (`BannerAdPluginEvents.SizeChanged`) and the layout reserves exactly
+that — see `setBannerHeightHandler` in [`main.ts`](../src/main.ts).
 
 ---
 
 ## Going live
 
-Everything below is **required** to serve real, billable ads. Until you do it,
-the app serves Google's safe test fillers.
+Serving real, billable ads is now **one flag away** on each platform. The AdMob
+apps, ad units, store listings, and compliance declarations are already done;
+what's left is flipping `TESTING = false`, rebuilding, and shipping to
+production. Until then the app serves Google's safe test fillers.
 
-### 1. AdMob account
-1. Create an [AdMob](https://admob.google.com) account; register the app
-   (bundle `com.noqyris.exactly67`) → get the **App ID**
-   (`ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY`).
-2. Create **3 ad units** → Banner, Interstitial, Rewarded → 3 ad-unit IDs.
+### The real AdMob IDs (already wired into `ads.ts`)
 
-### 2. Wire the IDs
-- [`src/services/ads.ts`](../src/services/ads.ts): paste the 3 unit IDs into
-  `LIVE_UNITS`, then set **`TESTING = false`**.
-- [`ios/App/App/Info.plist`](../ios/App/App/Info.plist): replace the test
-  `GADApplicationIdentifier` with your real App ID.
+AdMob apps are **per platform** (same publisher `ca-app-pub-3307486877162157`):
 
-### 3. Compliance (blocks App Store approval)
-- [ ] `NSUserTrackingUsageDescription` present — **already added** (a missing key
-      is an instant rejection once the SDK links).
-- [ ] `SKAdNetworkItems` — replace the single starter ID with **Google's full
-      current partner list** (their AdMob iOS setup docs) to maximize revenue.
-- [ ] ATT + UMP consent — handled by `initAds()` (`requestConsentInfo` →
-      `showConsentForm` → `requestTrackingAuthorization`). Verify the prompts
-      appear on a real device.
-- [ ] **Update [`docs/privacy.html`](privacy.html)** — the app now collects
-      device identifiers / usage for ads. The old "no data collected" claim is
-      no longer true.
-- [ ] **Update App Store privacy nutrition labels** in App Store Connect
-      ("Data Used to Track You: Identifiers", etc.).
+| | iOS app `~6787…` | Android app `~2480617239` |
+|---|---|---|
+| **App ID** (manifest / plist) | `ca-app-pub-3307486877162157~1451034229` | `ca-app-pub-3307486877162157~2480617239` |
+| Banner | `…/9242462556` | `…/3342538697` |
+| Interstitial | `…/9437490984` | `…/1989662641` |
+| Rewarded | `…/2677054209` | `…/2097473852` |
 
-### 4. Build & test
-- `cap sync ios` needs **Node ≥ 22** (`nvm use 22`); the web build/tests run on
-  any recent Node.
-- Test on a **real device** with `TESTING = true` first — simulators don't serve
-  ads reliably.
-- **Never tap your own live ads** → invalid traffic → AdMob ban. Register your
-  device as a test device, or keep `isTesting` on while developing.
+These are in `LIVE_UNITS_IOS` / `LIVE_UNITS_ANDROID`; the app-level IDs are in
+[`Info.plist`](../ios/App/App/Info.plist) (`GADApplicationIdentifier`) and
+[`AndroidManifest.xml`](../android/app/src/main/AndroidManifest.xml)
+(`com.google.android.gms.ads.APPLICATION_ID`).
+
+### ✅ Already done
+- Both AdMob apps + 3 ad units each created; IDs wired.
+- Android: **Play internal testing** live, full store listing, **all 9 App
+  content declarations** (ads, data safety, content rating, target audience 13+,
+  advertising ID, …).
+- Privacy policy **live + accurate** at
+  <https://noqyris.github.io/exactly-67/privacy.html> (GitHub Pages, main `/docs`)
+  — discloses AdMob, the advertising identifier, ATT, and Remove Ads.
+- iOS: `NSUserTrackingUsageDescription`, App Store privacy nutrition labels, and
+  the Remove-Ads IAP product all created.
+
+### The flip (per platform, when you're ready to earn)
+1. Test the current **test-ads** build on a **real device** first (test ads
+   serve where simulators/emulators don't; live ads won't fill until AdMob
+   approves the now-public app).
+2. Set **`TESTING = false`** in [`ads.ts`](../src/services/ads.ts).
+3. Rebuild:
+   - **Android:** bump `versionCode` in `android/app/build.gradle`, `npm run
+     ios:sync` is web-only — for Android run `npm run build && npx cap sync
+     android` (**Node ≥ 22**) then assemble a signed AAB (`./gradlew
+     bundleRelease`, keystore via the gitignored `keystore.properties`).
+   - **iOS:** `npm run ios:sync` (**Node ≥ 22**) → archive/upload (fastlane
+     `build_and_upload`).
+4. Promote: Play → Production track (new release + rollout); App Store → replace
+   the in-review build and submit. AdMob approves each app for full ad serving
+   within a few days of it being public.
+
+### Remaining compliance nits
+- [ ] `SKAdNetworkItems` (iOS) — the plist has a starter set; replace with
+      **Google's full current partner list** (AdMob iOS setup docs) to maximize
+      revenue.
+- [ ] ATT + UMP consent (`initAds()`) — verify the prompts appear on a real
+      device.
+- [ ] **Never tap your own live ads** → invalid traffic → AdMob ban. Register
+      your device as a test device, or keep `TESTING = true` while developing.
 
 ---
 
@@ -121,13 +150,22 @@ buy / restore. The menu surfaces "Remove ads" + "Restore purchases". The
 `exactly67.adsRemoved` flag persists and gates `main.ts` on boot; `initIap()`
 reconciles on every launch, so a restore after reinstall clears the banner.
 
+`iap.ts` already picks the store platform at runtime (`APPLE_APPSTORE` on iOS,
+`GOOGLE_PLAY` on Android), so the same code transacts on both once each store has
+the product.
+
 **To make it transact:**
-1. App Store Connect → create a **Non-Consumable** IAP with product id
+1. **App Store Connect** → create a **Non-Consumable** IAP with product id
    `com.noqyris.exactly67.removeads` (must match `REMOVE_ADS_ID` in `iap.ts`),
-   price tier $0.99.
-2. `cap sync ios` (**Node ≥ 22**) to pull the Cordova plugin's native code in.
-3. Test with a **sandbox tester** on a real device.
-4. The web bundle never includes the plugin (no import; types via a `///
+   price tier $0.99. *(Already created.)*
+2. **Google Play Console** → Monetise with Play → In-app products → create a
+   one-time product with the **same** id `com.noqyris.exactly67.removeads`,
+   ~$0.99. *(Still to do before Android production.)*
+3. `cap sync ios` / `cap sync android` (**Node ≥ 22**) to pull the Cordova
+   plugin's native code in.
+4. Test with a **sandbox tester** (Apple) / **licence tester** (Play) on a real
+   device.
+5. The web bundle never includes the plugin (no import; types via a `///
    <reference>`), so dev/browser stays unaffected.
 
 > Pricing note: $0.99 is an easy yes; under Apple's **Small Business Program**
