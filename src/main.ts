@@ -19,6 +19,7 @@ import {
   showBanner,
 } from './services/ads'
 import { initIap } from './services/iap'
+import { initReview } from './services/review'
 import { setSoundEnabled } from './services/audio'
 import { setHapticsEnabled } from './services/haptics'
 import { initProgress } from './services/progressStore'
@@ -33,6 +34,9 @@ async function boot() {
     loadSoundEnabled(),
     loadHapticsEnabled(),
     loadAdsRemoved(),
+    // Load the hint stash + grant the daily free hint before the HUD first
+    // renders, so the 💡 badge shows the right count immediately.
+    initHintState(),
   ])
   setSoundEnabled(soundOn)
   setHapticsEnabled(hapticsOn)
@@ -68,6 +72,12 @@ async function boot() {
     game.scale.resize(window.innerWidth * DPR, window.innerHeight * DPR)
   })
 
+  // Dev-only test bridge for Playwright-driven E2E. Dynamically imported behind
+  // an `import.meta.env.DEV` guard, so it is never part of the production bundle.
+  if (import.meta.env.DEV) {
+    void import('./dev/testBridge').then((m) => m.installTestBridge(game))
+  }
+
   // Ads boot after the game so first paint is never blocked on the network.
   // No-ops on web/dev; on device it initializes, collects consent + ATT, then
   // shows the persistent bottom banner in the strip reserved above.
@@ -85,8 +95,10 @@ async function boot() {
   // (Relaunch of an owner is handled by the persisted flag primed above.)
   void initIap()
 
-  // Load the daily-free-hint date so the first hint each day needs no ad.
-  void initHintState()
+  // Load the one-shot "already asked for a review" flag so the win overlay can
+  // decide whether to request the native rating prompt. Own boot line (not tied
+  // to initAds, which is skipped for Remove-Ads owners).
+  void initReview()
 }
 
 void boot()

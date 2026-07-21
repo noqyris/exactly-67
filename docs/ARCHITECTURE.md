@@ -238,32 +238,43 @@ The hit area is authored in **displayOrigin-relative** coordinates (`makeInterac
 
 `audio.ts` synthesizes **every** sound effect at play time from `OscillatorNode` + `GainNode` envelopes; the game ships zero audio files (`audio.ts:1–3`). The `AudioContext` is created lazily inside `context()` (`audio.ts:20`), which returns `null` when sound is disabled and calls `ctx.resume()` on any non-`running` state — so the first user tap unlocks audio on iOS (which starts contexts suspended, and can report the non-standard `'interrupted'`). `tone()` (`audio.ts:43`) uses exponential gain ramps that go `0.0001 → gain → 0.0001` and never target exactly 0 (an exponential ramp to 0 would throw/click). Play functions: `playPlace`, `playPlaceBalloon`, `playRemove`, `playRefuse`, `playWinJingle`.
 
+Returning from a full-screen ad / phone call / backgrounding leaves the iOS context suspended or `'interrupted'`, silencing later sounds. `resumeAudio()` (`audio.ts:38`) plus a module-level `visibilitychange` listener resume it the moment the app is visible again (and `ads.ts` also calls it on interstitial/rewarded `Dismissed`); if `resume()` fails the context is nulled so the next tap rebuilds a fresh one.
+
 ### Haptics — Capacitor, web no-op
 
 `haptics.ts` wraps `@capacitor/haptics`. Each of `placeTap` / `removeTap` / `refuseTap` / `winTap` is gated by the `enabled` flag and is fire-and-forget with `.catch(() => {})` (`haptics.ts:18,24,30,36`). There is no explicit platform check — on web without the vibration plugin the rejected promise is simply swallowed, so it degrades to a silent no-op.
 
 ### Storage — Capacitor Preferences
 
-`storage.ts` wraps `@capacitor/preferences` (native key/value on iOS, `localStorage` on web) with three namespaced keys (`storage.ts:6–8`):
+`storage.ts` wraps `@capacitor/preferences` (native key/value on iOS/Android, `localStorage` on web — web keys are prefixed `CapacitorStorage.`) with six namespaced keys:
 
 - `exactly67.progress` — JSON `{ stars: {}, best: {} }`, via `JSON.stringify` / `parseProgress`.
 - `exactly67.sound`, `exactly67.haptics` — the strings `'on'` / `'off'`.
+- `exactly67.adClears` — integer string, the interstitial cadence counter.
+- `exactly67.adsRemoved` — `'on'`/`'off'`, the Remove-Ads IAP flag (defaults **off**: `value === 'on'`).
+- `exactly67.hintFreeDate` — UTC `YYYY-MM-DD` of the last free daily hint.
 
-`loadFlag` (`storage.ts:27`) returns `value !== 'off'`, so a missing key (`null`) is **on** — sound and haptics default ON on a fresh install. Every read/write is wrapped in try/catch and degrades to a safe default; a failed progress write is non-fatal (the run just isn't remembered, `storage.ts:23`). Renaming any key silently orphans existing player data.
+`loadFlag` (`storage.ts:33`) returns `value !== 'off'`, so a missing sound/haptics key (`null`) is **on** — both default ON on a fresh install. Every read/write is wrapped in try/catch and degrades to a safe default; a failed progress write is non-fatal (the run just isn't remembered). Renaming any key silently orphans existing player data.
 
 ### progressStore — in-memory cache
 
 `progressStore.ts` holds a module-global `current: Progress` (`progressStore.ts:9`) so scenes can read progress synchronously via `progress()` (`progressStore.ts:15`). `initProgress()` (`progressStore.ts:11`) loads it once at boot. `recordClear(globalLevel, stars, weightsUsed)` (`progressStore.ts:19`) merges through `mergeClear` and fires `void saveProgress(current)` **without awaiting** — a slow or failed native write never blocks gameplay.
 
+### Ads & IAP — the monetization services
+
+`ads.ts` and `iap.ts` follow the same guarded, fire-and-forget, web-no-op pattern as `haptics.ts`. `ads.ts` wraps `@capacitor-community/admob` (init + GDPR/UMP consent + ATT, a bottom banner whose real height is reserved into `safeArea().bottom`, an interstitial every `CLEARS_PER_INTERSTITIAL` clears past onboarding, a rewarded hint, and the daily-free-hint clock). `iap.ts` wraps the one-time Remove-Ads unlock via `cordova-plugin-purchase` (StoreKit / Play Billing), granting entitlement **only** on an `approved`/`finished` transaction that actually contains the product, and mirroring ownership into `ads.setAdsRemoved`. Both keep `src/game` pure — the hint is just a new `solver.minimalSolution` query. Full detail: [`MONETIZATION.md`](MONETIZATION.md) and [`reference/SERVICES.md`](reference/SERVICES.md).
+
 ### Boot sequence ordering
 
-`main.ts` guarantees `initProgress()` resolves **before** `Phaser.Game` is constructed (`main.ts:21–32`), so no scene ever reads an empty `current`. It also awaits `document.fonts.ready` before the first paint so canvas text renders in Baloo 2, not a fallback (`main.ts:19`).
+`main.ts` guarantees `initProgress()` resolves **before** `Phaser.Game` is constructed (`main.ts:21–32`), so no scene ever reads an empty `current`, and `primeAdsRemoved()` runs before scenes read `adsRemoved()`. It also awaits `document.fonts.ready` before the first paint so canvas text renders in Baloo 2, not a fallback (`main.ts:19`). Ads/IAP init **after** boot so first paint is never blocked on the network.
 
 ---
 
-## 6. Native / iOS (Capacitor)
+## 6. Native (Capacitor — iOS + Android)
 
-The web app is wrapped with Capacitor 8. `capacitor.config.ts`:
+The web app is wrapped with Capacitor 8 for **both** iOS and Android (the Android
+platform under `android/` carries the AdMob app id in `AndroidManifest.xml` and a
+signed release config; iOS remains the primary target). `capacitor.config.ts`:
 
 - `appId: 'com.noqyris.exactly67'`, `appName: 'Exactly 67'`, `webDir: 'dist'`.
 - `backgroundColor: '#F6EEDF'` — matches the game background so there is no white flash while the web view loads.
@@ -291,3 +302,16 @@ Tying the layers together, from launch to a recorded clear:
 6. **Reflect it** (`render`). `scaleView.setTargetAngle(beamAngleDeg(ev.total))` nudges the spring; `updateHud(ev)` recolors the total chip and gap message. A `useAll` level at 67 with weights still in the tray shows the "balanced — but every weight must be aboard" toast (`blockedReason: 'use-all'`).
 7. **Win** (`game` + `services`). When `ev.won` first flips true, `winSequence()` locks the beam (`setWon(true)`), computes `starsForClear(placedCount, minWeights)`, and calls `recordClear(global, stars, used)`. `progressStore` folds it in with `mergeClear` (max stars, min weights) and fires `saveProgress` → Preferences without blocking. The jingle plays, the camera shakes, and the win overlay offers Next / Retry / Map.
 8. **Persist and unlock.** The next launch's `parseProgress` reconstructs the saved `Progress` (dropping any corruption), `isUnlocked` opens the following level, and the map shows the earned stars.
+
+---
+
+## Further reading
+
+- **Per-module API reference** (every export, signature, gotcha):
+  [`reference/GAME.md`](reference/GAME.md) ·
+  [`reference/RENDER.md`](reference/RENDER.md) ·
+  [`reference/SERVICES.md`](reference/SERVICES.md)
+- [`LEVEL_DESIGN.md`](LEVEL_DESIGN.md) — authoring & tuning levels.
+- [`MONETIZATION.md`](MONETIZATION.md) — ads & IAP wiring and go-live.
+- [`TESTING.md`](TESTING.md) — build gate, E2E matrix, the audit + fixes, how to run/drive.
+- [`RELEASE.md`](RELEASE.md) — build & ship to both stores.

@@ -1,8 +1,12 @@
 import Phaser from 'phaser'
 import { u } from './layout'
-import { CREAM_CSS, FONT, INK, OUTLINE, PAPER, STAR, STAR_EMPTY } from './palette'
+import { CREAM_CSS, FONT, GOOD, INK, OUTLINE, PAPER, STAR, STAR_EMPTY, UNDER } from './palette'
 
-/** Chunky rounded button: ink drop-shadow slab, candy fill, bold label. */
+/**
+ * Chunky rounded button: ink drop-shadow slab, candy fill, bold label. Pass an
+ * optional `sublabel` for a smaller second line under the main label (e.g. a
+ * value-prop under a price) — the main label shifts up and shrinks a touch.
+ */
 export function makeButton(
   scene: Phaser.Scene,
   label: string,
@@ -11,6 +15,7 @@ export function makeButton(
   fill: number,
   labelColor: string,
   onTap: () => void,
+  sublabel?: string,
 ): Phaser.GameObjects.Container {
   const c = scene.add.container(0, 0)
   const g = scene.add.graphics()
@@ -31,25 +36,44 @@ export function makeButton(
   }
   draw(false)
 
+  const mainY = sublabel ? -height * 0.13 : 0
   const text = scene.add
-    .text(0, 0, label, {
+    .text(0, mainY, label, {
       fontFamily: FONT,
-      fontSize: `${Math.round(height * 0.42)}px`,
+      fontSize: `${Math.round(height * (sublabel ? 0.34 : 0.42))}px`,
       fontStyle: '700',
       color: labelColor,
     })
     .setOrigin(0.5)
 
-  c.add([g, text])
+  const kids: Phaser.GameObjects.GameObject[] = [g, text]
+  let sub: Phaser.GameObjects.Text | undefined
+  const subY = height * 0.23
+  if (sublabel) {
+    sub = scene.add
+      .text(0, subY, sublabel, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(height * 0.185)}px`,
+        fontStyle: '600',
+        color: labelColor,
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.72)
+    kids.push(sub)
+  }
+
+  c.add(kids)
   c.setSize(width, height + drop)
   c.setInteractive({ useHandCursor: true })
   c.on('pointerdown', () => {
     draw(true)
-    text.y = drop
+    text.y = mainY + drop
+    if (sub) sub.y = subY + drop
   })
   const release = () => {
     draw(false)
-    text.y = 0
+    text.y = mainY
+    if (sub) sub.y = subY
   }
   c.on('pointerout', release)
   c.on('pointerup', () => {
@@ -156,11 +180,24 @@ export function drawBackIcon(g: Phaser.GameObjects.Graphics, size: number) {
   g.strokePath()
 }
 
-/** Lightbulb icon for the rewarded-hint button. */
-export function drawHintIcon(g: Phaser.GameObjects.Graphics, size: number) {
+/**
+ * Lightbulb icon for the hint button, with a top-right corner badge that tells
+ * the player, at a glance, what a tap does:
+ *   - 'have'  → bulb lit + glow rays, green disc (the stash count is drawn as a
+ *               separate Text child by the caller, since Graphics can't do text)
+ *   - 'empty' → bulb dimmed, blue ▶ chip (watch a rewarded video to earn one)
+ * Redundantly coded (bulb lit/dim + colour + glyph) so it reads without relying
+ * on hue alone.
+ */
+export function drawHintIcon(
+  g: Phaser.GameObjects.Graphics,
+  size: number,
+  state: 'have' | 'empty',
+) {
   const s = size / 44
-  // Glass bulb.
-  g.fillStyle(STAR, 1)
+  const free = state === 'have'
+  // Glass bulb — lit candy-yellow when a free hint is ready, muted grey once spent.
+  g.fillStyle(free ? STAR : STAR_EMPTY, 1)
   g.fillCircle(0, -3 * s, 8.5 * s)
   g.lineStyle(2.8 * s, INK, 1)
   g.strokeCircle(0, -3 * s, 8.5 * s)
@@ -169,6 +206,39 @@ export function drawHintIcon(g: Phaser.GameObjects.Graphics, size: number) {
   g.fillRoundedRect(-4.5 * s, 4.2 * s, 9 * s, 6 * s, 1.6 * s)
   g.lineStyle(1.8 * s, INK, 1)
   g.lineBetween(-2.6 * s, 8.2 * s, 2.6 * s, 8.2 * s)
+  if (free) {
+    // Short glow rays around the bulb's top hemisphere.
+    g.lineStyle(2 * s, STAR, 1)
+    for (const a of [-1.1, -0.4, 0.4, 1.1]) {
+      const dx = Math.sin(a)
+      const dy = -Math.cos(a)
+      g.lineBetween(dx * 10.5 * s, -3 * s + dy * 10.5 * s, dx * 13.5 * s, -3 * s + dy * 13.5 * s)
+    }
+  }
+
+  const bx = 13 * s
+  const by = -13 * s
+  if (free) {
+    // Green "available" disc; cream halo separates it from the yellow bulb.
+    g.fillStyle(PAPER, 1)
+    g.fillCircle(bx, by, 9.5 * s)
+    g.fillStyle(GOOD, 1)
+    g.fillCircle(bx, by, 8 * s)
+    g.lineStyle(2 * s, INK, 1)
+    g.strokeCircle(bx, by, 8 * s)
+  } else {
+    // Blue rewarded-video chip with a ▶ play triangle.
+    const cw = 15 * s
+    const ch = 11 * s
+    g.fillStyle(PAPER, 1)
+    g.fillRoundedRect(bx - cw / 2 - 1.5 * s, by - ch / 2 - 1.5 * s, cw + 3 * s, ch + 3 * s, 4 * s)
+    g.fillStyle(UNDER, 1)
+    g.fillRoundedRect(bx - cw / 2, by - ch / 2, cw, ch, 3.2 * s)
+    g.lineStyle(2 * s, INK, 1)
+    g.strokeRoundedRect(bx - cw / 2, by - ch / 2, cw, ch, 3.2 * s)
+    g.fillStyle(PAPER, 1)
+    g.fillTriangle(bx - 2.4 * s, by - 3.2 * s, bx - 2.4 * s, by + 3.2 * s, bx + 3.4 * s, by)
+  }
 }
 
 /** Text styles take design-unit sizes and scale them to device pixels. */

@@ -16,6 +16,7 @@ import { minimalSolution, solveLevel } from '../game/solver'
 import { starsForClear } from '../game/stars'
 import type { Evaluation } from '../game/types'
 import {
+  playHintChime,
   playPlace,
   playPlaceBalloon,
   playRefuse,
@@ -33,17 +34,22 @@ import {
   winTap,
 } from '../services/haptics'
 import { progress, recordClear } from '../services/progressStore'
+import { maybeRequestReview } from '../services/review'
 import { bestFor } from '../game/progress'
 import {
-  consumeFreeHint,
-  freeHintAvailable,
+  adsRemoved,
+  grantHint,
+  hasHint,
+  hintCountValue,
+  interstitialWouldShow,
   maybeShowInterstitial,
   noteCleared,
   showRewardedHint,
+  useHint,
 } from '../services/ads'
 import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
-import { BG, GOOD, INK, OVER, OUTLINE, PAPER, UNDER } from './palette'
+import { BG, GOOD, INK, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
 import type { ScaleGeometry } from './ScaleView'
 import { drawBackIcon, drawHapticsIcon, drawHintIcon, drawSoundIcon, drawStar, makeButton, makeIconButton, TEXT } from './ui'
@@ -69,6 +75,12 @@ export class GameScene extends Phaser.Scene {
   private wonState = false
   private reducedMotion = false
   private hintBusy = false
+  /** A hint was already revealed for the current board — a re-tap replays the
+   *  demo for free (no double-charge). Reset on any board change (afterChange). */
+  private hintShown = false
+  private hintCooldownUntil = 0
+  private hintObjects: Phaser.GameObjects.GameObject[] = []
+  private hintTweens: Phaser.Tweens.Tween[] = []
 
   private scaleView!: ScaleView
   private weights: WeightView[] = []
@@ -107,6 +119,10 @@ export class GameScene extends Phaser.Scene {
     this.useAllText = null
     this.hintText = null
     this.nextSlot = 0
+    this.hintShown = false
+    this.hintCooldownUntil = 0
+    this.hintObjects = []
+    this.hintTweens = []
   }
 
   create() {
@@ -291,10 +307,22 @@ export class GameScene extends Phaser.Scene {
         if (hapticsEnabled()) placeTap()
       },
     )
-    const hint = makeIconButton(this, size, (g, s) => drawHintIcon(g, s), () => {
-      void this.doHint()
-    })
+    const hint = makeIconButton(
+      this,
+      size,
+      (g, s) => drawHintIcon(g, s, adsRemoved() || hasHint() ? 'have' : 'empty'),
+      () => {
+        void this.doHint()
+      },
+    )
+    // The stash count can't be a Graphics primitive, so it rides as a Text child
+    // on top of the green disc; refreshHint() keeps it in sync.
+    this.hintBadge = this.add
+      .text(size * 0.295, -size * 0.295, '1', TEXT.cream(12, '800'))
+      .setOrigin(0.5)
+    hint.add(this.hintBadge)
     this.hudButtons = { back, sound, haptics, hint }
+    this.refreshHint()
   }
 
   private hudButtons!: {
@@ -302,6 +330,21 @@ export class GameScene extends Phaser.Scene {
     sound: ReturnType<typeof makeIconButton>
     haptics: ReturnType<typeof makeIconButton>
     hint: ReturnType<typeof makeIconButton>
+  }
+
+  private hintBadge!: Phaser.GameObjects.Text
+
+  /** Re-render the hint button + its count badge for the current stash size. */
+  private refreshHint() {
+    this.hudButtons.hint.refresh()
+    if (adsRemoved()) {
+      // Owners have unlimited free hints — lit bulb, no count.
+      this.hintBadge.setVisible(false)
+      return
+    }
+    const n = hintCountValue()
+    this.hintBadge.setText(n > 9 ? '9+' : String(n))
+    this.hintBadge.setVisible(n > 0)
   }
 
   private layoutHud() {
@@ -381,7 +424,12 @@ export class GameScene extends Phaser.Scene {
     } else if (placedCount(this.placed) === 0) {
       this.gapText.setText('Load the right pan to 67').setColor(INK_SOFT)
     } else if (ev.gap > 0) {
-      this.gapText.setText(`${ev.gap} too heavy — balloons lift!`).setColor(OVER_CSS)
+      // Only point at balloons when one is actually still available to add;
+      // on positive-only levels (or once every balloon is placed) the only
+      // recovery is to take a weight back off.
+      const canLift = level.weights.some((wv, i) => wv < 0 && !this.placed[i])
+      const overMsg = canLift ? `${ev.gap} too heavy — balloons lift!` : `${ev.gap} too heavy — remove a weight`
+      this.gapText.setText(overMsg).setColor(OVER_CSS)
     } else {
       this.gapText.setText(`${-ev.gap} to go`).setColor(UNDER_CSS)
     }
@@ -404,34 +452,166 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  /** Hint: the first each day is free, then a rewarded ad earns another. */
+  /**
+   * Tap the 💡: spend one banked hint to run the ghost demo of the exact next
+   * piece — which the player still drags themselves (relieves being stuck
+   * without hollowing out "I solved it"). A re-tap on the SAME board replays the
+   * demo for free (no double-charge); at zero hints, open the earn modal. The
+   * "why" is taught by the demo toast + the live gap text under the total chip.
+   */
   private doHint() {
     if (this.wonState || this.hintBusy) return
-    const level = this.ref.def
-    const solution = minimalSolution(level)
-    if (!solution) return
-    // Prefer an unplaced, unlocked piece of the solution; else any unlocked one.
+    if (this.time.now < this.hintCooldownUntil) return
+    const index = this.hintIndex()
+    if (index == null) return
+    // Remove-Ads owners get hints on the house: free, unlimited, never an ad.
+    // Everyone else spends one banked hint on the first reveal per board.
+    if (!adsRemoved() && !this.hintShown) {
+      if (!hasHint()) {
+        this.showHintMenu()
+        return
+      }
+      useHint()
+      this.refreshHint()
+      this.hintShown = true
+    }
+    const ev = evaluate(this.ref.def, this.placed)
+    this.revealHintDemo(index, ev)
+    this.hintCooldownUntil = this.time.now + 2400
+  }
+
+  /** The weight a hint should point at: the next unplaced solution piece. */
+  private hintIndex(): number | null {
+    const solution = minimalSolution(this.ref.def)
+    if (!solution) return null
     const unplaced = solution.filter((i) => !this.placed[i] && !this.weights[i].locked)
     const pool = unplaced.length ? unplaced : solution.filter((i) => !this.weights[i].locked)
-    if (!pool.length) return
-    const index = pool[0]
-
-    if (freeHintAvailable()) {
-      consumeFreeHint()
-      this.revealHint(index, true)
-    } else {
-      this.showHintAdPrompt(index)
-    }
+    return pool.length ? pool[0] : null
   }
 
-  private revealHint(index: number, free: boolean) {
-    this.weights[index].highlight()
+  /** The satisfying ghost demo of the exact next piece. Player still drags it. */
+  private revealHintDemo(index: number, ev: Evaluation) {
+    this.dismissHintDemo()
+    const view = this.weights[index]
+    view.highlight(STAR, this.reducedMotion) // gold ring on the REAL tray piece
+
     const v = this.ref.def.weights[index]
     const what = v < 0 ? `the −${-v} balloon` : `the ${v} weight`
-    this.showToast(free ? `Free hint — add ${what}` : `Hint — add ${what}`)
+    const diff = ev.total - 67
+    const why =
+      diff > 0 ? `${diff} over — add ${what}` : diff < 0 ? `${-diff} to go — add ${what}` : `Add ${what}`
+    this.showToast(why)
+
+    // Motion lives on an independent GHOST, never the real piece: steerWeights()
+    // overwrites the real weight's x/y/scale every frame.
+    const home = this.tray.homes[index]
+    const start = { x: home.x, y: home.y + view.centerOffsetY(home.scale) }
+    const anchor = this.scaleView.rightPanAnchor()
+    const end = { x: anchor.x, y: anchor.y - (view.isBalloon ? u(40) : u(6)) }
+
+    const ghost = new WeightView(this, index, v, false)
+    ghost.setAlpha(0.32).setDepth(12).setPosition(start.x, start.y).setScale(home.scale)
+    this.hintObjects.push(ghost)
+
+    const arrowY = start.y - view.bodySize * 0.85
+    if (this.reducedMotion) {
+      // No arc/loop: park a static silhouette on the destination + a static arrow.
+      ghost.setPosition(end.x, end.y).setScale(this.panScale)
+      this.makeHintArrow(start.x, arrowY)
+      return
+    }
+
+    this.makeHintArrow(start.x, arrowY)
+
+    const control = new Phaser.Math.Vector2((start.x + end.x) / 2, Math.min(start.y, end.y) - u(60))
+    const curve = new Phaser.Curves.QuadraticBezier(
+      new Phaser.Math.Vector2(start.x, start.y),
+      control,
+      new Phaser.Math.Vector2(end.x, end.y),
+    )
+    const p = new Phaser.Math.Vector2()
+    let landed = false
+    const tw = this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 700,
+      ease: 'Sine.easeInOut',
+      repeat: 1,
+      repeatDelay: 420,
+      onUpdate: (tween) => {
+        const t = tween.getValue() ?? 0
+        curve.getPoint(t, p)
+        ghost.setPosition(p.x, p.y)
+        ghost.setScale(Phaser.Math.Linear(home.scale, this.panScale, t))
+        if (t < 0.4) landed = false
+        else if (t > 0.98 && !landed) {
+          landed = true
+          this.onGhostLand(end)
+        }
+      },
+      onComplete: () => this.dismissHintDemo(),
+    })
+    this.hintTweens.push(tw)
   }
 
-  private async runHintAd(index: number) {
+  /** The "resolution" beat: a settle ring + soft chime + light haptic on landing. */
+  private onGhostLand(pos: { x: number; y: number }) {
+    if (!this.reducedMotion) {
+      const ring = this.add.graphics().setDepth(12).setPosition(pos.x, pos.y)
+      ring.lineStyle(u(3), STAR, 1)
+      ring.strokeCircle(0, 0, u(14))
+      this.hintObjects.push(ring)
+      const t = this.tweens.add({
+        targets: ring,
+        scale: { from: 0.6, to: 2 },
+        alpha: { from: 1, to: 0 },
+        duration: 380,
+        onComplete: () => ring.destroy(),
+      })
+      this.hintTweens.push(t)
+    }
+    playHintChime()
+    placeTap()
+  }
+
+  /** A small gold chevron above the piece, bobbing toward the pan. */
+  private makeHintArrow(x: number, y: number): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics().setDepth(12).setPosition(x, y)
+    g.lineStyle(u(4), STAR, 1)
+    g.beginPath()
+    g.moveTo(-u(9), u(6))
+    g.lineTo(0, -u(6))
+    g.lineTo(u(9), u(6))
+    g.strokePath()
+    this.hintObjects.push(g)
+    if (!this.reducedMotion) {
+      const t = this.tweens.add({
+        targets: g,
+        y: y - u(10),
+        duration: 520,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      })
+      this.hintTweens.push(t)
+    }
+    return g
+  }
+
+  /** Tear down every hint-demo object + tween (first input / any board change). */
+  private dismissHintDemo() {
+    this.hintTweens.forEach((t) => t.remove())
+    this.hintObjects.forEach((o) => o.destroy())
+    this.hintTweens = []
+    this.hintObjects = []
+  }
+
+  /**
+   * Watch a rewarded video to bank ONE hint. It does not reveal anything — the
+   * player spends it later on their own terms — which is exactly why it's safe
+   * to keep the modal open so they can stock up. Updates the badge + the modal.
+   */
+  private async watchForHint(refresh: () => void) {
     if (this.hintBusy || this.wonState) return
     this.hintBusy = true
     const granted = await showRewardedHint()
@@ -441,11 +621,14 @@ export class GameScene extends Phaser.Scene {
       this.showToast('No ad available right now — try again soon')
       return
     }
-    this.revealHint(index, false)
+    grantHint()
+    this.refreshHint()
+    refresh()
+    this.showToast('Hint earned!')
   }
 
-  /** Modal offering a rewarded ad for a hint once the free daily one is spent. */
-  private showHintAdPrompt(index: number) {
+  /** Modal to bank hints by watching videos — stock up as many as you like. */
+  private showHintMenu() {
     const w = this.scale.width
     const h = this.scale.height
     const overlay = this.add.container(0, 0).setDepth(120)
@@ -454,7 +637,7 @@ export class GameScene extends Phaser.Scene {
     const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45).setInteractive()
 
     const cardW = Math.min(w - u(48), u(340))
-    const cardH = u(236)
+    const cardH = u(244)
     const cx = w / 2
     const cy = h * 0.42
     const card = this.add.graphics()
@@ -466,24 +649,38 @@ export class GameScene extends Phaser.Scene {
     card.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, u(24))
 
     const title = this.add
-      .text(cx, cy - cardH / 2 + u(38), 'Need another hint?', TEXT.ink(21, '800'))
+      .text(cx, cy - cardH / 2 + u(38), 'Hints', TEXT.ink(21, '800'))
       .setOrigin(0.5)
-    const body = this.add
-      .text(cx, cy - u(4), "You've used today's free hint.\nWatch a short video to earn another.", TEXT.ink(15, '600'))
-      .setOrigin(0.5)
+    const body = this.add.text(cx, cy - u(8), '', TEXT.ink(15, '600')).setOrigin(0.5)
     body.setColor(INK_SOFT).setAlign('center').setWordWrapWidth(cardW - u(44))
+    const refresh = () => {
+      const n = hintCountValue()
+      body.setText(
+        n === 0
+          ? 'Watch a short video to earn a hint.\nStock up as many as you like.'
+          : `You have ${n} hint${n === 1 ? '' : 's'}.\nWatch more, or tap Done and use them anytime.`,
+      )
+    }
+    refresh()
 
     const btnY = cy + cardH / 2 - u(44)
     const btnH = u(52)
-    const watch = makeButton(this, 'Watch ad', cardW * 0.5, btnH, 0xf5b942, '#2B2440', () => {
-      close()
-      void this.runHintAd(index)
+    const watch = makeButton(this, 'Watch video', cardW * 0.5, btnH, 0xf5b942, '#2B2440', () => {
+      void this.watchForHint(refresh)
     })
     watch.setPosition(cx + cardW * 0.23, btnY)
-    const cancel = makeButton(this, 'Cancel', cardW * 0.34, btnH, PAPER, '#2B2440', () => close())
-    cancel.setPosition(cx - cardW * 0.29, btnY)
+    const done = makeButton(this, 'Done', cardW * 0.34, btnH, PAPER, '#2B2440', () => close())
+    done.setPosition(cx - cardW * 0.29, btnY)
 
-    overlay.add([dim, card, title, body, watch, cancel])
+    // Soft upsell at the perfect moment: Remove Ads also grants unlimited hints.
+    const upsell = this.add
+      .text(cx, btnY - btnH / 2 - u(20), 'Tip: Remove ads = unlimited hints', TEXT.ink(12, '600'))
+      .setOrigin(0.5)
+      .setColor(INK_SOFT)
+      .setAlign('center')
+      .setWordWrapWidth(cardW - u(36))
+
+    overlay.add([dim, card, title, body, upsell, watch, done])
     if (!this.reducedMotion) {
       overlay.setAlpha(0)
       this.tweens.add({ targets: overlay, alpha: 1, duration: 160 })
@@ -517,11 +714,13 @@ export class GameScene extends Phaser.Scene {
 
     view.on('pointerdown', () => {
       tapCandidate = true
+      this.dismissHintDemo() // player took the wheel — end any hint demo
     })
 
     view.on('dragstart', () => {
       if (this.wonState) return
       tapCandidate = false
+      this.dismissHintDemo()
       view.dragging = true
       this.children.bringToTop(view)
       this.tweens.add({ targets: view, scale: 1, duration: 90 })
@@ -591,6 +790,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private afterChange() {
+    // Any place/remove ends a running demo and lets the next hint charge again.
+    this.hintShown = false
+    this.dismissHintDemo()
     const ev = evaluate(this.ref.def, this.placed)
     this.scaleView.setTargetAngle(beamAngleDeg(ev.total))
     this.updateHud(ev)
@@ -685,6 +887,14 @@ export class GameScene extends Phaser.Scene {
       winTap()
     })
     this.time.delayedCall(1000, () => this.showWinOverlay(stars, used))
+    // Ask for a store rating at the delight peak — after the jingle + star pop,
+    // once ever, on an engaged/happy moment. But never pair the ask with an
+    // interstitial on the same win: that one-two punch poisons the ask. If an ad
+    // is armed for this clear, skip — the review is one-shot (the flag isn't
+    // consumed when skipped), so it simply defers to the next clean, ad-free win.
+    this.time.delayedCall(1800, () => {
+      if (!interstitialWouldShow(this.ref.global)) void maybeRequestReview(this.ref.global, stars)
+    })
   }
 
   private showWinOverlay(stars: number, used: number) {
@@ -746,26 +956,36 @@ export class GameScene extends Phaser.Scene {
     sub.setWordWrapWidth(cardW - u(40))
     sub.setAlign('center')
 
+    // The Next/Map paths await an interstitial before navigating, leaving the
+    // overlay live for a beat. Lock every button on the first press so a second
+    // tap (e.g. Retry) can't queue a competing, mis-routed navigation.
+    let overlayActed = false
+    const once = (fn: () => void) => () => {
+      if (overlayActed) return
+      overlayActed = true
+      fn()
+    }
+
     const hasNext = this.ref.global < TOTAL_LEVELS
     const btnY = cy + cardH / 2 - u(56)
     const btnH = u(56)
     const nextBtn = hasNext
-      ? makeButton(this, 'Next', cardW * 0.42, btnH, 0xf5b942, '#2B2440', () => {
+      ? makeButton(this, 'Next', cardW * 0.42, btnH, 0xf5b942, '#2B2440', once(() => {
           this.leaveAfterClear(() => this.scene.restart({ level: this.ref.global + 1 }))
-        })
-      : makeButton(this, 'The End!', cardW * 0.42, btnH, 0xf5b942, '#2B2440', () => {
+        }))
+      : makeButton(this, 'The End!', cardW * 0.42, btnH, 0xf5b942, '#2B2440', once(() => {
           this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
-        })
+        }))
     nextBtn.setPosition(cx + cardW * 0.24, btnY)
 
-    const retryBtn = makeButton(this, 'Retry', cardW * 0.22, btnH, PAPER, '#2B2440', () => {
+    const retryBtn = makeButton(this, 'Retry', cardW * 0.22, btnH, PAPER, '#2B2440', once(() => {
       this.scene.restart({ level: this.ref.global })
-    })
+    }))
     retryBtn.setPosition(cx - cardW * 0.36, btnY)
 
-    const mapBtn = makeButton(this, 'Map', cardW * 0.2, btnH, PAPER, '#2B2440', () => {
+    const mapBtn = makeButton(this, 'Map', cardW * 0.2, btnH, PAPER, '#2B2440', once(() => {
       this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
-    })
+    }))
     mapBtn.setPosition(cx - cardW * 0.13, btnY)
 
     overlay.add([dim, card, title, ...starViews, sub, nextBtn, retryBtn, mapBtn])

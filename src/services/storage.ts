@@ -10,8 +10,12 @@ const HAPTICS_KEY = 'exactly67.haptics'
 const AD_CLEARS_KEY = 'exactly67.adClears'
 // Whether the player bought "Remove Ads" (Phase 2 IAP).
 const ADS_REMOVED_KEY = 'exactly67.adsRemoved'
-// UTC date (YYYY-MM-DD) the last *free* daily hint was used.
+// UTC date (YYYY-MM-DD) of the last daily free-hint top-up.
 const HINT_DATE_KEY = 'exactly67.hintFreeDate'
+// Stored hint inventory (earned via the daily free + rewarded videos).
+const HINT_COUNT_KEY = 'exactly67.hintCount'
+// Whether the native "Rate this app" prompt has already been requested (one-shot).
+const REVIEW_REQUESTED_KEY = 'exactly67.reviewRequested'
 
 export async function loadProgress(): Promise<Progress> {
   try {
@@ -84,6 +88,41 @@ export async function saveFreeHintDate(date: string): Promise<void> {
     await Preferences.set({ key: HINT_DATE_KEY, value: date })
   } catch {
     // non-fatal: player just gets an extra free hint
+  }
+}
+
+export async function loadHintCount(): Promise<number> {
+  try {
+    const { value } = await Preferences.get({ key: HINT_COUNT_KEY })
+    const n = value ? parseInt(value, 10) : 0
+    return Number.isFinite(n) && n >= 0 ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+export async function saveHintCount(n: number): Promise<void> {
+  try {
+    await Preferences.set({ key: HINT_COUNT_KEY, value: String(Math.max(0, Math.floor(n))) })
+  } catch {
+    // non-fatal: inventory just resets next launch
+  }
+}
+
+export async function loadReviewRequested(): Promise<boolean> {
+  try {
+    const { value } = await Preferences.get({ key: REVIEW_REQUESTED_KEY })
+    return value === 'on'
+  } catch {
+    return false
+  }
+}
+
+export async function saveReviewRequested(on: boolean): Promise<void> {
+  try {
+    await Preferences.set({ key: REVIEW_REQUESTED_KEY, value: on ? 'on' : 'off' })
+  } catch {
+    // non-fatal: worst case the prompt is requested once more next session
   }
 }
 

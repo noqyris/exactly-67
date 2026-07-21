@@ -30,6 +30,33 @@ function context(): AudioContext | null {
   }
 }
 
+/**
+ * Returning from the background — an interstitial ad, a phone call, the home
+ * button — leaves the iOS AudioContext 'suspended' or the non-standard
+ * 'interrupted', which silences every later sound. Nudge it back to running; if
+ * it's unrecoverable, drop it so the next play() rebuilds a fresh one on the
+ * user's tap. Safe to call anytime (no-op when there's no context yet).
+ */
+export function resumeAudio(): void {
+  const ac = ctx
+  if (!ac || ac.state === 'running') return
+  try {
+    void ac.resume().catch(() => {
+      if (ctx === ac) ctx = null
+    })
+  } catch {
+    if (ctx === ac) ctx = null
+  }
+}
+
+// Foreground again → unlock audio immediately, before the next tap. Covers
+// backgrounding paths that don't route through an ad-dismiss callback.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resumeAudio()
+  })
+}
+
 interface ToneOpts {
   freq: number
   /** Glide to this frequency over the note. */
@@ -70,6 +97,15 @@ export function playPlaceBalloon() {
   const ac = context()
   if (!ac) return
   tone(ac, { freq: 420, bendTo: 700, dur: 0.11, type: 'sine', gain: 0.16 })
+}
+
+/** A hint ghost lands on the pan: a soft, encouraging two-note bloom — distinct
+ *  from the low place "thock" and the win jingle. */
+export function playHintChime() {
+  const ac = context()
+  if (!ac) return
+  tone(ac, { freq: 660, bendTo: 880, dur: 0.18, type: 'sine', gain: 0.1 })
+  tone(ac, { freq: 990, at: 0.05, dur: 0.16, type: 'sine', gain: 0.05 })
 }
 
 /** A weight comes back off the pan. */

@@ -58,7 +58,8 @@ Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `s
 | `haptics.ts` | Toggle-gated `@capacitor/haptics` wrapper; fire-and-forget, silently no-ops on web. |
 | `ads.ts` | Toggle-gated `@capacitor-community/admob` wrapper (banner / interstitial / rewarded-hint); same fire-and-forget, web-no-op pattern as `haptics.ts`. Runs on **Google test ad units** until real IDs are wired — see [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
 | `iap.ts` | "Remove Ads" IAP wrapper — StoreKit via `cordova-plugin-purchase` (`CdvPurchase` global; no bundler import, injected natively). Web-no-op; mirrors ownership into `ads.setAdsRemoved`. Needs an App Store Connect product — see [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
-| `storage.ts` | `@capacitor/preferences` wrapper. Keys: `exactly67.progress` (JSON), `exactly67.sound`, `exactly67.haptics` (`'on'`/`'off'`), `exactly67.adClears`, `exactly67.adsRemoved`. |
+| `review.ts` | "Rate this app" wrapper — native StoreKit prompt via `@capacitor-community/in-app-review`. One-shot (persisted flag), web-no-op; `maybeRequestReview` fires from the win overlay at a delight peak. See [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
+| `storage.ts` | `@capacitor/preferences` wrapper. Keys: `exactly67.progress` (JSON), `exactly67.sound`, `exactly67.haptics` (`'on'`/`'off'`), `exactly67.adClears`, `exactly67.adsRemoved`, `exactly67.hintFreeDate` (daily-top-up date), `exactly67.hintCount` (hint inventory), `exactly67.reviewRequested`. |
 | `progressStore.ts` | In-memory cache of `Progress` so scenes read synchronously; write-through on every clear. |
 
 ## Core data flow
@@ -118,9 +119,12 @@ For the full authoring guide — every constraint explained, the star economy, t
 
 ## Further reading (real paths)
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — deeper engineering reference: layer diagram, the pure-logic core, render/scene flow, services & persistence, native iOS, and an end-to-end "playing a level" walkthrough.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — deeper engineering reference: layer diagram, the pure-logic core, render/scene flow, services & persistence, native iOS/Android, and an end-to-end "playing a level" walkthrough.
+- [`docs/reference/`](docs/reference/) — per-module API reference (every export + signature + gotcha): [`GAME.md`](docs/reference/GAME.md), [`RENDER.md`](docs/reference/RENDER.md), [`SERVICES.md`](docs/reference/SERVICES.md).
 - [`docs/LEVEL_DESIGN.md`](docs/LEVEL_DESIGN.md) — how to author and tune levels: the `LevelDef` schema, constraints, solver & star economy, the build gate, and annotated example levels.
 - [`docs/MONETIZATION.md`](docs/MONETIZATION.md) — ads & IAP: the strategy, how `ads.ts` is wired, and the exact steps to go from test ads to live App-Store-approved revenue.
+- [`docs/TESTING.md`](docs/TESTING.md) — build gate, the unit + E2E matrix, how to run/drive (web + simulator), and the adversarial audit + confirmed fixes.
+- [`docs/RELEASE.md`](docs/RELEASE.md) — build & release runbook for both stores: version bumps, fastlane, the ASC version+IAP submission, Android AAB, current status.
 - `README.md` — project overview + command summary.
 - `src/game/levels/pack1.ts` … `pack3.ts` — annotated level data and difficulty ramp.
 - `store/` — App Store release collateral: `STORE_LISTING.md`, `PRIVACY_POLICY.md`, `SUBMISSION.md` (runbook), `icon-1024.png`, `screenshots/`.

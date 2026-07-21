@@ -3,17 +3,21 @@
 How *Exactly 67* makes money, how the ad code is wired, and the exact steps to
 take it from **test ads** to **live, App-Store-approved revenue**.
 
-> **Status (2026-07-15):** Ads + IAP are wired for **both platforms**. Real
-> AdMob apps and ad units exist for **iOS and Android**, and their IDs are in
-> `LIVE_UNITS_IOS` / `LIVE_UNITS_ANDROID` — but `ads.ts` `TESTING = true`, so the
-> app still serves Google's safe **test** fillers everywhere. The Android app is
-> live on **Play internal testing** with the full store listing + all 9 App
-> content declarations done; the privacy policy is hosted at
-> <https://noqyris.github.io/exactly-67/privacy.html>. The one remaining step to
-> real revenue is flipping **`TESTING = false`** and shipping to production on
-> each store (see [Going live](#going-live)). The Remove-Ads IAP transacts once
-> its store product exists (App Store product is created; Play needs the same —
-> see [Phase 2](#phase-2--remove-ads-099-iap)).
+> **Status (1.1.0, current):** Ads + IAP are wired for **both platforms** and
+> **`TESTING = false`** — the app now serves **real** ads. Real AdMob apps + ad
+> units exist for iOS and Android (`LIVE_UNITS_IOS` / `LIVE_UNITS_ANDROID`).
+> - **iOS:** build **9** with the Remove-Ads IAP is **submitted to App Review
+>   together** (Manual release). The iOS AdMob app is approved and serving.
+> - **Android:** a signed production **AAB (versionCode 2)** is built and ready;
+>   internal testing is live with the full store listing + all 9 App content
+>   declarations. The Android AdMob app fills once the app is public.
+> - Privacy policy live at <https://noqyris.github.io/exactly-67/privacy.html>.
+> - **Remaining for full IAP revenue:** the **Play** Remove-Ads product still
+>   needs to be created, which is blocked on a **Google Payments profile** (bank +
+>   tax). The App Store product already exists. See
+>   [Phase 2](#phase-2--remove-ads-099-iap).
+>
+> Ship/release mechanics: [`RELEASE.md`](RELEASE.md).
 
 ---
 
@@ -24,10 +28,11 @@ model favors opt-in and light-touch over ad saturation:
 
 | Format | Role | Where |
 |---|---|---|
-| **Rewarded** | Primary earner. Opt-in → highest eCPM, best goodwill. Grants a **hint** (highlights one weight from a winning build). | 💡 button in the game HUD |
-| **Interstitial** | Occasional full-screen at a natural break. | On leaving a cleared level, **every 5 clears**, never during onboarding (levels 1–5) |
+| **Rewarded** | Primary earner. Opt-in → highest eCPM, best goodwill. Hints are a **banked inventory**: **+1 free per day** (top-up at boot) and **+1 per rewarded video** (collect as many as you like). A video **banks** a hint — it does **not** reveal — so the player spends them on their own terms. The 💡 badge shows the **count** (green disc + number, or blue **▶** at zero); tapping spends one to highlight a winning weight. | 💡 button in the game HUD |
+| **Interstitial** | Occasional full-screen at a natural break, under a **hybrid gate**: a clear count decides *where*, time + session + opt-in state decide *whether*. Tuned light (psychology + revenue study). | On the leave-tap after a win, past onboarding (levels 1–8), never on a pack final; see the cadence rule below |
 | **Banner** | Passive fill. | Bottom-anchored, **all screens incl. gameplay** |
-| **Remove Ads (IAP)** | Most reliable revenue in casual games. **$0.99**, one-time. Kills banner + interstitial; **keeps** the rewarded hint. | Phase 2 |
+| **Remove Ads (IAP)** | Most reliable revenue in casual games. **$0.99**, one-time. Kills banner + interstitial **and grants unlimited free hints** (owners never see an ad — the 💡 is always lit, no cost, no video). The "+ unlimited hints" perk is advertised on the menu (under the button) and upsold in the hint modal to lift conversion. | Phase 2 |
+| **Rate this app** | Not revenue — but the App Store rating *is* the funnel. Fires the native StoreKit prompt **once**, at a post-win delight peak. | `review.ts`, from the win overlay (~1.8s after the star pop) |
 
 **Network:** **AdMob** (`@capacitor-community/admob` v8) — first-class Capacitor
 support, largest demand pool. Revisit mediation (AppLovin MAX / Unity LevelPlay,
@@ -58,12 +63,13 @@ solver query); all ad code lives in `services` + `render`.
 |---|---|
 | [`src/game/solver.ts`](../src/game/solver.ts) | New `minimalSolution(level)` → indices of one minimal exact-67 subset (honors locked/useAll/maxWeights). `solveLevel` shape unchanged. |
 | [`src/services/ads.ts`](../src/services/ads.ts) | **The whole ad wrapper.** Toggle-gated, fire-and-forget, **no-ops off-device** (like `haptics.ts`). Init + consent, banner, interstitial cadence, rewarded hint. |
-| [`src/services/storage.ts`](../src/services/storage.ts) | Keys `exactly67.adClears` (interstitial counter) + `exactly67.adsRemoved` (Phase 2 IAP flag). |
+| [`src/services/storage.ts`](../src/services/storage.ts) | Keys `exactly67.adClears` (interstitial counter), `exactly67.adsRemoved` (IAP flag), `exactly67.hintFreeDate` (daily-top-up date), `exactly67.hintCount` (hint inventory), `exactly67.reviewRequested` (one-shot rate prompt). |
 | [`src/render/layout.ts`](../src/render/layout.ts) | `setAdBannerReserve()` folds the banner height into `safeArea().bottom` so every scene keeps content above the banner. |
 | [`src/render/GameScene.ts`](../src/render/GameScene.ts) | 💡 hint button → rewarded ad → `WeightView.highlight()`; `noteCleared()` on win; interstitial on Next/Map/End (not Retry). |
 | [`src/render/WeightView.ts`](../src/render/WeightView.ts) | `highlight()` — expanding pulse ring to point the eye at the hinted weight. |
-| [`src/render/ui.ts`](../src/render/ui.ts) | `drawHintIcon` (lightbulb). |
-| [`src/main.ts`](../src/main.ts) | Reserves the banner strip pre-layout, then `initAds().then(showBanner)` + `initIap()` after boot. |
+| [`src/render/ui.ts`](../src/render/ui.ts) | `drawHintIcon(g, size, state)` — lightbulb with a corner badge: `'have'` (lit bulb + green disc) / `'empty'` (dim bulb + blue **▶** chip). The stash count is a Text child of the button (Graphics can't draw text); `GameScene.refreshHint()` keeps icon + number in sync. |
+| [`src/services/review.ts`](../src/services/review.ts) | **Rate-this-app wrapper** (`@capacitor-community/in-app-review` v8 → native StoreKit `AppStore.requestReview`). One-shot, web-no-op. `maybeRequestReview(global, stars)` fires from the win overlay on the first 3★ clear at global ≥ 8 (delight) or by global ≥ 12 (fallback). |
+| [`src/main.ts`](../src/main.ts) | Reserves the banner strip pre-layout, then `initAds().then(showBanner)` + `initIap()` after boot; `initHintState()` + `initReview()` load the daily-hint and one-shot-review flags. |
 | [`src/services/iap.ts`](../src/services/iap.ts) | **Remove-Ads IAP wrapper** (Phase 2). StoreKit via `CdvPurchase`, web-no-op, mirrors ownership into `setAdsRemoved()`. |
 | [`src/render/MenuScene.ts`](../src/render/MenuScene.ts) | "Remove ads · _price_" + "Restore purchases" — device only, hidden once bought. |
 | [`ios/App/App/Info.plist`](../ios/App/App/Info.plist) | `GADApplicationIdentifier`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems`. |
@@ -71,19 +77,65 @@ solver query); all ad code lives in `services` + `render`.
 **Tuning knobs** live at the top of [`ads.ts`](../src/services/ads.ts):
 `TESTING`, the per-platform `TEST_UNITS_IOS` / `TEST_UNITS_ANDROID` /
 `LIVE_UNITS_IOS` / `LIVE_UNITS_ANDROID` (picked by `IS_ANDROID`),
-`CLEARS_PER_INTERSTITIAL` (5), `ONBOARDING_LEVELS` (5),
-`BANNER_RESERVE_DESIGN_PX` (60). The banner also reports its real height at
-runtime (`BannerAdPluginEvents.SizeChanged`) and the layout reserves exactly
-that — see `setBannerHeightHandler` in [`main.ts`](../src/main.ts).
+`BANNER_RESERVE_DESIGN_PX` (60), and the interstitial cadence constants below.
+The banner also reports its real height at runtime
+(`BannerAdPluginEvents.SizeChanged`) and the layout reserves exactly that — see
+`setBannerHeightHandler` in [`main.ts`](../src/main.ts).
+
+### Interstitial cadence — the hybrid gate
+
+Tuned from a dedicated **psychology + revenue + competitive-teardown** study
+(three independent 2024-25 research passes, all converging: *keep interstitials
+but run them light; recover revenue via the opt-in rewarded hint + Remove-Ads
+IAP, not interstitial frequency* — this game's LTV is dominated by its App Store
+rating and retention, and being **no-fail** it structurally lacks the fail/retry
+slot that carries most casual ad revenue).
+
+`interstitialWouldShow(clearedGlobal)` is the single source of truth (a
+non-consuming predicate); `maybeShowInterstitial` acts on it, and the win overlay
+reads it to keep the rating ask off the same win. It returns true only when
+**every** condition holds — a count decides *where* (a natural break), time /
+session / opt-in state decide *whether*:
+
+| Constant | Value | Guard |
+|---|---|---|
+| `ONBOARDING_LEVELS` | `8` | Cleared global must be `> 8` — the balloon mechanic debuts at L6, so the player hasn't met the hook before ~L8. |
+| — (pack finals) | `24 / 48 / 72` | Never on a pack-complete clear; the L72 "The End!" must never get an ad chaser. |
+| `CLEARS_PER_INTERSTITIAL` | `3` | ≥ 3 clears since the last shown ad (a learnable "every 3rd win" rhythm). |
+| `MIN_SECONDS_BETWEEN_ADS` | `180` | Hard spacing floor — never two ads closer than 3 min (reads "calm/premium"). |
+| `FIRST_AD_MIN_SESSION_SECONDS` | `90` | Per-session warm-up — no ad in the first 90 s after launch. |
+| `MAX_ADS_PER_SESSION` | `3` | Session cap (the 4th impression is lowest-value / highest-annoyance). |
+| `REWARDED_SUPPRESS_SECONDS` | `300` | Mute interstitials for 5 min after an opt-in rewarded hint — don't double-tax volunteered attention. |
+
+Fires **only** on the player's own "leave" tap after a win — `leaveAfterClear` →
+Next / "The End!" / Map, never on Retry, mid-level, the win overlay, or app-open.
+That tap-gating is the placement fix: the ad lands as a neutral page-turn *between*
+levels (peak-end rule), after the player has savored the star reveal at their own
+pace — no artificial delay needed.
+
+**Review mutual-exclusion:** the win overlay only fires `maybeRequestReview` when
+`interstitialWouldShow` is false, so a rating ask and an ad never stack on one
+win (the review is one-shot and simply defers to the next clean win).
+
+Net effect: zero ads until genuinely hooked (~L9, past the 90 s warm-up), then a
+predictable ad ~every 3rd win, ≥ 3 min apart, ≤ 3/session, never right after a
+rewarded hint, never on a pack final, never on the review beat. The counter
+(`exactly67.adClears`) persists across launches; the warm-up + spacing neutralize
+a stale cross-session count. `lastInterstitialAt` / `adsThisSession` /
+`lastRewardedAt` are in-memory (per session). All values are defaults to
+**A/B-test via remote config** (D7 retention × blended ad+IAP LTV as target,
+1-star rate / D1 uninstall as guardrails — never raw week-1 ARPDAU).
 
 ---
 
 ## Going live
 
-Serving real, billable ads is now **one flag away** on each platform. The AdMob
-apps, ad units, store listings, and compliance declarations are already done;
-what's left is flipping `TESTING = false`, rebuilding, and shipping to
-production. Until then the app serves Google's safe test fillers.
+**Done:** `TESTING = false` is committed, so the app serves real ads. The AdMob
+apps, ad units, store listings, and compliance declarations are complete. What
+remains is shipping each store build to **production** and letting AdMob approve
+the now-public apps for full fill (a few days). Note: AdMob treats
+simulators/emulators as test devices, so even with `TESTING = false` you see
+"Test mode" fillers there — that is expected and never billed.
 
 ### The real AdMob IDs (already wired into `ads.ts`)
 
@@ -112,21 +164,20 @@ These are in `LIVE_UNITS_IOS` / `LIVE_UNITS_ANDROID`; the app-level IDs are in
 - iOS: `NSUserTrackingUsageDescription`, App Store privacy nutrition labels, and
   the Remove-Ads IAP product all created.
 
-### The flip (per platform, when you're ready to earn)
-1. Test the current **test-ads** build on a **real device** first (test ads
-   serve where simulators/emulators don't; live ads won't fill until AdMob
-   approves the now-public app).
-2. Set **`TESTING = false`** in [`ads.ts`](../src/services/ads.ts).
-3. Rebuild:
-   - **Android:** bump `versionCode` in `android/app/build.gradle`, `npm run
-     ios:sync` is web-only — for Android run `npm run build && npx cap sync
-     android` (**Node ≥ 22**) then assemble a signed AAB (`./gradlew
-     bundleRelease`, keystore via the gitignored `keystore.properties`).
-   - **iOS:** `npm run ios:sync` (**Node ≥ 22**) → archive/upload (fastlane
-     `build_and_upload`).
-4. Promote: Play → Production track (new release + rollout); App Store → replace
-   the in-review build and submit. AdMob approves each app for full ad serving
-   within a few days of it being public.
+### Ship to production (per platform)
+1. Test the build on a **real device** first (live ads won't fill until AdMob
+   approves the now-public app; do **not** tap your own live ads).
+2. Build (`TESTING = false` is already committed):
+   - **iOS:** `npm run ios:sync` (**Node ≥ 22**) → `fastlane build_and_upload`.
+   - **Android:** bump `versionCode` in `android/app/build.gradle` → `npm run
+     build && npx cap sync android` (**Node ≥ 22**) → signed AAB (`./gradlew
+     bundleRelease`, `JAVA_HOME` = Android Studio JBR, keystore via the gitignored
+     `keystore.properties`).
+3. Promote: App Store → submit the version + IAP together, then **Release** after
+   approval; Play → Production track (new release + rollout). AdMob approves each
+   app for full ad serving within a few days of it being public.
+
+Step-by-step build/upload/submission commands and gotchas: [`RELEASE.md`](RELEASE.md).
 
 ### Remaining compliance nits
 - [ ] `SKAdNetworkItems` (iOS) — the plist has a starter set; replace with
@@ -160,7 +211,11 @@ the product.
    price tier $0.99. *(Already created.)*
 2. **Google Play Console** → Monetise with Play → In-app products → create a
    one-time product with the **same** id `com.noqyris.exactly67.removeads`,
-   ~$0.99. *(Still to do before Android production.)*
+   ~$0.99. *(Blocked: needs a **Google Payments profile** — legal name, bank
+   account, tax info — created first at Play Console → Settings → Payments profile.
+   This is the developer's own financial/legal data. Android production can ship
+   with ads meanwhile; the Remove-Ads product can be added later without a new
+   build.)*
 3. `cap sync ios` / `cap sync android` (**Node ≥ 22**) to pull the Cordova
    plugin's native code in.
 4. Test with a **sandbox tester** (Apple) / **licence tester** (Play) on a real

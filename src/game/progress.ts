@@ -70,8 +70,10 @@ export function parseProgress(raw: string | null | undefined): Progress {
       const out: Record<string, number> = {}
       if (rec && typeof rec === 'object') {
         for (const [k, v] of Object.entries(rec as Record<string, unknown>)) {
-          const n = Number(v)
-          if (Number.isInteger(n) && n >= 1 && n <= max && /^\d+$/.test(k)) out[k] = n
+          // Only accept genuine numbers — Number() would coerce true→1, [3]→3,
+          // "3"→3 and smuggle tampered/corrupt entries past the range check.
+          if (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max && /^\d+$/.test(k))
+            out[k] = v
         }
       }
       return out

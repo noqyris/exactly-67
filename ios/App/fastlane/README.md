@@ -79,6 +79,38 @@ Upload only metadata + screenshots (no build, no submit) — safe dry-ish run to
 
 Build + upload the binary to TestFlight (no App Store version, no submit)
 
+### ios tf_latest
+
+```sh
+[bundle exec] fastlane ios tf_latest
+```
+
+Print the latest TestFlight build number ASC knows about (for 1.1.0)
+
+### ios tf_upload_only
+
+```sh
+[bundle exec] fastlane ios tf_upload_only
+```
+
+Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic)
+
+### ios asc_versions
+
+```sh
+[bundle exec] fastlane ios asc_versions
+```
+
+Print the App Store version records + their states
+
+### ios tf_builds
+
+```sh
+[bundle exec] fastlane ios tf_builds
+```
+
+List the most recent builds ASC knows about, with processing state
+
 ----
 
 This README.md is auto-generated and will be re-generated every time [_fastlane_](https://fastlane.tools) is run.

@@ -1,13 +1,23 @@
 import { Capacitor } from '@capacitor/core'
-import { AdMob, BannerAdPluginEvents, BannerAdPosition, BannerAdSize } from '@capacitor-community/admob'
+import {
+  AdMob,
+  BannerAdPluginEvents,
+  BannerAdPosition,
+  BannerAdSize,
+  InterstitialAdPluginEvents,
+  RewardAdPluginEvents,
+} from '@capacitor-community/admob'
 import type { AdMobBannerSize } from '@capacitor-community/admob'
+import { resumeAudio } from './audio'
 import {
   loadAdClears,
   loadAdsRemoved,
   loadFreeHintDate,
+  loadHintCount,
   saveAdClears,
   saveAdsRemoved,
   saveFreeHintDate,
+  saveHintCount,
 } from './storage'
 
 /**
@@ -78,10 +88,36 @@ const UNITS: AdUnits = TESTING
     ? LIVE_UNITS_ANDROID
     : LIVE_UNITS_IOS
 
-/** Show an interstitial once this many levels have been cleared since the last. */
-const CLEARS_PER_INTERSTITIAL = 5
-/** Never interrupt the first levels — let players learn the game first. */
-const ONBOARDING_LEVELS = 5
+/**
+ * Interstitial cadence is a HYBRID gate: a level-clear count decides *where* (a
+ * natural break), while a time floor + first-ad delay + session cap decide
+ * *whether*. This is the 2024-25 casual-puzzle best practice and the only way to
+ * stay structurally inside AdMob policy (no back-to-back ads, no ad at app load,
+ * no surprise ad on the first clear of a returning session). See docs/MONETIZATION.md.
+ */
+/** Show an interstitial once this many levels have been cleared since the last.
+ *  A learnable "every 3rd win" rhythm — predictability is what players tolerate. */
+const CLEARS_PER_INTERSTITIAL = 3
+/** Never interrupt the first levels. The signature balloon mechanic debuts at
+ *  L6, so a player hasn't met the hook before ~L8; early sessions also monetize
+ *  poorly, so holding ads to L8 costs ~nothing and protects the first impression. */
+const ONBOARDING_LEVELS = 8
+/** Hard spacing floor: never two interstitials closer than this. 3 min reads
+ *  distinctly "calm/premium" vs the ~2 min AdMob policy minimum, and the 3-clear
+ *  gate already spaces most ads past it, so the revenue cost is near-zero. */
+const MIN_SECONDS_BETWEEN_ADS = 180
+/** Per-session warm-up: no interstitial until this long after launch. Lifts D1
+ *  retention ~5-8% (low-intent early sessions) with negligible revenue loss.
+ *  Also stops a surprise ad on the first clear of a returning session (the clear
+ *  counter persists across launches) — do not shorten. */
+const FIRST_AD_MIN_SESSION_SECONDS = 90
+/** Cap interstitials per app session; the 4th+ impression is the lowest-value,
+ *  highest-annoyance one, so 3 reads calmer at ~no retention cost. */
+const MAX_ADS_PER_SESSION = 3
+/** After an opt-in rewarded hint, mute interstitials this long — don't double-tax
+ *  a player who just volunteered their attention (also lifts total ad revenue by
+ *  keeping opt-in intent alive). */
+const REWARDED_SUPPRESS_SECONDS = 300
 
 /**
  * Initial design-pixel reserve at the screen bottom for the banner (before it
@@ -99,6 +135,14 @@ let bannerListening = false
 let removed = false
 let clearsSinceInterstitial = 0
 let lastFreeHintDate = ''
+let hintCount = 0
+
+// Interstitial pacing state (in-memory, per app session). `sessionStart` is set
+// at module load, which is the cold launch under Capacitor.
+const sessionStart = Date.now()
+let lastInterstitialAt = 0 // ms epoch of the last *shown* ad; 0 = none this session
+let adsThisSession = 0
+let lastRewardedAt = 0 // ms epoch of the last *earned* rewarded hint; 0 = none this session
 
 /** Called with the banner's real height (design px + margin) when it loads. */
 let onBannerHeight: ((designPx: number) => void) | null = null
@@ -144,6 +188,10 @@ export async function initAds(): Promise<void> {
   clearsSinceInterstitial = await loadAdClears()
   try {
     await AdMob.initialize({ initializeForTesting: TESTING })
+    // A full-screen ad backgrounds the web view and suspends the iOS
+    // AudioContext; restore sound the moment the ad is dismissed.
+    void AdMob.addListener(InterstitialAdPluginEvents.Dismissed, () => resumeAudio())
+    void AdMob.addListener(RewardAdPluginEvents.Dismissed, () => resumeAudio())
     await requestConsent()
   } catch {
     // Init failed — later calls guard on errors and no-op.
@@ -221,21 +269,54 @@ export function noteCleared(): void {
 }
 
 /**
- * Show an interstitial if enough levels have been cleared since the last one.
- * Call at a natural break (advancing / returning to the map). No-ops when ads
- * are removed, off-device, or the just-cleared level is still onboarding.
+ * The whole interstitial gate, as a *non-consuming* predicate: true only when an
+ * ad would fire for this just-cleared level. It is the single source of truth —
+ * `maybeShowInterstitial` acts on it, and the win overlay reads it to avoid
+ * pairing the rating ask with an ad (`review.ts` mutual-exclusion). A count
+ * decides *where* (a natural break); time floor + warm-up + session cap +
+ * rewarded-suppression decide *whether*.
+ */
+export function interstitialWouldShow(clearedGlobal: number): boolean {
+  if (!adsSupported() || removed) return false
+  if (clearedGlobal <= ONBOARDING_LEVELS) return false
+  // Let each pack-complete celebration — and especially the L72 "The End!" —
+  // land ad-free; the worst possible closing note is an ad chaser.
+  if (clearedGlobal === 24 || clearedGlobal === 48 || clearedGlobal === 72) return false
+  if (adsThisSession >= MAX_ADS_PER_SESSION) return false
+  if (clearsSinceInterstitial < CLEARS_PER_INTERSTITIAL) return false
+  const now = Date.now()
+  // Warm-up: never interrupt the first minute-and-a-half of a session — early
+  // sessions are low-intent, and a surprise ad on the first clear of a returning
+  // player (the clear counter persists across launches) is the #1 retention hit.
+  if ((now - sessionStart) / 1000 < FIRST_AD_MIN_SESSION_SECONDS) return false
+  // Spacing floor: guarantees we never break AdMob's no-back-to-back rule, even
+  // when someone replays easy early levels in quick succession.
+  const sinceLast = lastInterstitialAt ? (now - lastInterstitialAt) / 1000 : Infinity
+  if (sinceLast < MIN_SECONDS_BETWEEN_ADS) return false
+  // Don't double-tax a player who just opted into a rewarded hint.
+  if (lastRewardedAt && (now - lastRewardedAt) / 1000 < REWARDED_SUPPRESS_SECONDS) return false
+  return true
+}
+
+/**
+ * Show an interstitial at a natural break (advancing / returning to the map) iff
+ * the gate is open. No-ops when ads are removed, off-device, or any gate is
+ * closed. Call on the leave tap after a win.
  */
 export async function maybeShowInterstitial(clearedGlobal: number): Promise<void> {
-  if (!adsSupported() || removed) return
-  if (clearedGlobal <= ONBOARDING_LEVELS) return
-  if (clearsSinceInterstitial < CLEARS_PER_INTERSTITIAL) return
-  clearsSinceInterstitial = 0
-  void saveAdClears(0)
+  if (!interstitialWouldShow(clearedGlobal)) return
   try {
     await AdMob.prepareInterstitial({ adId: UNITS.interstitial, isTesting: TESTING })
     await AdMob.showInterstitial()
+    // Spend the cadence only once an ad actually showed; a no-fill/offline
+    // break leaves the counter armed (and the time floor unmoved) so the next
+    // clear retries.
+    clearsSinceInterstitial = 0
+    void saveAdClears(0)
+    lastInterstitialAt = Date.now()
+    adsThisSession++
   } catch {
-    // no fill — skip this break
+    // no fill — skip this break, keep the counter armed
   }
 }
 
@@ -251,30 +332,61 @@ export async function showRewardedHint(): Promise<boolean> {
   try {
     await AdMob.prepareRewardVideoAd({ adId: UNITS.rewarded, isTesting: TESTING })
     const reward = await AdMob.showRewardVideoAd()
+    // Record the opt-in so the next interstitial is suppressed for a while.
+    if (reward != null) lastRewardedAt = Date.now()
     return reward != null
   } catch {
     return false
   }
 }
 
-// --- daily free hint -----------------------------------------------------
+// --- hint inventory ------------------------------------------------------
+//
+// Hints are a persisted, collectable balance: the player earns them (one free
+// per day, plus one per rewarded video) and spends them whenever they like.
+// Watching an ad no longer reveals a hint on the spot — it just tops up the
+// stash — so a player can bank as many as they want and use them on their terms.
 
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-/** Load the persisted free-hint date. Call once at boot. */
+/**
+ * Load the hint inventory and grant the daily free hint. Call once at boot
+ * (awaited, so the HUD badge is correct on first render). The free top-up fires
+ * the first time we boot on a new UTC day.
+ */
 export async function initHintState(): Promise<void> {
-  lastFreeHintDate = await loadFreeHintDate()
+  ;[hintCount, lastFreeHintDate] = await Promise.all([loadHintCount(), loadFreeHintDate()])
+  const today = todayUtc()
+  if (lastFreeHintDate !== today) {
+    lastFreeHintDate = today
+    hintCount += 1
+    void saveFreeHintDate(today)
+    void saveHintCount(hintCount)
+  }
 }
 
-/** True when the player still has today's one free hint (no ad needed). */
-export function freeHintAvailable(): boolean {
-  return lastFreeHintDate !== todayUtc()
+/** How many hints the player currently has banked. */
+export function hintCountValue(): number {
+  return hintCount
 }
 
-/** Spend today's free hint (persist the date so it resets tomorrow). */
-export function consumeFreeHint(): void {
-  lastFreeHintDate = todayUtc()
-  void saveFreeHintDate(lastFreeHintDate)
+/** True when there's at least one hint to spend. */
+export function hasHint(): boolean {
+  return hintCount > 0
+}
+
+/** Spend one hint. Returns false (and changes nothing) when the stash is empty. */
+export function useHint(): boolean {
+  if (hintCount <= 0) return false
+  hintCount -= 1
+  void saveHintCount(hintCount)
+  return true
+}
+
+/** Add one hint to the stash (call after a rewarded video is earned). */
+export function grantHint(): void {
+  hintCount += 1
+  void saveHintCount(hintCount)
 }
