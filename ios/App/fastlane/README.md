@@ -47,6 +47,14 @@ Full pipeline: create app record, build+sign, upload build, push metadata+screen
 
 Upload the already-built IPA + metadata + screenshots, wait for processing, submit for review
 
+### ios prep_120
+
+```sh
+[bundle exec] fastlane ios prep_120
+```
+
+Create/stage the 1.2.0 version + push metadata only (no build attach, no submit) — safe, reversible
+
 ### ios submit
 
 ```sh

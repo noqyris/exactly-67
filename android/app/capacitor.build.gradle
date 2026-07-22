@@ -10,6 +10,7 @@ android {
 apply from: "../capacitor-cordova-android-plugins/cordova.variables.gradle"
 dependencies {
     implementation project(':capacitor-community-admob')
+    implementation project(':capacitor-community-in-app-review')
     implementation project(':capacitor-haptics')
     implementation project(':capacitor-preferences')
     implementation "com.android.billingclient:billing:9.0.0"

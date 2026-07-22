@@ -84,7 +84,7 @@ export class MenuScene extends Phaser.Scene {
     // With the Remove-ads button present the column is taller and lifted a touch
     // higher, so "Restore purchases" gets real breathing room between the button
     // and the toggles instead of being pinched against both.
-    const columnDrop = removeAdsVisible ? u(261) : adsRemoved() ? u(169) : u(161)
+    const columnDrop = removeAdsVisible ? u(261) : adsRemoved() ? u(193) : u(161)
     const playY = h - safe.bottom - u(16) - columnDrop
 
     // The live scale always sits between the subtitle and the buttons. Size it to
@@ -180,12 +180,15 @@ export class MenuScene extends Phaser.Scene {
       restore.on('pointerup', () => void restorePurchases())
       toggleRowY = playY + u(74) + u(72) + u(50) + u(42)
     } else if (adsRemoved()) {
-      // Owner: confirm the perk they unlocked.
+      // Owner: confirm the perk they unlocked. It's the only place they learn
+      // hints are now unlimited (the purchase was framed around ads), so it stays
+      // — but with real breathing room above and below so it reads as a calm
+      // status line, not a label crammed onto the Level-map button.
       this.add
-        .text(cx, playY + u(74) + u(34), 'No ads · unlimited hints', TEXT.ink(13, '700'))
+        .text(cx, playY + u(74) + u(50), 'No ads · unlimited hints', TEXT.ink(13, '700'))
         .setOrigin(0.5)
         .setColor(INK_SOFT)
-      toggleRowY = playY + u(74) + u(34) + u(38)
+      toggleRowY = playY + u(74) + u(50) + u(46)
     }
 
     // Sound + haptics toggles.

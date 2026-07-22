@@ -3,6 +3,12 @@
 Copy-paste these into **App Store Connect → your app → (version) → App Information / Product Page**.
 Everything here is tuned for App Store Optimization (ASO) so the app is easy to find.
 
+> **Source of truth for the live iOS listing is `ios/App/fastlane/metadata/en-US/*.txt`** — that's
+> what `fastlane deliver` pushes. This file is the human-readable mirror; keep the two in sync.
+> As of 1.1.0 the app is **monetized** (AdMob banner + interstitial + rewarded, and a one-time
+> "Remove Ads" in-app purchase), so the copy and the App Privacy answers below reflect that
+> honestly — the earlier "no ads / no data" wording was removed.
+
 ---
 
 ## App name (max 30 chars)
@@ -22,15 +28,17 @@ keyword space.)*
 
 ## Keywords (max 100 chars, comma-separated, NO spaces after commas)
 ```
-math,logic,iq,brainteaser,weights,offline,zen,mental,riddle,sums,addition,mind,tricky,solve,relax
+math,logic,iq,games,weights,offline,zen,mental,riddle,sums,addition,mind,tricky,solve,relax
 ```
-*(97 chars. Deliberately excludes words already in the name/subtitle — Apple indexes those
+*(91 chars. Deliberately excludes words already in the name/subtitle — Apple indexes those
 automatically, and repeating them wastes the 100-char budget. Singular forms are used because the
-App Store matches plurals automatically.)*
+App Store matches plurals automatically. `games` is the high-value multiplier: it combines with the
+name/subtitle to form "number games", "math games", "logic games", "offline games", etc. — so it
+was worth dropping the redundant "brainteaser" (the subtitle already carries "brain teaser").)*
 
 ## Promotional text (max 170 chars — editable anytime without review)
 ```
-Land on exactly 67! Drop weights, lift balloons, balance the scale. 72 handcrafted levels — fully offline, no ads, no timers. Just calm, clever number puzzling.
+Land on exactly 67! Drop weights, lift balloons, balance the scale across 72 handcrafted levels. Stuck? Grab a hint. Calm, clever number puzzling — play anywhere.
 ```
 
 ## Description (max 4000 chars)
@@ -70,10 +78,16 @@ MADE TO FEEL GOOD
 - Optimized for both iPhone and iPad.
 - Respects Reduced Motion.
 
-TRULY OFFLINE, TRULY PRIVATE
-- 100% offline. Play on a plane, in a tunnel, anywhere.
-- No ads. No in-app purchases. No timers or energy meters.
-- No accounts, no tracking, no data collection. Your progress stays on your device.
+FREE TO PLAY
+- Free to download, with all 72 levels unlocked from the start.
+- A banner and the occasional full-screen ad help keep the game free.
+- Stuck? Watch a short optional video to bank an extra hint — and collect one free hint every day.
+- Prefer a clean board? Remove ads forever with one small in-app purchase, and your hints become unlimited.
+- No timers, no energy meters, no fail states — play at your own pace.
+
+PLAY ANYWHERE
+- The puzzles are fully offline; ads simply pause when you're off the grid.
+- No account and no sign-in. Your level progress is saved right on your device.
 
 If you love number puzzles, math games, logic brain teasers, or just a calm way to keep your mind
 busy, Exactly 67 is a pocketful of quiet "aha" moments. Grab a balloon and balance the scale.
@@ -98,12 +112,26 @@ Thanks for playing — land on exactly 67!
 **4+** — no objectionable content of any kind.
 
 ## Price
-**Free** (no in-app purchases).
+**Free**, with a single in-app purchase: **"Remove Ads"** (Non-Consumable, $0.99, product id
+`com.noqyris.exactly67.removeads`). It also grants unlimited hints.
 
-## App Privacy (Data collection)
-Answer **"No, we do not collect data from this app."** This matches the bundled
-`PrivacyInfo.xcprivacy`: no tracking, no data collected. (The only "required-reason API" is
-UserDefaults, used solely to save your level progress on-device — already declared for you.)
+## App Privacy (Data collection) — MUST match the AdMob reality
+The app serves Google AdMob ads, so the old "we do not collect data" answer is **no longer correct**
+and would be misleading. In App Store Connect → App Privacy, declare what the Google Mobile Ads SDK
+collects. A standard, honest configuration:
+
+- **Data Used to Track You** (drives the ATT prompt — we ship `NSUserTrackingUsageDescription`):
+  - **Identifiers → Device ID** (IDFA) — *Used for Tracking* + *Third-Party Advertising*.
+  - **Usage Data → Product Interaction** — *Used for Tracking* + *Third-Party Advertising*.
+- **Data Linked / Not Linked to You:** AdMob's identifiers are **Not Linked** to an identity (we have
+  no accounts). Mark Device ID and Product Interaction as collected for *Third-Party Advertising* and
+  *Analytics*, **Not Linked to the user**.
+- **Diagnostics → Crash/Performance Data** — only if you enable it; by default we don't.
+- Our own on-device progress (UserDefaults) is **not** "collected" in the privacy-label sense — it
+  never leaves the device — but it stays declared as a required-reason API in `PrivacyInfo.xcprivacy`.
+
+> Confirm the exact toggles against Google's current "AdMob & App Privacy" guidance before submitting
+> — the SDK's declared collection can change with SDK versions.
 
 ## URLs you must provide
 - **Privacy Policy URL** — REQUIRED by Apple. A ready-to-host policy is in

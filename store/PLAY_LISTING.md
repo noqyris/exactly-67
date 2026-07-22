@@ -14,9 +14,10 @@ Exactly 67: Number Puzzle
 
 ## Short description (max 80 chars)
 ```
-Land on exactly 67! Balance the scale with weights and lifting balloons.
+Number puzzle: balance the scale to land on exactly 67 with weights & balloons.
 ```
-*(71 chars.)*
+*(79 chars. Play ranks on the short description's keywords, so it leads with "Number puzzle" and
+still carries "balance", "scale", "weights", "balloons" — while keeping the "exactly 67" hook.)*
 
 ## Full description (max 4000 chars)
 ```
