@@ -1,6 +1,6 @@
 /// <reference types="cordova-plugin-purchase" />
 import { Capacitor } from '@capacitor/core'
-import { adsRemoved, setAdsRemoved } from './ads'
+import { adsRemoved, grantHints, setAdsRemoved } from './ads'
 
 /**
  * In-app purchase service — the one-time "Remove Ads" unlock. Same shape as
@@ -27,8 +27,31 @@ import { adsRemoved, setAdsRemoved } from './ads'
 /** App Store Connect product id — a Non-Consumable IAP ($0.99). */
 export const REMOVE_ADS_ID = 'com.noqyris.exactly67.removeads'
 
+/**
+ * Consumable hint packs — buy hints outright, repeatable. Bigger packs give
+ * more hints per dollar. Each `id` must exist as a Consumable IAP in App Store
+ * Connect and Google Play; until it does, its price reads null and the buy
+ * button is hidden, so the app degrades gracefully.
+ */
+export interface HintPack {
+  id: string
+  hints: number
+}
+export const HINT_PACKS: readonly HintPack[] = [
+  { id: 'com.noqyris.exactly67.hints10', hints: 10 },
+  { id: 'com.noqyris.exactly67.hints30', hints: 30 },
+  { id: 'com.noqyris.exactly67.hints100', hints: 100 },
+]
+const HINT_PACK_IDS = new Set(HINT_PACKS.map((p) => p.id))
+
 let initialized = false
 let onChange: (() => void) | null = null
+let onHintsPurchased: ((n: number) => void) | null = null
+
+/** Register a callback fired after a hint pack is purchased (refresh HUD/modal). */
+export function setHintPurchaseListener(cb: ((n: number) => void) | null): void {
+  onHintsPurchased = cb
+}
 
 export function iapSupported(): boolean {
   return Capacitor.isNativePlatform() && typeof CdvPurchase !== 'undefined'
@@ -61,6 +84,11 @@ export async function initIap(): Promise<void> {
       type: CdvPurchase.ProductType.NON_CONSUMABLE,
       platform: storePlatform,
     },
+    ...HINT_PACKS.map((p) => ({
+      id: p.id,
+      type: CdvPurchase.ProductType.CONSUMABLE,
+      platform: storePlatform,
+    })),
   ])
   store
     .when()
@@ -69,6 +97,11 @@ export async function initIap(): Promise<void> {
       // is our product in a purchased state, then acknowledge it. (Cancel never
       // reaches here; it fires `error`.)
       if (grantsRemoveAds(transaction)) grant()
+      const pack = hintPackFor(transaction)
+      if (pack) {
+        grantHints(pack.hints)
+        onHintsPurchased?.(pack.hints)
+      }
       void transaction.finish()
     })
     .productUpdated(() => onChange?.())
@@ -93,6 +126,17 @@ function grantsRemoveAds(t: CdvPurchase.Transaction): boolean {
   return purchased && mine
 }
 
+/** The hint pack a purchased (approved/finished) transaction grants, or null. */
+function hintPackFor(t: CdvPurchase.Transaction): HintPack | null {
+  const state = t.state
+  const purchased =
+    state === CdvPurchase.TransactionState.APPROVED ||
+    state === CdvPurchase.TransactionState.FINISHED
+  if (!purchased) return null
+  const ids = new Set((t.products ?? []).map((p) => p.id))
+  return HINT_PACKS.find((p) => ids.has(p.id)) ?? null
+}
+
 function grant(): void {
   if (!adsRemoved()) setAdsRemoved(true)
   onChange?.()
@@ -104,6 +148,20 @@ export async function buyRemoveAds(): Promise<void> {
   const offer = CdvPurchase.store.get(REMOVE_ADS_ID)?.getOffer()
   // On success StoreKit delivers an `approved` transaction (grants above); on
   // cancel it rejects / fires `error` — nothing is granted.
+  if (offer) await offer.order()
+}
+
+/** Localized price for a hint pack (e.g. "$0.99"), or null before metadata loads. */
+export function hintPackPrice(id: string): string | null {
+  if (!iapSupported()) return null
+  const offer = CdvPurchase.store.get(id)?.getOffer()
+  return offer?.pricingPhases?.[0]?.price ?? null
+}
+
+/** Start the purchase flow for a consumable hint pack. Grants hints on `approved`. */
+export async function buyHintPack(id: string): Promise<void> {
+  if (!iapSupported() || !HINT_PACK_IDS.has(id)) return
+  const offer = CdvPurchase.store.get(id)?.getOffer()
   if (offer) await offer.order()
 }
 

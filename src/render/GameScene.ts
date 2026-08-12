@@ -50,6 +50,7 @@ import {
   useHint,
 } from '../services/ads'
 import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
+import { HINT_PACKS, buyHintPack, hintPackPrice, setHintPurchaseListener } from '../services/iap'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, GOOD, INK, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
@@ -647,60 +648,94 @@ export class GameScene extends Phaser.Scene {
     this.showToast('Hint earned!')
   }
 
-  /** Modal to bank hints by watching videos — stock up as many as you like. */
+  /** Modal to earn a hint (free video) or buy a hint pack. */
   private showHintMenu() {
     const w = this.scale.width
     const h = this.scale.height
     const overlay = this.add.container(0, 0).setDepth(120)
-    const close = () => overlay.destroy()
+    const close = () => {
+      setHintPurchaseListener(null)
+      overlay.destroy()
+    }
 
     const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45).setInteractive()
 
+    // Only offer packs whose store price has loaded; missing products stay hidden.
+    const packs = HINT_PACKS.map((p) => ({ hints: p.hints, id: p.id, price: hintPackPrice(p.id) })).filter(
+      (p): p is { hints: number; id: string; price: string } => p.price != null,
+    )
+
     const cardW = Math.min(w - u(48), u(340))
-    const cardH = u(244)
+    const packBtnH = u(46)
+    const headH = u(84)
+    const footH = u(96)
+    const cardH = headH + packs.length * (packBtnH + u(10)) + footH
     const cx = w / 2
-    const cy = h * 0.42
+    const cy = Math.min(h * 0.44, h - safeArea().bottom - cardH / 2 - u(16))
+    const top = cy - cardH / 2
+
     const card = this.add.graphics()
     card.fillStyle(INK, 1)
-    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2 + u(6), cardW, cardH, u(24))
+    card.fillRoundedRect(cx - cardW / 2, top + u(6), cardW, cardH, u(24))
     card.fillStyle(PAPER, 1)
-    card.fillRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, u(24))
+    card.fillRoundedRect(cx - cardW / 2, top, cardW, cardH, u(24))
     card.lineStyle(OUTLINE + u(1), INK, 1)
-    card.strokeRoundedRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, u(24))
+    card.strokeRoundedRect(cx - cardW / 2, top, cardW, cardH, u(24))
 
-    const title = this.add
-      .text(cx, cy - cardH / 2 + u(38), 'Hints', TEXT.ink(21, '800'))
-      .setOrigin(0.5)
-    const body = this.add.text(cx, cy - u(8), '', TEXT.ink(15, '600')).setOrigin(0.5)
-    body.setColor(INK_SOFT).setAlign('center').setWordWrapWidth(cardW - u(44))
+    const title = this.add.text(cx, top + u(34), 'Hints', TEXT.ink(21, '800')).setOrigin(0.5)
+    const body = this.add.text(cx, top + u(60), '', TEXT.ink(13, '600')).setOrigin(0.5)
+    body.setColor(INK_SOFT).setAlign('center')
     const refresh = () => {
       const n = hintCountValue()
       body.setText(
-        n === 0
-          ? 'Watch a short video to earn a hint.\nStock up as many as you like.'
-          : `You have ${n} hint${n === 1 ? '' : 's'}.\nWatch more, or tap Done and use them anytime.`,
+        n === 0 ? 'Out of hints — watch a video or grab a pack.' : `You have ${n} hint${n === 1 ? '' : 's'}.`,
       )
     }
     refresh()
 
-    const btnY = cy + cardH / 2 - u(44)
-    const btnH = u(52)
-    const watch = makeButton(this, 'Watch video', cardW * 0.5, btnH, 0xf5b942, '#2B2440', () => {
+    const kids: Phaser.GameObjects.GameObject[] = [dim, card, title, body]
+
+    // Buy-a-pack buttons, stacked (bigger pack = better value per hint).
+    let py = top + headH + packBtnH / 2
+    for (const p of packs) {
+      const btn = makeButton(
+        this,
+        `${p.hints} hints  ·  ${p.price}`,
+        cardW * 0.8,
+        packBtnH,
+        PAPER,
+        '#2B2440',
+        () => void buyHintPack(p.id),
+      )
+      btn.setPosition(cx, py)
+      kids.push(btn)
+      py += packBtnH + u(10)
+    }
+
+    const btnY = cy + cardH / 2 - u(40)
+    const rowH = u(52)
+    const watch = makeButton(this, 'Watch video', cardW * 0.5, rowH, 0xf5b942, '#2B2440', () => {
       void this.watchForHint(refresh)
     })
     watch.setPosition(cx + cardW * 0.23, btnY)
-    const done = makeButton(this, 'Done', cardW * 0.34, btnH, PAPER, '#2B2440', () => close())
+    const done = makeButton(this, 'Done', cardW * 0.34, rowH, PAPER, '#2B2440', () => close())
     done.setPosition(cx - cardW * 0.29, btnY)
 
-    // Soft upsell at the perfect moment: Remove Ads also grants unlimited hints.
     const upsell = this.add
-      .text(cx, btnY - btnH / 2 - u(20), 'Tip: Remove ads = unlimited hints', TEXT.ink(12, '600'))
+      .text(cx, btnY - rowH / 2 - u(16), 'Remove ads = unlimited hints', TEXT.ink(11, '600'))
       .setOrigin(0.5)
       .setColor(INK_SOFT)
-      .setAlign('center')
-      .setWordWrapWidth(cardW - u(36))
+    kids.push(upsell, watch, done)
 
-    overlay.add([dim, card, title, body, upsell, watch, done])
+    // A pack purchase resolves asynchronously (native StoreKit sheet) — refresh + toast then.
+    setHintPurchaseListener((n) => {
+      this.refreshHint()
+      refresh()
+      this.showToast(`${n} hints added!`)
+    })
+    this.events.once('shutdown', () => setHintPurchaseListener(null))
+
+    overlay.add(kids)
     if (!this.reducedMotion) {
       overlay.setAlpha(0)
       this.tweens.add({ targets: overlay, alpha: 1, duration: 160 })

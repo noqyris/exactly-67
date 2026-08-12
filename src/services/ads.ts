@@ -390,3 +390,10 @@ export function grantHint(): void {
   hintCount += 1
   void saveHintCount(hintCount)
 }
+
+/** Add several hints at once (call after a hint-pack IAP is purchased). */
+export function grantHints(n: number): void {
+  if (n <= 0) return
+  hintCount += Math.floor(n)
+  void saveHintCount(hintCount)
+}
