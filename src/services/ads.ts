@@ -18,6 +18,7 @@ import {
   saveAdsRemoved,
   saveFreeHintDate,
   saveHintCount,
+  saveUnlimitedHints,
 } from './storage'
 
 /**
@@ -133,6 +134,8 @@ let initialized = false
 let bannerShown = false
 let bannerListening = false
 let removed = false
+// Unlimited hints (the $4.99 bundle). Distinct from `removed` — see hintsUnlimited().
+let unlimited = false
 let clearsSinceInterstitial = 0
 let lastFreeHintDate = ''
 let hintCount = 0
@@ -159,6 +162,27 @@ export function adsSupported(): boolean {
 
 export function adsRemoved(): boolean {
   return removed
+}
+
+/**
+ * Unlimited hints — a SEPARATE entitlement from ad removal since the store
+ * split into "No ads" ($0.99) and "Unlimited hints + no ads" ($4.99). Only the
+ * latter grants this. Gameplay must gate free hints on THIS, never on
+ * `adsRemoved()`, or the cheap product would hand out the expensive perk.
+ */
+export function hintsUnlimited(): boolean {
+  return unlimited
+}
+
+/** Reflect the persisted unlimited-hints flag into memory at boot (no write). */
+export function primeUnlimitedHints(value: boolean): void {
+  unlimited = value
+}
+
+/** Grant/revoke unlimited hints (after a purchase or restore). Persists. */
+export function setUnlimitedHints(value: boolean): void {
+  unlimited = value
+  void saveUnlimitedHints(value)
 }
 
 /**

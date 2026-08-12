@@ -64,6 +64,69 @@ function search(level: LevelDef): Search {
   return { best, bestMask }
 }
 
+/**
+ * Every distinct winning placement, in ascending piece count then ascending
+ * bitmask — a stable order, so "way 2 of 4" means the same thing on every
+ * device and every run.
+ *
+ * `search()` already walks all 2^n masks and throws away everything but the
+ * minimum; this keeps them. Same cost, so it stays instant inside the
+ * MAX_LEVEL_WEIGHTS cap.
+ *
+ * The point is the count. 41 of the 72 shipped levels have exactly one solution,
+ * which is elegant and also means there is nothing for two players to disagree
+ * about. Where a level has several, saying so turns a clear into a comparison.
+ */
+export function allSolutions(level: LevelDef): number[][] {
+  const n = level.weights.length
+  if (n > MAX_LEVEL_WEIGHTS) {
+    throw new Error(`Level has ${n} weights; solver supports at most ${MAX_LEVEL_WEIGHTS}`)
+  }
+
+  let lockedMask = 0
+  for (const i of level.locked ?? []) lockedMask |= 1 << i
+
+  const full = (1 << n) - 1
+  const found: number[] = []
+
+  for (let mask = 0; mask <= full; mask++) {
+    if ((mask & lockedMask) !== lockedMask) continue
+    if (level.useAll && mask !== full) continue
+    const count = popcount(mask)
+    if (count === 0) continue
+    if (level.maxWeights !== undefined && count > level.maxWeights) continue
+
+    let sum = 0
+    for (let i = 0; i < n; i++) {
+      if (mask & (1 << i)) sum += level.weights[i]
+    }
+    if (sum === TARGET) found.push(mask)
+  }
+
+  found.sort((a, b) => popcount(a) - popcount(b) || a - b)
+  return found.map((mask) => {
+    const idx: number[] = []
+    for (let i = 0; i < n; i++) if (mask & (1 << i)) idx.push(i)
+    return idx
+  })
+}
+
+/** How many distinct placements win this level. Always >= 1 for shipped content. */
+export function countSolutions(level: LevelDef): number {
+  return allSolutions(level).length
+}
+
+/**
+ * Which way the player just found, 1-based, or null if `placed` is not a win.
+ * Ordering matches `allSolutions`, so the number is stable across runs.
+ */
+export function solutionIndex(level: LevelDef, placed: readonly boolean[]): number | null {
+  const chosen = level.weights.map((_, i) => i).filter((i) => placed[i])
+  const key = chosen.join(',')
+  const at = allSolutions(level).findIndex((s) => s.join(',') === key)
+  return at < 0 ? null : at + 1
+}
+
 export function solveLevel(level: LevelDef): SolveResult {
   const { best } = search(level)
   return { solvable: best !== null, minWeights: best }

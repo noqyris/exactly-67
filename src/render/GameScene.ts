@@ -41,7 +41,7 @@ import { shareText } from '../services/share'
 import { maybeRequestReview } from '../services/review'
 import { bestFor } from '../game/progress'
 import {
-  adsRemoved,
+  hintsUnlimited,
   grantHint,
   hasHint,
   hintCountValue,
@@ -341,7 +341,7 @@ export class GameScene extends Phaser.Scene {
     const hint = makeIconButton(
       this,
       size,
-      (g, s) => drawHintIcon(g, s, adsRemoved() || hasHint() ? 'have' : 'empty'),
+      (g, s) => drawHintIcon(g, s, hintsUnlimited() || hasHint() ? 'have' : 'empty'),
       () => {
         void this.doHint()
       },
@@ -371,8 +371,8 @@ export class GameScene extends Phaser.Scene {
   /** Re-render the hint button + its count badge for the current stash size. */
   private refreshHint() {
     this.hudButtons.hint.refresh()
-    if (adsRemoved()) {
-      // Owners have unlimited free hints — lit bulb, no count.
+    if (hintsUnlimited()) {
+      // Bundle owners have unlimited free hints — lit bulb, no count.
       this.hintBadge.setVisible(false)
       return
     }
@@ -503,9 +503,10 @@ export class GameScene extends Phaser.Scene {
     if (this.time.now < this.hintCooldownUntil) return
     const index = this.hintIndex()
     if (index == null) return
-    // Remove-Ads owners get hints on the house: free, unlimited, never an ad.
-    // Everyone else spends one banked hint on the first reveal per board.
-    if (!adsRemoved() && !this.hintShown) {
+    // Bundle owners get hints on the house: free, unlimited, never an ad. Note
+    // this is hintsUnlimited(), NOT adsRemoved() — the $0.99 ads-only product
+    // removes ads without buying the hint perk.
+    if (!hintsUnlimited() && !this.hintShown) {
       if (!hasHint()) {
         this.showHintMenu()
         return

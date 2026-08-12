@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { starsForClear } from './stars'
-import { minimalSolution, solveLevel, validatePacks } from './solver'
+import {
+  allSolutions,
+  countSolutions,
+  minimalSolution,
+  solutionIndex,
+  solveLevel,
+  validatePacks,
+} from './solver'
 import type { LevelDef, LevelPack } from './types'
 
 describe('solveLevel', () => {
@@ -129,5 +136,55 @@ describe('starsForClear', () => {
     expect(starsForClear(3, 2)).toBe(2)
     expect(starsForClear(4, 2)).toBe(2)
     expect(starsForClear(5, 2)).toBe(1)
+  })
+})
+
+describe('allSolutions / countSolutions', () => {
+  it('finds every distinct winning placement', () => {
+    // 30+37, 30+20+17 and 37+20+10 all reach 67.
+    const level = { weights: [30, 37, 20, 17, 10] }
+    expect(countSolutions(level)).toBe(3)
+    expect(allSolutions(level)).toEqual([
+      [0, 1],
+      [0, 2, 3],
+      [1, 2, 4],
+    ])
+  })
+
+  it('orders by piece count first, so way 1 is always a shortest one', () => {
+    const ways = allSolutions({ weights: [30, 37, 20, 17, 10] })
+    const lengths = ways.map((w) => w.length)
+    expect(lengths).toEqual([...lengths].sort((a, b) => a - b))
+  })
+
+  it('honours locked, maxWeights and useAll exactly as solveLevel does', () => {
+    expect(countSolutions({ weights: [30, 37, 20, 17, 10], maxWeights: 2 })).toBe(1)
+    expect(countSolutions({ weights: [30, 37, 20, 17, 10], locked: [4] })).toBe(1)
+    // useAll admits only the full set, which does not total 67 here.
+    expect(countSolutions({ weights: [30, 37, 20, 17, 10], useAll: true })).toBe(0)
+  })
+
+  it('never counts the empty placement', () => {
+    expect(countSolutions({ weights: [67] })).toBe(1)
+  })
+
+  it('agrees with minimalSolution on the shortest way', () => {
+    const level = { weights: [30, 37, 20, 17, 10] }
+    expect(allSolutions(level)[0]).toEqual(minimalSolution(level))
+  })
+})
+
+describe('solutionIndex', () => {
+  const level = { weights: [30, 37, 20, 17, 10] }
+
+  it('reports which way was found, 1-based', () => {
+    expect(solutionIndex(level, [true, true, false, false, false])).toBe(1)
+    expect(solutionIndex(level, [true, false, true, true, false])).toBe(2)
+    expect(solutionIndex(level, [false, true, true, false, true])).toBe(3)
+  })
+
+  it('returns null for a placement that does not win', () => {
+    expect(solutionIndex(level, [true, false, false, false, false])).toBeNull()
+    expect(solutionIndex(level, [false, false, false, false, false])).toBeNull()
   })
 })

@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { TOTAL_LEVELS } from '../game/levels'
 import { isCleared, totalStars } from '../game/progress'
-import { adsRemoved } from '../services/ads'
+import { hintsUnlimited } from '../services/ads'
 import { playPlace, setSoundEnabled, soundEnabled } from '../services/audio'
 import { hapticsEnabled, placeTap, setHapticsEnabled } from '../services/haptics'
 import { iapSupported, setIapListener } from '../services/iap'
@@ -77,13 +77,14 @@ export class MenuScene extends Phaser.Scene {
     // Whether the "Store" button is shown. Everything purchasable now lives on
     // the Store screen (hint packs + the unlimited/no-ads unlock + Restore), so
     // the menu carries one button instead of a button plus a restore link.
-    // Owners have nothing left to buy, so they get the status caption instead.
-    const showStore = () => iapSupported() && !adsRemoved()
+    // Only a bundle owner has nothing left to buy — someone who bought the
+    // cheap ads-only unlock still buys hints by the pack, so they keep the Store.
+    const showStore = () => iapSupported() && !hintsUnlimited()
     const storeVisible = showStore()
 
     // Button column, pinned just above the banner strip. `columnDrop` is the
     // distance from the Play centre down to the bottom of the toggle row.
-    const baseDrop = storeVisible ? u(281) : adsRemoved() ? u(253) : u(221)
+    const baseDrop = storeVisible ? u(281) : hintsUnlimited() ? u(253) : u(221)
     const columnBottom = h - safe.bottom - u(16)
     const playH = u(64)
 
@@ -173,11 +174,11 @@ export class MenuScene extends Phaser.Scene {
 
     let toggleRowY = playY + row(198)
 
-    if (!adsRemoved()) {
+    if (!hintsUnlimited()) {
       // Rebuild when ownership changes (a purchase lands) or the products
       // finish loading, since either flips what the column should contain.
       setIapListener(() => {
-        if (showStore() !== storeVisible || adsRemoved()) {
+        if (showStore() !== storeVisible) {
           setIapListener(null)
           this.scene.restart()
         }
@@ -191,7 +192,7 @@ export class MenuScene extends Phaser.Scene {
       )
       store.setPosition(cx, playY + row(194))
       toggleRowY = playY + row(258)
-    } else if (adsRemoved()) {
+    } else if (hintsUnlimited()) {
       // Owner: confirm the perk they unlocked. It's the only place they learn
       // hints are now unlimited (the purchase was framed around ads), so it stays
       // — but with real breathing room above and below so it reads as a calm

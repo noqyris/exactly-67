@@ -8,8 +8,11 @@ const SOUND_KEY = 'exactly67.sound'
 const HAPTICS_KEY = 'exactly67.haptics'
 // Level clears counted since the last interstitial (drives the ad cadence).
 const AD_CLEARS_KEY = 'exactly67.adClears'
-// Whether the player bought "Remove Ads" (Phase 2 IAP).
+// Whether the player owns any ad-removal entitlement (either store product).
 const ADS_REMOVED_KEY = 'exactly67.adsRemoved'
+// Whether the player owns unlimited hints (the $4.99 bundle only). Absent on
+// pre-split installs — see loadUnlimitedHints().
+const UNLIMITED_HINTS_KEY = 'exactly67.unlimitedHints'
 // UTC date (YYYY-MM-DD) of the last daily free-hint top-up.
 const HINT_DATE_KEY = 'exactly67.hintFreeDate'
 // Stored hint inventory (earned via the daily free + rewarded videos).
@@ -139,6 +142,34 @@ export async function loadDailyDone(): Promise<string> {
 export async function saveDailyDone(date: string): Promise<void> {
   try {
     await Preferences.set({ key: DAILY_DONE_KEY, value: date })
+  } catch {
+    // non-fatal
+  }
+}
+
+/**
+ * Whether the player owns the *unlimited hints* entitlement, which is now
+ * separate from ad removal (the $0.99 product removes ads only; the $4.99 one
+ * bundles unlimited hints).
+ *
+ * Returns `null` when the key was never written — the legacy state. Every
+ * pre-split owner bought the old bundled product, so the caller grandfathers
+ * them to `true`; see `primeEntitlements` in main.ts. Do not collapse this to a
+ * plain boolean or those owners silently lose the perk they paid for.
+ */
+export async function loadUnlimitedHints(): Promise<boolean | null> {
+  try {
+    const { value } = await Preferences.get({ key: UNLIMITED_HINTS_KEY })
+    if (value !== 'on' && value !== 'off') return null
+    return value === 'on'
+  } catch {
+    return null
+  }
+}
+
+export async function saveUnlimitedHints(on: boolean): Promise<void> {
+  try {
+    await Preferences.set({ key: UNLIMITED_HINTS_KEY, value: on ? 'on' : 'off' })
   } catch {
     // non-fatal
   }

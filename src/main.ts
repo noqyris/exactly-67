@@ -16,6 +16,7 @@ import {
   initAds,
   initHintState,
   primeAdsRemoved,
+  primeUnlimitedHints,
   setBannerHeightHandler,
   showBanner,
 } from './services/ads'
@@ -24,17 +25,24 @@ import { initReview } from './services/review'
 import { setSoundEnabled } from './services/audio'
 import { setHapticsEnabled } from './services/haptics'
 import { initProgress } from './services/progressStore'
-import { loadAdsRemoved, loadHapticsEnabled, loadSoundEnabled } from './services/storage'
+import {
+  loadAdsRemoved,
+  loadHapticsEnabled,
+  loadSoundEnabled,
+  loadUnlimitedHints,
+  saveUnlimitedHints,
+} from './services/storage'
 
 async function boot() {
   // Canvas text uses the bundled font — wait so first paint is correct.
   await document.fonts.ready.catch(() => {})
 
-  const [, soundOn, hapticsOn, adsAlreadyRemoved] = await Promise.all([
+  const [, soundOn, hapticsOn, adsAlreadyRemoved, storedUnlimited] = await Promise.all([
     initProgress(),
     loadSoundEnabled(),
     loadHapticsEnabled(),
     loadAdsRemoved(),
+    loadUnlimitedHints(),
     // Load the hint stash + grant the daily free hint before the HUD first
     // renders, so the 💡 badge shows the right count immediately.
     initHintState(),
@@ -46,6 +54,17 @@ async function boot() {
   // read adsRemoved() — initAds (which also loads it) is skipped for owners, so
   // without this an owner would see the banner/interstitial + buy button again.
   primeAdsRemoved(adsAlreadyRemoved)
+
+  // Unlimited hints used to be bundled into the single $0.99 remove-ads
+  // product; it is now its own entitlement ($4.99 tier only). A null here means
+  // the key predates that split, so anyone who had already bought the old
+  // product keeps the perk they paid for. Write the derived value back so the
+  // key is never null again — otherwise a later $0.99 ads-only purchase would
+  // be re-read as "legacy owner" on the next launch and hand out unlimited
+  // hints for free.
+  const unlimited = storedUnlimited ?? adsAlreadyRemoved
+  primeUnlimitedHints(unlimited)
+  if (storedUnlimited === null) void saveUnlimitedHints(unlimited)
 
   // Reserve the bottom banner strip before scenes lay out, so the drag area
   // and tray sit above the ad from the very first frame (no reflow jank).

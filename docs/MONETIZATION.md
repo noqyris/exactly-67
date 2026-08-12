@@ -32,6 +32,7 @@ model favors opt-in and light-touch over ad saturation:
 | **Interstitial** | Occasional full-screen at a natural break, under a **hybrid gate**: a clear count decides *where*, time + session + opt-in state decide *whether*. Tuned light (psychology + revenue study). | On the leave-tap after a win, past onboarding (levels 1–8), never on a pack final; see the cadence rule below |
 | **Banner** | Passive fill. | Bottom-anchored, **all screens incl. gameplay** |
 | **Hint packs (IAP)** | Consumables for players who want help without buying the unlock: **10 / 30 / 100 hints at $0.99 / $1.99 / $2.99**. Purchased hints are added to the same banked inventory and **never expire** (Apple requires this, and the balance is a plain persisted counter with no decay). | Store screen |
+| **No Ads (IAP)** | The low-friction "just make it quiet" option: **$0.99**, one-time. Kills banner + interstitial and **nothing else** — hints stay consumable. | Store screen |
 | **Remove Ads (IAP)** | Most reliable revenue in casual games. **$4.99**, one-time. Kills banner + interstitial **and grants unlimited free hints** (owners never see an ad — the 💡 is always lit, no cost, no video). Sits at the **top** of the Store ladder as the hero tier. | Store screen |
 | **Rate this app** | Not revenue — but the App Store rating *is* the funnel. Fires the native StoreKit prompt **once**, at a post-win delight peak. | `review.ts`, from the win overlay (~1.8s after the star pop) |
 

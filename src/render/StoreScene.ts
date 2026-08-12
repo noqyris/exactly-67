@@ -1,11 +1,13 @@
 import Phaser from 'phaser'
-import { adsRemoved, hintCountValue } from '../services/ads'
+import { adsRemoved, hintCountValue, hintsUnlimited } from '../services/ads'
 import {
   buyHintPack,
+  buyNoAds,
   buyRemoveAds,
   hintPackPrice,
   HINT_PACKS,
   iapSupported,
+  noAdsPrice,
   removeAdsPrice,
   restorePurchases,
   setHintPurchaseListener,
@@ -63,16 +65,18 @@ export class StoreScene extends Phaser.Scene {
 
     this.add.text(f.cx, top + u(10), 'Store', TEXT.ink(26, '800')).setOrigin(0.5, 0).setDepth(10)
 
-    const owner = adsRemoved()
+    // Two independent entitlements now: ads-off ($0.99 or $4.99) and unlimited
+    // hints ($4.99 only). Only someone with BOTH has nothing left to buy.
+    const owner = hintsUnlimited()
     const n = hintCountValue()
+    const balance = owner
+      ? 'Unlimited hints · no ads'
+      : adsRemoved()
+        ? `No ads · you have ${n} hint${n === 1 ? '' : 's'}`
+        : `You have ${n} hint${n === 1 ? '' : 's'}`
     // Balance line: what the player has right now, stated plainly.
     this.add
-      .text(
-        f.cx,
-        top + u(52),
-        owner ? 'Unlimited hints · no ads' : `You have ${n} hint${n === 1 ? '' : 's'}`,
-        TEXT.ink(14, '600'),
-      )
+      .text(f.cx, top + u(52), balance, TEXT.ink(14, '600'))
       .setOrigin(0.5, 0)
       .setColor(INK_SOFT)
 
@@ -105,8 +109,9 @@ export class StoreScene extends Phaser.Scene {
   /** What the screen is currently offering — cheap to compare, no allocation churn. */
   private offerSignature(): string {
     return [
-      adsRemoved() ? 'owned' : 'open',
+      hintsUnlimited() ? 'unlimited' : adsRemoved() ? 'noads' : 'open',
       removeAdsPrice() ?? '-',
+      noAdsPrice() ?? '-',
       ...HINT_PACKS.map((p) => hintPackPrice(p.id) ?? '-'),
     ].join('|')
   }
@@ -166,9 +171,14 @@ export class StoreScene extends Phaser.Scene {
     const packs = HINT_PACKS.map((p) => ({ ...p, price: hintPackPrice(p.id) })).filter(
       (p): p is { id: string; hints: number; price: string } => p.price != null,
     )
-    const unlockPrice = removeAdsPrice()
+    // Someone who already bought ad removal must never be offered it again —
+    // neither the cheap one (they own it) nor the bundle (they'd pay a second
+    // time for the half they already have). They buy hints by the pack.
+    const adsOff = adsRemoved()
+    const unlockPrice = adsOff ? null : removeAdsPrice()
+    const noAdsOnlyPrice = adsOff ? null : noAdsPrice()
 
-    if (packs.length === 0 && unlockPrice == null) {
+    if (packs.length === 0 && unlockPrice == null && noAdsOnlyPrice == null) {
       this.add
         .text(
           f.cx,
@@ -187,7 +197,9 @@ export class StoreScene extends Phaser.Scene {
 
     // Cheapest first, unlock last: the ladder climbs, so the most expensive tier
     // is also the best one — no high anchor up top, nothing dominated below.
-    const rows = packs.length + (unlockPrice != null ? 1 : 0)
+    // "No ads" sits between the packs and the bundle: it buys a different thing
+    // (quiet, not hints), so it competes with neither on their own terms.
+    const rows = packs.length + (noAdsOnlyPrice != null ? 1 : 0) + (unlockPrice != null ? 1 : 0)
     const footerH = u(76)
     const avail = bottom - bodyTop - footerH
     const gap = u(12)
@@ -195,7 +207,8 @@ export class StoreScene extends Phaser.Scene {
     // rather than push the last (best) offer below the fold.
     const cardH = Phaser.Math.Clamp((avail - gap * (rows - 1)) / Math.max(rows, 1), u(58), u(84))
     const heroH = Math.min(cardH * 1.12, u(96))
-    const totalH = cardH * packs.length + (unlockPrice != null ? heroH : 0) + gap * (rows - 1)
+    const plainRows = packs.length + (noAdsOnlyPrice != null ? 1 : 0)
+    const totalH = cardH * plainRows + (unlockPrice != null ? heroH : 0) + gap * (rows - 1)
     let y = bodyTop + Math.max(0, (avail - totalH) / 2)
 
     const biggest = packs.reduce((a, b) => (b.hints > a.hints ? b : a), packs[0])
@@ -213,6 +226,23 @@ export class StoreScene extends Phaser.Scene {
         badge,
         hero: false,
         onTap: () => this.purchase(() => buyHintPack(p.id)),
+      })
+      y += cardH + gap
+    }
+
+    if (noAdsOnlyPrice != null) {
+      // Ad removal on its own. No badge: it isn't "better value" than a hint
+      // pack, it's a different purchase, and claiming otherwise would be spin.
+      this.offerCard({
+        cx: f.cx,
+        y: y + cardH / 2,
+        w: cardW,
+        h: cardH,
+        label: 'No ads',
+        sublabel: 'hints not included',
+        price: noAdsOnlyPrice,
+        hero: false,
+        onTap: () => this.purchase(() => buyNoAds()),
       })
       y += cardH + gap
     }

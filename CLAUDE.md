@@ -49,7 +49,7 @@ Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `s
 ### `src/render` — Phaser scenes + Graphics-only vector art
 | File | Role |
 |---|---|
-| `../main.ts` | Boot: awaits font + settings, builds `Phaser.Game`, scenes `[MenuScene, LevelMapScene, GameScene]` (Menu auto-starts). |
+| `../main.ts` | Boot: awaits font + settings, builds `Phaser.Game`, scenes `[MenuScene, LevelMapScene, GameScene, StoreScene]` (Menu auto-starts). Also grandfathers the pre-split `unlimitedHints` entitlement — see `services/storage.ts`. |
 | `layout.ts` | `DPR` (clamped 1–3), `u(n)=n*DPR`, `contentFrame()` (caps play area to 680×940), `safeArea()`, `prefersReducedMotion()`. |
 | `palette.ts` | Single color/typography source: `INK`, `BG`, candy fills, `weightColor(value)`, `FONT`. |
 | `MenuScene.ts` / `LevelMapScene.ts` / `GameScene.ts` / `StoreScene.ts` | The four scenes. `GameScene` (~700 LOC) is the play loop; `StoreScene` is the shop (hint packs + the unlimited/no-ads unlock + Restore). |
@@ -63,9 +63,9 @@ Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `s
 | `audio.ts` | Web Audio **synth** — every SFX generated from oscillators + gain envelopes at play time. No audio files. |
 | `haptics.ts` | Toggle-gated `@capacitor/haptics` wrapper; fire-and-forget, silently no-ops on web. |
 | `ads.ts` | Toggle-gated `@capacitor-community/admob` wrapper (banner / interstitial / rewarded-hint); same fire-and-forget, web-no-op pattern as `haptics.ts`. Runs on **Google test ad units** until real IDs are wired — see [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
-| `iap.ts` | IAP wrapper — StoreKit via `cordova-plugin-purchase` (`CdvPurchase` global; no bundler import, injected natively). Sells three **consumable** hint packs (`HINT_PACKS`, 10/30/100) plus the **non-consumable** unlock; web-no-op; mirrors ownership into `ads.setAdsRemoved` and grants hints via `ads.grantHints`. **Price-ladder invariant: the unlock ($4.99) must stay dearer than the largest pack ($2.99)** — it grants unlimited hints, so pricing it below would strictly dominate every pack and make them traps. See [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
+| `iap.ts` | IAP wrapper — StoreKit via `cordova-plugin-purchase` (`CdvPurchase` global; no bundler import, injected natively). Sells three **consumable** hint packs (`HINT_PACKS`, 10/30/100) plus **two non-consumables**: `NO_ADS_ID` ($0.99, ads off only) and `REMOVE_ADS_ID` ($4.99, ads off **+ unlimited hints**). Web-no-op. **Two separate entitlements** — `ads.adsRemoved()` (either product) and `ads.hintsUnlimited()` (the $4.99 one only). Gameplay must gate free hints on `hintsUnlimited()`, never `adsRemoved()`, or the cheap product hands out the expensive perk. **Price-ladder invariant: the $4.99 unlock must stay dearer than the largest pack ($2.99).** See [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
 | `review.ts` | "Rate this app" wrapper — native StoreKit prompt via `@capacitor-community/in-app-review`. One-shot (persisted flag), web-no-op; `maybeRequestReview` fires from the win overlay at a delight peak. See [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
-| `storage.ts` | `@capacitor/preferences` wrapper. Keys: `exactly67.progress` (JSON), `exactly67.sound`, `exactly67.haptics` (`'on'`/`'off'`), `exactly67.adClears`, `exactly67.adsRemoved`, `exactly67.hintFreeDate` (daily-top-up date), `exactly67.hintCount` (hint inventory), `exactly67.reviewRequested`. |
+| `storage.ts` | `@capacitor/preferences` wrapper. Keys: `exactly67.progress` (JSON), `exactly67.sound`, `exactly67.haptics` (`'on'`/`'off'`), `exactly67.adClears`, `exactly67.adsRemoved`, `exactly67.hintFreeDate` (daily-top-up date), `exactly67.hintCount` (hint inventory), `exactly67.reviewRequested`, `exactly67.unlimitedHints` (`'on'`/`'off'`; **absent = pre-split install**, grandfathered from `adsRemoved` at boot in `main.ts` so old $0.99 buyers keep unlimited hints). |
 | `progressStore.ts` | In-memory cache of `Progress` so scenes read synchronously; write-through on every clear. |
 
 ### `src/dev` — dev-only surfaces (never in the shipped bundle)

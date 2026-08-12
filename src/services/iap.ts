@@ -1,6 +1,6 @@
 /// <reference types="cordova-plugin-purchase" />
 import { Capacitor } from '@capacitor/core'
-import { adsRemoved, grantHints, setAdsRemoved } from './ads'
+import { adsRemoved, grantHints, hintsUnlimited, setAdsRemoved, setUnlimitedHints } from './ads'
 
 /**
  * In-app purchase service — the one-time "Remove Ads" unlock. Same shape as
@@ -24,8 +24,20 @@ import { adsRemoved, grantHints, setAdsRemoved } from './ads'
  * trip; a fresh install restores via the "Restore purchases" button.
  */
 
-/** App Store Connect product id — a Non-Consumable IAP ($0.99). */
+/**
+ * The premium unlock ($4.99, Non-Consumable): removes ads **and** grants
+ * unlimited hints. Owners from before the store split bought this same product
+ * at $0.99 with both perks, so it must keep granting both — see the
+ * grandfathering note in `storage.loadUnlimitedHints`.
+ */
 export const REMOVE_ADS_ID = 'com.noqyris.exactly67.removeads'
+
+/**
+ * Ads-only unlock ($0.99, Non-Consumable). Removes ads and nothing else —
+ * hints stay consumable. Deliberately does NOT grant unlimited hints, which is
+ * the only thing keeping the $4.99 tier meaningful.
+ */
+export const NO_ADS_ID = 'com.noqyris.exactly67.noads'
 
 /**
  * Consumable hint packs — buy hints outright, repeatable. Bigger packs give
@@ -84,6 +96,11 @@ export async function initIap(): Promise<void> {
       type: CdvPurchase.ProductType.NON_CONSUMABLE,
       platform: storePlatform,
     },
+    {
+      id: NO_ADS_ID,
+      type: CdvPurchase.ProductType.NON_CONSUMABLE,
+      platform: storePlatform,
+    },
     ...HINT_PACKS.map((p) => ({
       id: p.id,
       type: CdvPurchase.ProductType.CONSUMABLE,
@@ -96,7 +113,8 @@ export async function initIap(): Promise<void> {
       // Genuine purchase or restore delivered by StoreKit — grant iff it really
       // is our product in a purchased state, then acknowledge it. (Cancel never
       // reaches here; it fires `error`.)
-      if (grantsRemoveAds(transaction)) grant()
+      if (grantsProduct(transaction, REMOVE_ADS_ID)) grant(true)
+      else if (grantsProduct(transaction, NO_ADS_ID)) grant(false)
       const pack = hintPackFor(transaction)
       if (pack) {
         grantHints(pack.hints)
@@ -116,13 +134,13 @@ export async function initIap(): Promise<void> {
   onChange?.()
 }
 
-/** True only for an approved/finished transaction that includes our product. */
-function grantsRemoveAds(t: CdvPurchase.Transaction): boolean {
+/** True only for an approved/finished transaction that includes the given product. */
+function grantsProduct(t: CdvPurchase.Transaction, id: string): boolean {
   const state = t.state
   const purchased =
     state === CdvPurchase.TransactionState.APPROVED ||
     state === CdvPurchase.TransactionState.FINISHED
-  const mine = (t.products ?? []).some((p) => p.id === REMOVE_ADS_ID)
+  const mine = (t.products ?? []).some((p) => p.id === id)
   return purchased && mine
 }
 
@@ -137,8 +155,15 @@ function hintPackFor(t: CdvPurchase.Transaction): HintPack | null {
   return HINT_PACKS.find((p) => ids.has(p.id)) ?? null
 }
 
-function grant(): void {
+/**
+ * Apply an ad-removal entitlement. `withUnlimitedHints` is true only for the
+ * $4.99 bundle; the $0.99 product must never flip that flag on. Never revokes:
+ * a restore that re-delivers only the cheap product must not strip unlimited
+ * hints from someone who also owns the bundle.
+ */
+function grant(withUnlimitedHints: boolean): void {
   if (!adsRemoved()) setAdsRemoved(true)
+  if (withUnlimitedHints && !hintsUnlimited()) setUnlimitedHints(true)
   onChange?.()
 }
 
@@ -148,6 +173,20 @@ export async function buyRemoveAds(): Promise<void> {
   const offer = CdvPurchase.store.get(REMOVE_ADS_ID)?.getOffer()
   // On success StoreKit delivers an `approved` transaction (grants above); on
   // cancel it rejects / fires `error` — nothing is granted.
+  if (offer) await offer.order()
+}
+
+/** Localized price of the ads-only unlock, or null before metadata loads. */
+export function noAdsPrice(): string | null {
+  if (!iapSupported()) return null
+  const offer = CdvPurchase.store.get(NO_ADS_ID)?.getOffer()
+  return offer?.pricingPhases?.[0]?.price ?? null
+}
+
+/** Start the purchase flow for the ads-only unlock. */
+export async function buyNoAds(): Promise<void> {
+  if (!iapSupported()) return
+  const offer = CdvPurchase.store.get(NO_ADS_ID)?.getOffer()
   if (offer) await offer.order()
 }
 

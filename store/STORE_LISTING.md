@@ -112,16 +112,17 @@ Thanks for playing — land on exactly 67!
 **4+** — no objectionable content of any kind.
 
 ## Price
-**Free**, with four in-app purchases — three consumable hint packs plus one permanent unlock:
+**Free**, with five in-app purchases — three consumable hint packs plus two permanent unlocks:
 
 | Product | Type | Price | Product id |
 |---|---|---|---|
 | 10 Hints | Consumable | $0.99 | `com.noqyris.exactly67.hints10` |
 | 30 Hints | Consumable | $1.99 | `com.noqyris.exactly67.hints30` |
 | 100 Hints | Consumable | $2.99 | `com.noqyris.exactly67.hints100` |
+| No Ads | Non-Consumable | $0.99 | `com.noqyris.exactly67.noads` |
 | **Remove Ads** (+ unlimited hints) | Non-Consumable | **$4.99** | `com.noqyris.exactly67.removeads` |
 
-> **The ladder is load-bearing, not arbitrary.** The unlock must stay priced *above* every pack.
+> **The ladder is load-bearing, not arbitrary.** The $4.99 unlock must stay priced *above* every pack.
 > It grants unlimited hints, so at its old $0.99 it strictly dominated all three packs — cheaper
 > *and* better — which made every pack a trap for anyone who didn't notice. If you ever reprice,
 > keep `unlock > largest pack`, or delete the packs.
