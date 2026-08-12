@@ -39,14 +39,14 @@ import {
 
 /**
  * true = serve Google *test* ads (safe to click). false = real, billable ads.
- * FALSE for the App Store production submission (the iOS AdMob app is approved +
- * ad-serving-enabled, so real iOS units fill). The Android AdMob app is not yet
- * approved, but the already-uploaded Play internal-testing build (versionCode 1)
- * was built with test ads and is unchanged, so Android device testing still
- * works; new Android builds now use LIVE_UNITS_ANDROID (won't fill until AdMob
- * approves the public app).
+ *
+ * RELEASE RULE: keep this **true** for every TestFlight / dev build so testers
+ * never click a real ad (invalid traffic can get the AdMob account banned).
+ * Flip to **false ONLY for the App Store production-submission build**, then flip
+ * back to true. Do that flip in its own commit so it's obvious. (Android LIVE
+ * units won't fill until the Android AdMob app is approved either way.)
  */
-const TESTING = false
+const TESTING = true
 
 interface AdUnits {
   banner: string
