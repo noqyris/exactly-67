@@ -83,18 +83,30 @@ export class MenuScene extends Phaser.Scene {
 
     // Button column, pinned just above the banner strip. `columnDrop` is the
     // distance from the Play centre down to the bottom of the toggle row.
-    // With the Remove-ads button present the column is taller and lifted a touch
-    // higher, so "Restore purchases" gets real breathing room between the button
-    // and the toggles instead of being pinched against both.
-    const columnDrop = storeVisible ? u(281) : adsRemoved() ? u(253) : u(221)
-    const playY = h - safe.bottom - u(16) - columnDrop
+    const baseDrop = storeVisible ? u(281) : adsRemoved() ? u(253) : u(221)
+    const columnBottom = h - safe.bottom - u(16)
+    const playH = u(64)
+
+    // On a short screen with the banner reserved, a fixed drop pushes the column
+    // straight through the header: the Play button ends up over the tagline and
+    // clips the 67 block (reproduced at 320x568 + banner). Compress the column
+    // to whatever room is actually left under the header instead — every offset
+    // and button height scales by `kc` together, so the spacing stays even.
+    const headerBottom = by + blockH + u(28) + u(10)
+    const maxDrop = columnBottom - (headerBottom + u(10) + playH / 2)
+    const kc = Phaser.Math.Clamp(maxDrop / baseDrop, 0.66, 1)
+    const columnDrop = baseDrop * kc
+    const playY = columnBottom - columnDrop
+    // Row offsets below Play, all scaled together.
+    const row = (n: number) => u(n) * kc
+    const btnH = u(52) * kc
 
     // The live scale always sits between the subtitle and the buttons. Size it to
     // the gap so it never overlaps them (bug: under ads the Play button climbed
     // over the beam) — it keeps its proportions and just shrinks on cramped
     // screens instead of disappearing.
     const gapTop = by + blockH + u(28) + u(20)
-    const gapBottom = playY - u(32) - u(14) // Play button top, minus a breath
+    const gapBottom = playY - playH * kc / 2 - u(14) // Play button top, minus a breath
     const gapH = gapBottom - gapTop
 
     const niceHalf = Math.min(f.ew * 0.26, u(150))
@@ -141,7 +153,7 @@ export class MenuScene extends Phaser.Scene {
       this,
       started ? `Play  ·  level ${next}` : 'Play',
       Math.min(f.ew * 0.6, u(260)),
-      u(64),
+      playH * kc,
       0xf5b942,
       '#2B2440',
       () => this.scene.start('Game', { level: next }),
@@ -149,17 +161,17 @@ export class MenuScene extends Phaser.Scene {
     play.setPosition(cx, playY)
 
     // A fresh puzzle every day — the "appointment mechanic" that brings players back.
-    const daily = makeButton(this, 'Daily Challenge', Math.min(f.ew * 0.6, u(260)), u(52), PAPER, '#2B2440', () =>
+    const daily = makeButton(this, 'Daily Challenge', Math.min(f.ew * 0.6, u(260)), btnH, PAPER, '#2B2440', () =>
       this.scene.start('Game', { daily: true }),
     )
-    daily.setPosition(cx, playY + u(74))
+    daily.setPosition(cx, playY + row(74))
 
-    const levels = makeButton(this, 'Level map', Math.min(f.ew * 0.6, u(260)), u(52), PAPER, '#2B2440', () =>
+    const levels = makeButton(this, 'Level map', Math.min(f.ew * 0.6, u(260)), btnH, PAPER, '#2B2440', () =>
       this.scene.start('LevelMap', {}),
     )
-    levels.setPosition(cx, playY + u(134))
+    levels.setPosition(cx, playY + row(134))
 
-    let toggleRowY = playY + u(134) + u(64)
+    let toggleRowY = playY + row(198)
 
     if (!adsRemoved()) {
       // Rebuild when ownership changes (a purchase lands) or the products
@@ -174,25 +186,25 @@ export class MenuScene extends Phaser.Scene {
     }
 
     if (storeVisible) {
-      const store = makeButton(this, 'Store', Math.min(f.ew * 0.6, u(260)), u(52), PAPER, '#2B2440', () =>
+      const store = makeButton(this, 'Store', Math.min(f.ew * 0.6, u(260)), btnH, PAPER, '#2B2440', () =>
         this.scene.start('Store'),
       )
-      store.setPosition(cx, playY + u(194))
-      toggleRowY = playY + u(258)
+      store.setPosition(cx, playY + row(194))
+      toggleRowY = playY + row(258)
     } else if (adsRemoved()) {
       // Owner: confirm the perk they unlocked. It's the only place they learn
       // hints are now unlimited (the purchase was framed around ads), so it stays
       // — but with real breathing room above and below so it reads as a calm
       // status line, not a label crammed onto the Level-map button.
       this.add
-        .text(cx, playY + u(134) + u(50), 'No ads · unlimited hints', TEXT.ink(13, '700'))
+        .text(cx, playY + row(184), 'No ads · unlimited hints', TEXT.ink(13, '700'))
         .setOrigin(0.5)
         .setColor(INK_SOFT)
-      toggleRowY = playY + u(134) + u(50) + u(46)
+      toggleRowY = playY + row(230)
     }
 
     // Sound + haptics toggles.
-    const size = u(46)
+    const size = u(46) * kc
     const sound = makeIconButton(
       this,
       size,

@@ -354,6 +354,9 @@ export class GameScene extends Phaser.Scene {
     hint.add(this.hintBadge)
     this.hudButtons = { back, sound, haptics, hint }
     this.refreshHint()
+    // Coming back from the Store overlay, the stash may have grown (or hints may
+    // have become unlimited) — resync the badge instead of showing a stale count.
+    this.events.on(Phaser.Scenes.Events.RESUME, () => this.refreshHint())
   }
 
   private hudButtons!: {
@@ -721,7 +724,10 @@ export class GameScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
     upsell.on('pointerup', () => {
       close()
-      this.scene.start('Store')
+      // Overlay, not a scene swap: the player is buying hints to finish THIS
+      // board, so it has to still be here when they come back.
+      this.scene.pause()
+      this.scene.launch('Store', { returnTo: 'Game' })
     })
     kids.push(upsell, watch, done)
 

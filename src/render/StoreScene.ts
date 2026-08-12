@@ -38,9 +38,18 @@ const INK_SOFT = '#5D5470'
  */
 export class StoreScene extends Phaser.Scene {
   private toastText?: Phaser.GameObjects.Text
+  /** Scene to hand control back to, when opened as an overlay (see close()). */
+  private returnTo?: string
+  /** Guards the async StoreKit round trip so one tap can't order twice. */
+  private buying = false
 
   constructor() {
     super('Store')
+  }
+
+  init(data?: { returnTo?: string }) {
+    this.returnTo = data?.returnTo
+    this.buying = false
   }
 
   create() {
@@ -55,17 +64,28 @@ export class StoreScene extends Phaser.Scene {
     this.add.text(f.cx, top + u(10), 'Store', TEXT.ink(26, '800')).setOrigin(0.5, 0).setDepth(10)
 
     const owner = adsRemoved()
+    const n = hintCountValue()
     // Balance line: what the player has right now, stated plainly.
     this.add
-      .text(f.cx, top + u(52), owner ? 'Unlimited hints · no ads' : `You have ${hintCountValue()} hints`, TEXT.ink(14, '600'))
+      .text(
+        f.cx,
+        top + u(52),
+        owner ? 'Unlimited hints · no ads' : `You have ${n} hint${n === 1 ? '' : 's'}`,
+        TEXT.ink(14, '600'),
+      )
       .setOrigin(0.5, 0)
       .setColor(INK_SOFT)
 
-    // Rebuild when a purchase or product load changes what should be on screen.
-    setIapListener(() => this.scene.restart())
-    setHintPurchaseListener((n) => {
-      this.showToast(`${n} hints added!`)
-      this.time.delayedCall(900, () => this.scene.restart())
+    // Rebuild only when the offers themselves change (ownership flips, or a
+    // product's price arrives). An unconditional restart here would also fire on
+    // a no-op restore and tear down the toast that reports its result.
+    const before = this.offerSignature()
+    setIapListener(() => {
+      if (this.offerSignature() !== before) this.rebuild()
+    })
+    setHintPurchaseListener((count) => {
+      this.showToast(`${count} hints added!`)
+      this.time.delayedCall(900, () => this.rebuild())
     })
     this.events.once('shutdown', () => {
       setIapListener(null)
@@ -78,12 +98,47 @@ export class StoreScene extends Phaser.Scene {
     else this.buildOffers(f, bodyTop, bottom)
 
     this.scale.once('resize', () => {
-      this.time.delayedCall(60, () => this.scene.restart())
+      this.time.delayedCall(60, () => this.rebuild())
     })
   }
 
+  /** What the screen is currently offering — cheap to compare, no allocation churn. */
+  private offerSignature(): string {
+    return [
+      adsRemoved() ? 'owned' : 'open',
+      removeAdsPrice() ?? '-',
+      ...HINT_PACKS.map((p) => hintPackPrice(p.id) ?? '-'),
+    ].join('|')
+  }
+
+  /** Restart preserving the return route, which plain `restart()` would drop. */
+  private rebuild() {
+    this.scene.restart(this.returnTo ? { returnTo: this.returnTo } : undefined)
+  }
+
+  /**
+   * When the Store was launched over a live scene (the out-of-hints moment mid
+   * level), hand control back to it instead of starting the Menu — the player
+   * paid to finish THAT board, so tearing it down would discard what they just
+   * bought hints for.
+   */
   private close() {
+    if (this.returnTo) {
+      const target = this.returnTo
+      this.scene.stop()
+      this.scene.resume(target)
+      return
+    }
     this.scene.start('Menu')
+  }
+
+  /** Serialize StoreKit round trips: a second tap while a sheet is up is ignored. */
+  private purchase(run: () => Promise<void>) {
+    if (this.buying) return
+    this.buying = true
+    void run().finally(() => {
+      this.buying = false
+    })
   }
 
   /** Nothing left to sell — say so instead of dangling worthless packs. */
@@ -157,7 +212,7 @@ export class StoreScene extends Phaser.Scene {
         price: p.price,
         badge,
         hero: false,
-        onTap: () => void buyHintPack(p.id),
+        onTap: () => this.purchase(() => buyHintPack(p.id)),
       })
       y += cardH + gap
     }
@@ -172,7 +227,7 @@ export class StoreScene extends Phaser.Scene {
         sublabel: 'and no ads, forever',
         price: unlockPrice,
         hero: true,
-        onTap: () => void buyRemoveAds(),
+        onTap: () => this.purchase(() => buyRemoveAds()),
       })
     }
 
@@ -250,10 +305,25 @@ export class StoreScene extends Phaser.Scene {
       chip.y = dy
       priceText.y = dy
     }
-    c.on('pointerdown', () => move(true))
-    c.on('pointerout', () => move(false))
+
+    // Arm on press, commit only if the SAME row was pressed. Phaser re-hit-tests
+    // at the release point, so a bare pointerup handler fires on whatever the
+    // finger happens to be over when it lifts — slide off "10 hints" onto the
+    // row below and you'd get a purchase sheet for a tier you never pressed.
+    // Harmless elsewhere (a stray navigation); here it costs money.
+    let armed = false
+    c.on('pointerdown', () => {
+      armed = true
+      move(true)
+    })
+    c.on('pointerout', () => {
+      armed = false
+      move(false)
+    })
     c.on('pointerup', () => {
       move(false)
+      if (!armed) return
+      armed = false
       o.onTap()
     })
     return c
@@ -277,8 +347,19 @@ export class StoreScene extends Phaser.Scene {
       .setColor(INK_SOFT)
       .setInteractive({ useHandCursor: true })
     restore.on('pointerup', () => {
-      void restorePurchases()
+      if (this.buying) return
+      this.buying = true
       this.showToast('Checking your purchases…')
+      void restorePurchases()
+        .then(() => {
+          // A genuine restore flips ownership, and the iap listener rebuilds
+          // into the owned state; otherwise say so plainly rather than leaving
+          // the player staring at an unchanged screen wondering if it worked.
+          if (!adsRemoved()) this.showToast('No previous purchase found')
+        })
+        .finally(() => {
+          this.buying = false
+        })
     })
   }
 
