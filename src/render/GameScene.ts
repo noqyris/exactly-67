@@ -2,6 +2,8 @@ import Phaser from 'phaser'
 import { beamAngleDeg } from '../game/balance'
 import { levelByGlobal, TOTAL_LEVELS } from '../game/levels'
 import type { LevelRef } from '../game/levels'
+import { dailyLevelFor, todayKey } from '../game/daily'
+import type { LevelPack } from '../game/types'
 import {
   canPlace,
   canRemove,
@@ -49,7 +51,7 @@ import {
   showRewardedHint,
   useHint,
 } from '../services/ads'
-import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
+import { saveDailyDone, saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { HINT_PACKS, buyHintPack, hintPackPrice, setHintPurchaseListener } from '../services/iap'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, GOOD, INK, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
@@ -114,15 +116,28 @@ export class GameScene extends Phaser.Scene {
   private toastTween: Phaser.Tweens.Tween | null = null
   private confettiKeys: string[] = []
   private prevTotal: number | null = null
+  private daily = false
 
   constructor() {
     super('Game')
   }
 
-  init(data: { level?: number }) {
-    const ref = levelByGlobal(data.level ?? 1)
-    if (!ref) throw new Error(`Unknown level ${data.level}`)
-    this.ref = ref
+  init(data: { level?: number; daily?: boolean }) {
+    this.daily = data.daily === true
+    if (this.daily) {
+      // Same puzzle for everyone today; a fake pack carries just a title label.
+      this.ref = {
+        def: dailyLevelFor(todayKey(new Date())),
+        pack: { id: 'daily', name: "Today's puzzle", tagline: '', levels: [] } as LevelPack,
+        packIndex: -1,
+        levelIndex: -1,
+        global: -1,
+      }
+    } else {
+      const ref = levelByGlobal(data.level ?? 1)
+      if (!ref) throw new Error(`Unknown level ${data.level}`)
+      this.ref = ref
+    }
     this.wonState = false
     this.weights = []
     this.toastTween = null
@@ -299,7 +314,8 @@ export class GameScene extends Phaser.Scene {
 
     const size = u(46)
     const back = makeIconButton(this, size, (g, s) => drawBackIcon(g, s), () => {
-      this.scene.start('LevelMap', { scrollTo: this.ref.global })
+      if (this.daily) this.scene.start('Menu')
+      else this.scene.start('LevelMap', { scrollTo: this.ref.global })
     })
     const sound = makeIconButton(
       this,
@@ -377,7 +393,7 @@ export class GameScene extends Phaser.Scene {
     this.hudButtons.sound.setPosition(rightX - size - u(12), top + size / 2)
 
     this.levelText.setPosition(f.cx, top - u(2))
-    this.levelText.setText(`Level ${this.ref.global}`)
+    this.levelText.setText(this.daily ? 'Daily Challenge' : `Level ${this.ref.global}`)
     this.packText.setPosition(f.cx, top + u(24))
     this.packText.setText(this.ref.pack.name)
 
@@ -979,7 +995,8 @@ export class GameScene extends Phaser.Scene {
 
     const used = placedCount(this.placed)
     const stars = starsForClear(used, this.minWeights)
-    recordClear(this.ref.global, stars, used)
+    if (this.daily) void saveDailyDone(todayKey(new Date()))
+    else recordClear(this.ref.global, stars, used)
     noteCleared() // count this clear toward the interstitial cadence
 
     this.time.delayedCall(500, () => {
@@ -1045,7 +1062,7 @@ export class GameScene extends Phaser.Scene {
       starViews.push(sg)
     }
 
-    const best = bestFor(progress(), this.ref.global)
+    const best = this.daily ? undefined : bestFor(progress(), this.ref.global)
     // Which of the level's winning placements this was. Most levels have exactly
     // one, and saying "the only way" is worth more than saying nothing; where
     // there are several, naming the one you found turns a clear into something
@@ -1081,39 +1098,56 @@ export class GameScene extends Phaser.Scene {
       fn()
     }
 
-    const hasNext = this.ref.global < TOTAL_LEVELS
     const btnY = cy + cardH / 2 - u(56)
     const btnH = u(56)
-    const nextBtn = hasNext
-      ? makeButton(this, 'Next', cardW * 0.42, btnH, 0xf5b942, '#2B2440', once(() => {
-          this.leaveAfterClear(() => this.scene.restart({ level: this.ref.global + 1 }))
-        }))
-      : makeButton(this, 'The End!', cardW * 0.42, btnH, 0xf5b942, '#2B2440', once(() => {
-          this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
-        }))
+    let nextBtn: Phaser.GameObjects.Container
+    let retryBtn: Phaser.GameObjects.Container
+    let mapBtn: Phaser.GameObjects.Container
+    if (this.daily) {
+      // Daily has no "next level": Done/Menu return home, Retry replays today.
+      nextBtn = makeButton(this, 'Done', cardW * 0.42, btnH, 0xf5b942, '#2B2440', once(() => {
+        this.scene.start('Menu')
+      }))
+      retryBtn = makeButton(this, 'Retry', cardW * 0.22, btnH, PAPER, '#2B2440', once(() => {
+        this.scene.restart({ daily: true })
+      }))
+      mapBtn = makeButton(this, 'Menu', cardW * 0.2, btnH, PAPER, '#2B2440', once(() => {
+        this.scene.start('Menu')
+      }))
+    } else {
+      const hasNext = this.ref.global < TOTAL_LEVELS
+      nextBtn = hasNext
+        ? makeButton(this, 'Next', cardW * 0.42, btnH, 0xf5b942, '#2B2440', once(() => {
+            this.leaveAfterClear(() => this.scene.restart({ level: this.ref.global + 1 }))
+          }))
+        : makeButton(this, 'The End!', cardW * 0.42, btnH, 0xf5b942, '#2B2440', once(() => {
+            this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
+          }))
+      retryBtn = makeButton(this, 'Retry', cardW * 0.22, btnH, PAPER, '#2B2440', once(() => {
+        this.scene.restart({ level: this.ref.global })
+      }))
+      mapBtn = makeButton(this, 'Map', cardW * 0.2, btnH, PAPER, '#2B2440', once(() => {
+        this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
+      }))
+    }
     nextBtn.setPosition(cx + cardW * 0.24, btnY)
-
-    const retryBtn = makeButton(this, 'Retry', cardW * 0.22, btnH, PAPER, '#2B2440', once(() => {
-      this.scene.restart({ level: this.ref.global })
-    }))
     retryBtn.setPosition(cx - cardW * 0.36, btnY)
-
-    const mapBtn = makeButton(this, 'Map', cardW * 0.2, btnH, PAPER, '#2B2440', once(() => {
-      this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
-    }))
     mapBtn.setPosition(cx - cardW * 0.13, btnY)
 
     // Share sits above the navigation row, not in it: the row is a decision
     // ("what next"), and mixing an optional action into it costs a mis-tap.
     // It is deliberately outside `once()` — sharing does not navigate, so it
     // must stay live after the sheet is dismissed.
-    const shareBtn = makeButton(
-      this, 'Share', cardW * 0.34, u(46), PAPER, '#2B2440',
-      () => void this.shareResult(used, stars, which),
-    )
-    shareBtn.setPosition(cx, btnY - u(62))
-
-    overlay.add([dim, card, title, ...starViews, sub, shareBtn, nextBtn, retryBtn, mapBtn])
+    const kids: Phaser.GameObjects.GameObject[] = [dim, card, title, ...starViews, sub, nextBtn, retryBtn, mapBtn]
+    // The share card is keyed by level number, which the daily board doesn't have — skip share there.
+    if (!this.daily) {
+      const shareBtn = makeButton(this, 'Share', cardW * 0.34, u(46), PAPER, '#2B2440', () =>
+        void this.shareResult(used, stars, which),
+      )
+      shareBtn.setPosition(cx, btnY - u(62))
+      kids.push(shareBtn)
+    }
+    overlay.add(kids)
     if (!this.reducedMotion) {
       overlay.setAlpha(0)
       this.tweens.add({ targets: overlay, alpha: 1, duration: 200 })
@@ -1157,15 +1191,16 @@ export class GameScene extends Phaser.Scene {
           else this.placeWeight(index)
         }
       } else if (key === 'r' || key === 'R') {
-        this.scene.restart({ level: this.ref.global })
-      } else if ((key === 'n' || key === 'N') && this.wonState && this.ref.global < TOTAL_LEVELS) {
+        this.scene.restart(this.daily ? { daily: true } : { level: this.ref.global })
+      } else if ((key === 'n' || key === 'N') && this.wonState && !this.daily && this.ref.global < TOTAL_LEVELS) {
         this.scene.restart({ level: this.ref.global + 1 })
       } else if (key === 'm' || key === 'M') {
         setSoundEnabled(!soundEnabled())
         void saveSoundEnabled(soundEnabled())
         this.hudButtons.sound.refresh()
       } else if (key === 'Escape') {
-        this.scene.start('LevelMap', { scrollTo: this.ref.global })
+        if (this.daily) this.scene.start('Menu')
+        else this.scene.start('LevelMap', { scrollTo: this.ref.global })
       }
     })
   }

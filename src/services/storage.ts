@@ -126,6 +126,24 @@ export async function saveReviewRequested(on: boolean): Promise<void> {
   }
 }
 
+// Last UTC day the player completed the Daily Challenge (YYYY-MM-DD).
+const DAILY_DONE_KEY = 'exactly67.dailyDone'
+export async function loadDailyDone(): Promise<string> {
+  try {
+    const { value } = await Preferences.get({ key: DAILY_DONE_KEY })
+    return value ?? ''
+  } catch {
+    return ''
+  }
+}
+export async function saveDailyDone(date: string): Promise<void> {
+  try {
+    await Preferences.set({ key: DAILY_DONE_KEY, value: date })
+  } catch {
+    // non-fatal
+  }
+}
+
 export async function loadAdsRemoved(): Promise<boolean> {
   try {
     const { value } = await Preferences.get({ key: ADS_REMOVED_KEY })
