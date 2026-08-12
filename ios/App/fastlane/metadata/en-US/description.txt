@@ -10,14 +10,15 @@ HOW IT PLAYS
 - Land on exactly 67 to clear the level.
 - No timers. No fail states. Rearrange as much as you like. It's a calm, think-at-your-own-pace puzzle, not a reflex test.
 
-300 LEVELS THAT KEEP CLIMBING
-Thirteen packs, each harder than the last — from a gentle opening to trays that
+600 LEVELS THAT KEEP CLIMBING
+Twenty-five packs, each harder than the last — from a gentle opening to trays that
 fight back:
 - Warm-Up — learn the ropes and meet the balloons.
 - Prime Time — prime-heavy sets where hitting 67 gets sneaky.
 - Heavy Lifting — big numbers and deep overshoots that only balloons can rescue.
-- Balloon Season, Tight Budget, Locked In, Sky High, Fine Margins, Crosswinds,
-  The Squeeze, Mind Benders, Grandmaster — and finally The Gauntlet.
+- Balloon Season, Crosswinds, Sky High, Deep End, Tug of War, Hairline,
+  Tightrope, Cold Equations, Mind Benders, No Margin, Grandmaster — and
+  finally The Gauntlet.
 Every single level is solver-verified, so there is always a way to land on 67.
 Along the way you'll meet locked weights, tight piece budgets, and "use every weight" puzzles that keep the ideas fresh right to the end.
 
@@ -31,7 +32,7 @@ MADE TO FEEL GOOD
 - Respects Reduced Motion.
 
 FREE TO PLAY
-- Free to download, with all 300 levels unlocked from the start.
+- Free to download, with all 600 levels unlocked from the start.
 - A banner and the occasional full-screen ad help keep the game free.
 - Stuck? Watch a short optional video to bank an extra hint — and collect one free hint every day.
 - Prefer a clean board? Remove ads forever with one small in-app purchase, and your hints become unlimited.

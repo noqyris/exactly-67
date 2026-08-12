@@ -18,49 +18,49 @@ export const pack4: LevelPack = {
     { weights: [-5, 54, -10, 40, 40, 6, 28, -17] },
     // 2 (global 74) — 4 of 8, 3 ways, 19 near-misses
     { weights: [-14, 15, 56, -22, 47, 15, 29, -33] },
-    // 3 (global 75) — 4 of 8, 1 way, 19 near-misses
-    { weights: [41, 45, 29, 48, -4, -17, -6, 37] },
-    // 4 (global 76) — 4 of 8, 2 ways, 21 near-misses
-    { weights: [72, 79, 79, 35, -43, -35, -9, -38] },
-    // 5 (global 77) — 4 of 8, 3 ways, 19 near-misses
-    { weights: [78, -32, 77, -13, 47, 18, -15, -13] },
-    // 6 (global 78) — 4 of 8, 2 ways, 18 near-misses
-    { weights: [34, 31, -34, -29, -30, -11, 98, 32] },
-    // 7 (global 79) — 4 of 8, 3 ways, 22 near-misses
-    { weights: [-5, 68, 64, -31, 63, -32, 60, -29] },
-    // 8 (global 80) — 4 of 8, 1 way, 19 near-misses
-    { weights: [-28, -13, 66, 25, 64, 21, -6, 20] },
-    // 9 (global 81) — 4 of 8, 1 way, 21 near-misses
-    { weights: [8, 26, 57, -17, -6, -8, 70, 11] },
-    // 10 (global 82) — 4 of 8, 3 ways, 20 near-misses
+    // 3 (global 75) — 4 of 8, 3 ways, 19 near-misses
+    { weights: [63, -16, 7, -5, 14, -24, 82, 7] },
+    // 4 (global 76) — 4 of 8, 3 ways, 20 near-misses
     { weights: [41, -6, 37, 42, 87, 41, -7, -9] },
-    // 11 (global 83) — 4 of 8, 3 ways, 25 near-misses
-    { weights: [-9, -4, -11, 45, 29, -10, 6, 43] },
-    // 12 (global 84) — 4 of 8, 1 way, 22 near-misses
-    { weights: [-22, -6, -43, 48, 24, 72, 70, -8] },
-    // 13 (global 85) — 4 of 8, 2 ways, 19 near-misses
-    { weights: [-36, -32, -24, 69, -7, 37, 68, 58] },
-    // 14 (global 86) — 4 of 8, 1 way, 27 near-misses
-    { weights: [-6, 37, 37, 35, -8, 77, 6, -8] },
-    // 15 (global 87) — 4 of 8, 3 ways, 19 near-misses
+    // 5 (global 77) — 4 of 8, 3 ways, 20 near-misses
+    { weights: [38, 64, 33, -38, -10, 68, 36, -27] },
+    // 6 (global 78) — 4 of 8, 3 ways, 21 near-misses
+    { weights: [-7, 19, -39, 20, -4, 49, 41, 29] },
+    // 7 (global 79) — 4 of 8, 3 ways, 19 near-misses
+    { weights: [78, -32, 77, -13, 47, 18, -15, -13] },
+    // 8 (global 80) — 4 of 8, 3 ways, 19 near-misses
     { weights: [23, -25, 71, -7, 18, -25, -24, 28] },
-    // 16 (global 88) — 4 of 8, 2 ways, 19 near-misses
-    { weights: [-29, -22, 47, 10, 40, 46, 34, -4] },
-    // 17 (global 89) — 4 of 8, 2 ways, 20 near-misses
-    { weights: [-28, 62, -26, 58, 28, 90, -26, 63] },
-    // 18 (global 90) — 4 of 8, 2 ways, 20 near-misses
-    { weights: [26, -4, 25, 70, -23, 69, -26, 52] },
-    // 19 (global 91) — 4 of 8, 1 way, 19 near-misses
-    { weights: [39, -40, -14, 43, 36, 41, -6, 85] },
-    // 20 (global 92) — 4 of 8, 3 ways, 19 near-misses
+    // 9 (global 81) — 4 of 8, 3 ways, 19 near-misses
     { weights: [49, -26, 49, -4, -13, -18, 32, 34] },
-    // 21 (global 93) — 4 of 8, 1 way, 19 near-misses
-    { weights: [-30, -9, 12, -7, 27, 32, 72, 6] },
+    // 10 (global 82) — 4 of 8, 3 ways, 22 near-misses
+    { weights: [-11, -14, 9, 14, 54, 38, 28, -24] },
+    // 11 (global 83) — 4 of 8, 2 ways, 19 near-misses
+    { weights: [-29, -22, 47, 10, 40, 46, 34, -4] },
+    // 12 (global 84) — 4 of 8, 2 ways, 19 near-misses
+    { weights: [57, 26, -26, 64, -4, 39, -28, 9] },
+    // 13 (global 85) — 4 of 9, 3 ways, 21 near-misses
+    { weights: [-44, 73, 95, -21, -26, 64, 18, 52, 23] },
+    // 14 (global 86) — 4 of 8, 3 ways, 20 near-misses
+    { weights: [-10, 20, -14, -13, 63, 75, 11, -15] },
+    // 15 (global 87) — 4 of 8, 2 ways, 20 near-misses
+    { weights: [-28, 62, -26, 58, 28, 90, -26, 63] },
+    // 16 (global 88) — 4 of 8, 2 ways, 20 near-misses
+    { weights: [26, -4, 25, 70, -23, 69, -26, 52] },
+    // 17 (global 89) — 4 of 8, 2 ways, 20 near-misses
+    { weights: [69, 47, -7, 49, -6, 19, 7, -44] },
+    // 18 (global 90) — 4 of 8, 2 ways, 20 near-misses
+    { weights: [-10, 46, -10, 39, -7, 45, 17, 34] },
+    // 19 (global 91) — 4 of 8, 3 ways, 21 near-misses
+    { weights: [74, -34, -6, -43, 44, 72, -42, 71] },
+    // 20 (global 92) — 4 of 8, 3 ways, 21 near-misses
+    { weights: [95, -5, -5, 74, -8, -13, 76, 9] },
+    // 21 (global 93) — 4 of 8, 2 ways, 18 near-misses
+    { weights: [34, 31, -34, -29, -30, -11, 98, 32] },
     // 22 (global 94) — 4 of 8, 3 ways, 24 near-misses
     { weights: [63, 63, -35, 41, 6, 63, -4, -33] },
     // 23 (global 95) — 4 of 8, 1 way, 20 near-misses
-    { weights: [57, 33, -20, -15, 70, -18, 14, -16] },
-    // 24 (global 96) — 4 of 8, 3 ways, 23 near-misses
-    { weights: [-26, 69, -4, 64, -44, -22, 26, 28] },
+    { weights: [-41, 27, -5, 46, 24, 46, 71, 42] },
+    // 24 (global 96) — 4 of 8, 2 ways, 21 near-misses
+    { weights: [18, 70, 74, -6, 8, -24, 23, -4] },
   ],
 }

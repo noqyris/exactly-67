@@ -38,7 +38,7 @@ was worth dropping the redundant "brainteaser" (the subtitle already carries "br
 
 ## Promotional text (max 170 chars — editable anytime without review)
 ```
-Land on exactly 67! Drop weights, lift balloons, balance the scale across 300 levels that just keep getting harder. Stuck? Grab a hint. Calm, clever number puzzling.
+Land on exactly 67! Drop weights, lift balloons, balance the scale across 600 levels that just keep getting harder. Stuck? Grab a hint. Calm, clever number puzzling.
 ```
 
 ## Description (max 4000 chars)
@@ -79,7 +79,7 @@ MADE TO FEEL GOOD
 - Respects Reduced Motion.
 
 FREE TO PLAY
-- Free to download, with all 300 levels unlocked from the start.
+- Free to download, with all 600 levels unlocked from the start.
 - A banner and the occasional full-screen ad help keep the game free.
 - Stuck? Watch a short optional video to bank an extra hint — and collect one free hint every day.
 - Prefer a clean board? Remove ads forever with one small in-app purchase, and your hints become unlimited.
@@ -96,7 +96,7 @@ busy, Exactly 67 is a pocketful of quiet "aha" moments. Grab a balloon and balan
 ## What's New (release notes for v1.0.0)
 ```
 The first release of Exactly 67!
-- 300 levels across thirteen packs, each harder than the last
+- 600 levels across twenty-five packs, each harder than the last
 - Weights, balloons, locked pieces, piece budgets and use-every-weight puzzles
 - Three-star efficiency ratings, fully offline, no ads
 Thanks for playing — land on exactly 67!

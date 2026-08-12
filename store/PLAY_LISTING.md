@@ -50,7 +50,7 @@ MADE TO FEEL GOOD
 - Respects Reduced Motion.
 
 FREE TO PLAY
-- Free to download and play all 300 levels.
+- Free to download and play all 600 levels.
 - A banner and an occasional full-screen ad help keep the game free.
 - Stuck? Watch a short optional video to earn an extra hint — you also get one free hint every day.
 - Prefer no ads? Remove them forever with a single small in-app purchase.
@@ -62,7 +62,7 @@ If you love number puzzles, math games, logic brain teasers, or just a calm way 
 
 ## Release notes (en-GB)
 ```
-First Android release. Balance the scale to land on exactly 67 across 300 levels that keep getting harder — weights, balloons, locked pieces and three-star ratings. Free to play with optional ads and a one-time Remove Ads purchase.
+First Android release. Balance the scale to land on exactly 67 across 600 levels that keep getting harder — weights, balloons, locked pieces and three-star ratings. Free to play with optional ads and a one-time Remove Ads purchase.
 ```
 
 ---

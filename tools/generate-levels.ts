@@ -140,7 +140,7 @@ export function difficulty(level: LevelDef): number {
     level.weights.length * 0.8 +
     (minWeights ?? 1) * 2.5 +
     balloonCount(level.weights) * 1.5 +
-    Math.min(traps, 40) * 0.6 +
+    Math.min(traps, 60) * 0.6 +
     (ways === 1 ? 4 : ways === 2 ? 2 : 0) +
     (level.maxWeights !== undefined ? 3 : 0) +
     (level.locked !== undefined ? 2 : 0)
@@ -172,18 +172,18 @@ function bandFor(i: number, total: number) {
   // curve rather than restarting it — level 73 must not feel easier than 72.
   const n = Math.round(lerp(8, 12))
   // Keep at least two decoys so the tray is always a search, never a checklist.
-  const minW = Math.min(Math.round(lerp(4, 6)), n - 2)
+  const minW = Math.min(Math.round(lerp(4, 7)), n - 2)
   const tight = t < 0.3 ? 3 : t < 0.65 ? 2 : 1
   return {
     n,
     minW,
     // Widen with tray size — see the note above.
     waysMax: tight + Math.max(0, n - 8),
-    balloons: Math.min(Math.max(1, Math.round(lerp(2, 4))), minW - 1),
-    traps: Math.round(lerp(18, 30)),
+    balloons: Math.min(Math.max(1, Math.round(lerp(2, 5))), minW - 1),
+    traps: Math.round(lerp(18, 44)),
     // Constraints stay rare early and become the norm late.
-    budgetP: t > 0.12 ? lerp(0.1, 0.55) : 0,
-    lockP: t > 0.22 ? lerp(0.05, 0.4) : 0,
+    budgetP: t > 0.12 ? lerp(0.1, 0.7) : 0,
+    lockP: t > 0.22 ? lerp(0.05, 0.5) : 0,
   }
 }
 type Band = ReturnType<typeof bandFor>
@@ -295,21 +295,52 @@ interface PackSpec {
   size: number
 }
 
-const NEW_PACKS: PackSpec[] = [
-  { id: 'pack-4', name: 'Balloon Season', tagline: 'The sky pulls back harder.', size: 24 },
-  { id: 'pack-5', name: 'Tight Budget', tagline: 'Fewer pieces. Same 67.', size: 24 },
-  { id: 'pack-6', name: 'Locked In', tagline: 'Some weights are not going anywhere.', size: 24 },
-  { id: 'pack-7', name: 'Sky High', tagline: 'Overshoot on purpose. Come back clean.', size: 24 },
-  { id: 'pack-8', name: 'Fine Margins', tagline: 'Everything lands one off.', size: 24 },
-  { id: 'pack-9', name: 'Crosswinds', tagline: 'Push and lift, all at once.', size: 24 },
-  { id: 'pack-10', name: 'The Squeeze', tagline: 'No room left to be wrong.', size: 24 },
-  { id: 'pack-11', name: 'Mind Benders', tagline: 'One answer. Nothing else close.', size: 24 },
-  { id: 'pack-12', name: 'Grandmaster', tagline: 'Every piece has to earn its place.', size: 24 },
-  { id: 'pack-13', name: 'The Gauntlet', tagline: 'Twelve last words.', size: 12 },
+/**
+ * Names for the generated packs. The list is the ceiling on how many packs can
+ * be produced — deliberately, because a pack needs an identity, and "Pack 27"
+ * is not one.
+ */
+const PACK_NAMES: [string, string][] = [
+  ['Balloon Season', 'The sky pulls back harder.'],
+  ['Crosswinds', 'Push and lift, all at once.'],
+  ['Sky High', 'Overshoot on purpose. Come back clean.'],
+  ['Fine Margins', 'Everything lands one off.'],
+  ['Deep End', 'The numbers stop being friendly.'],
+  ['Tug of War', 'Every balloon has a rival.'],
+  ['The Squeeze', 'No room left to be wrong.'],
+  ['Ballast', 'Carry the weight, then drop it.'],
+  ['Hairline', 'Miss by one, miss by a mile.'],
+  ['Updraft', 'Let go and let it climb.'],
+  ['Counterweight', 'Balance is a subtraction problem.'],
+  ['Tightrope', 'One slip either way.'],
+  ['Dead Reckoning', 'No landmarks. Just arithmetic.'],
+  ['Long Division', 'Break sixty-seven into pieces.'],
+  ['Cold Equations', 'The tray owes you nothing.'],
+  ['Threadneedle', 'The way through is narrow.'],
+  ['Mind Benders', 'Nothing here is close to obvious.'],
+  ['Last Light', 'The easy answers are gone.'],
+  ['No Margin', 'Exactly, or not at all.'],
+  ['Terminal Velocity', 'All the way down, all the way back.'],
+  ['Grandmaster', 'Every piece has to earn its place.'],
+  ['The Gauntlet', 'Nothing here is a gift.'],
 ]
+
+function packsFrom(count: number, size: number): PackSpec[] {
+  if (count > PACK_NAMES.length) {
+    throw new Error(`only ${PACK_NAMES.length} pack names available, asked for ${count}`)
+  }
+  return PACK_NAMES.slice(0, count).map(([name, tagline], i) => ({
+    id: `pack-${i + 4}`,
+    name,
+    tagline,
+    size,
+  }))
+}
 
 function main() {
   const report = process.argv.includes('--report')
+  const packArg = process.argv.find((a) => a.startsWith('--packs='))
+  const NEW_PACKS = packsFrom(packArg ? Number(packArg.split('=')[1]) : 10, 24)
   const rng = mulberry32(670067)
 
   const AUTHORED = [pack1, pack2, pack3]
@@ -344,6 +375,13 @@ function main() {
       levels.push(made)
     }
   }
+
+  // Order by MEASURED difficulty, not by the band that happened to produce it.
+  // The bands are stochastic, so pack averages came out noisy enough to dip
+  // (Tug of War 67.0 -> Hairline 66.5) even though the underlying ramp rose.
+  // Sorting makes "harder and harder" true level by level, not just on average,
+  // and it is not a cheat: the sort key is the same score the tests assert on.
+  levels.sort((a, b) => difficulty(a) - difficulty(b))
 
   // Emit one file per pack.
   let cursor = 0

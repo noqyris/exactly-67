@@ -14,53 +14,53 @@ export const pack10: LevelPack = {
   name: 'The Squeeze',
   tagline: 'No room left to be wrong.',
   levels: [
-    // 1 (global 217) — 5 of 11, 2 ways, 45 near-misses
-    { weights: [59, 82, 73, 39, -30, 50, -14, 41, -5, -7, -7], maxWeights: 5 },
-    // 2 (global 218) — 5 of 11, 3 ways, 37 near-misses
-    { weights: [-17, 64, -43, -5, 82, -27, 14, 77, 68, 87, 71] },
-    // 3 (global 219) — 5 of 11, 5 ways, 37 near-misses
-    { weights: [81, 80, -6, -18, 51, -19, -27, 68, 64, -41, 15], maxWeights: 5 },
-    // 4 (global 220) — 5 of 11, 5 ways, 35 near-misses
-    { weights: [53, -42, -42, -7, 94, 54, 70, -31, 77, 85, 41] },
-    // 5 (global 221) — 5 of 11, 3 ways, 26 near-misses
-    { weights: [-35, 46, 12, -19, 69, 53, -9, 92, 8, -30, 61], locked: [5] },
-    // 6 (global 222) — 5 of 11, 2 ways, 64 near-misses
-    { weights: [24, 49, -36, 61, 87, -29, 46, -12, 95, -5, -10] },
-    // 7 (global 223) — 5 of 11, 2 ways, 40 near-misses
-    { weights: [-36, 78, -8, -31, 17, -42, -22, -14, 65, 78, 74], locked: [1] },
-    // 8 (global 224) — 5 of 11, 2 ways, 51 near-misses
-    { weights: [12, -11, 12, 69, 92, -27, 87, -19, -17, -34, 35], maxWeights: 5 },
-    // 9 (global 225) — 5 of 11, 4 ways, 36 near-misses
-    { weights: [-14, -16, -19, 55, -15, 6, 87, 62, -28, -43, -40], locked: [1] },
-    // 10 (global 226) — 5 of 11, 2 ways, 42 near-misses
-    { weights: [-14, 37, 21, -31, -33, 78, 66, 39, -12, 69, -42], maxWeights: 5 },
-    // 11 (global 227) — 5 of 11, 1 way, 41 near-misses
-    { weights: [72, 64, -11, 90, 81, -25, 70, -32, 44, 32, -32] },
-    // 12 (global 228) — 5 of 11, 4 ways, 36 near-misses
-    { weights: [11, -24, 69, 38, 74, 66, -26, 94, -36, 59, -36], maxWeights: 5 },
-    // 13 (global 229) — 5 of 11, 1 way, 31 near-misses
-    { weights: [-15, 77, 69, -26, 95, -30, -41, 33, -15, 33, 37], maxWeights: 5 },
-    // 14 (global 230) — 5 of 11, 2 ways, 27 near-misses
-    { weights: [-38, 84, -42, 46, 84, -11, -44, -38, 80, 13, 51], locked: [2] },
-    // 15 (global 231) — 5 of 11, 4 ways, 57 near-misses
-    { weights: [52, -7, 23, 13, 13, 82, 32, 75, -5, -19, 30] },
-    // 16 (global 232) — 5 of 11, 3 ways, 32 near-misses
-    { weights: [70, -10, 58, 58, -6, -25, 79, -25, -35, -44, 91], locked: [5] },
-    // 17 (global 233) — 5 of 11, 4 ways, 56 near-misses
-    { weights: [86, -44, -42, -40, 96, -5, 97, 70, -28, -46, 75] },
-    // 18 (global 234) — 5 of 11, 4 ways, 44 near-misses
-    { weights: [-46, 45, 38, -20, -24, -24, -20, 90, 32, -18, 24], locked: [5] },
-    // 19 (global 235) — 5 of 11, 3 ways, 42 near-misses
-    { weights: [-23, 74, 43, 53, -24, -24, 9, 83, 45, 42, -11], maxWeights: 5 },
-    // 20 (global 236) — 5 of 11, 1 way, 38 near-misses
-    { weights: [15, 46, 58, -38, -42, 46, 78, 88, -24, -8, -23], maxWeights: 5 },
-    // 21 (global 237) — 5 of 11, 4 ways, 35 near-misses
-    { weights: [-20, 85, 68, -10, 76, 78, -5, -22, -22, -36, 46], locked: [7] },
-    // 22 (global 238) — 5 of 11, 3 ways, 41 near-misses
-    { weights: [45, 75, -15, 84, 41, 8, 96, -18, 87, -32, -24] },
-    // 23 (global 239) — 5 of 11, 2 ways, 47 near-misses
-    { weights: [92, -15, 86, -44, 37, -15, -8, 54, 15, -14, 77], maxWeights: 5 },
-    // 24 (global 240) — 5 of 11, 1 way, 38 near-misses
-    { weights: [-43, 30, -8, -26, -28, 24, -10, -14, 58, 76, -12], maxWeights: 5 },
+    // 1 (global 217) — 4 of 9, 3 ways, 39 near-misses
+    { weights: [-13, 9, -7, 14, 55, -13, 78, 10, 7] },
+    // 2 (global 218) — 5 of 9, 2 ways, 29 near-misses
+    { weights: [-7, -11, 20, 55, -7, -25, 22, 55, 71] },
+    // 3 (global 219) — 5 of 9, 2 ways, 29 near-misses
+    { weights: [-20, 8, 30, 70, -15, -9, 78, -9, 64] },
+    // 4 (global 220) — 5 of 10, 4 ways, 31 near-misses
+    { weights: [96, 52, 86, -44, 14, 52, -15, -41, 21, -12] },
+    // 5 (global 221) — 5 of 9, 1 way, 26 near-misses
+    { weights: [54, -30, 50, 16, 88, 38, -6, -33, -32] },
+    // 6 (global 222) — 5 of 9, 1 way, 26 near-misses
+    { weights: [-13, -6, 11, 57, 30, -42, 83, -43, 72] },
+    // 7 (global 223) — 5 of 9, 1 way, 26 near-misses
+    { weights: [-5, -21, -43, 47, 92, 32, 8, 13, -8] },
+    // 8 (global 224) — 5 of 10, 2 ways, 28 near-misses
+    { weights: [-16, -20, 73, 92, 27, 94, -22, -16, 69, 28] },
+    // 9 (global 225) — 5 of 9, 1 way, 24 near-misses
+    { weights: [95, 49, -38, -25, 31, -43, -6, -33, 14] },
+    // 10 (global 226) — 5 of 9, 1 way, 24 near-misses
+    { weights: [24, -32, -8, -44, -14, 58, 93, 60, -14] },
+    // 11 (global 227) — 5 of 9, 1 way, 29 near-misses
+    { weights: [66, 64, -35, 30, -9, -19, 24, 9, 54] },
+    // 12 (global 228) — 5 of 9, 2 ways, 30 near-misses
+    { weights: [66, 43, 10, -19, 66, -29, 69, -22, -24] },
+    // 13 (global 229) — 5 of 9, 2 ways, 25 near-misses
+    { weights: [-16, -7, -14, 48, -21, 87, 70, -5, -43] },
+    // 14 (global 230) — 5 of 9, 2 ways, 30 near-misses
+    { weights: [-38, 71, 12, 37, 15, -23, -32, 74, -17] },
+    // 15 (global 231) — 5 of 9, 2 ways, 30 near-misses
+    { weights: [-14, 17, -31, 28, -28, 28, 86, -46, 54] },
+    // 16 (global 232) — 5 of 9, 2 ways, 30 near-misses
+    { weights: [-9, 63, -16, 55, 41, -25, -7, 52, 9] },
+    // 17 (global 233) — 5 of 10, 4 ways, 32 near-misses
+    { weights: [-25, -41, 42, 61, 68, 90, -22, -28, 17, 77] },
+    // 18 (global 234) — 5 of 9, 4 ways, 31 near-misses
+    { weights: [87, 43, 43, -44, -5, -41, 71, -21, -17] },
+    // 19 (global 235) — 5 of 9, 3 ways, 31 near-misses
+    { weights: [-27, -4, 46, 62, -28, -10, 61, -39, 74] },
+    // 20 (global 236) — 5 of 10, 1 way, 28 near-misses
+    { weights: [14, 83, -6, 93, 16, 13, 28, -11, 19, -25] },
+    // 21 (global 237) — 5 of 9, 1 way, 27 near-misses
+    { weights: [-14, 85, -15, 89, 16, -21, -9, 24, 59] },
+    // 22 (global 238) — 5 of 9, 1 way, 27 near-misses
+    { weights: [46, 7, -12, 94, 76, -31, -12, 37, -14] },
+    // 23 (global 239) — 5 of 10, 2 ways, 29 near-misses
+    { weights: [-37, -15, -27, 83, 64, -24, 69, 76, 69, 34] },
+    // 24 (global 240) — 5 of 9, 2 ways, 28 near-misses
+    { weights: [-41, -16, -9, 44, -12, 9, 85, -12, 43] },
   ],
 }

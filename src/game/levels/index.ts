@@ -12,13 +12,25 @@ import { pack10 } from './pack10'
 import { pack11 } from './pack11'
 import { pack12 } from './pack12'
 import { pack13 } from './pack13'
+import { pack14 } from './pack14'
+import { pack15 } from './pack15'
+import { pack16 } from './pack16'
+import { pack17 } from './pack17'
+import { pack18 } from './pack18'
+import { pack19 } from './pack19'
+import { pack20 } from './pack20'
+import { pack21 } from './pack21'
+import { pack22 } from './pack22'
+import { pack23 } from './pack23'
+import { pack24 } from './pack24'
+import { pack25 } from './pack25'
 
 /**
  * Packs 1-3 are hand-authored; 4+ come from `tools/generate-levels.ts`.
  * ORDER IS LOAD-BEARING: progress is persisted by global level number, so
  * packs may be appended but never reordered or resized.
  */
-export const PACKS: readonly LevelPack[] = [pack1, pack2, pack3, pack4, pack5, pack6, pack7, pack8, pack9, pack10, pack11, pack12, pack13]
+export const PACKS: readonly LevelPack[] = [pack1, pack2, pack3, pack4, pack5, pack6, pack7, pack8, pack9, pack10, pack11, pack12, pack13, pack14, pack15, pack16, pack17, pack18, pack19, pack20, pack21, pack22, pack23, pack24, pack25]
 
 export const TOTAL_LEVELS = PACKS.reduce((n, p) => n + p.levels.length, 0)
 

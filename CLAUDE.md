@@ -1,6 +1,6 @@
 # Exactly 67
 
-A balance-scale number puzzle for iOS: the left pan holds a fixed **67**, and you fill the right pan with signed weights until its total is **exactly 67** and the beam locks level. Positive weights are down-weights (pan sinks); negative weights are balloons that lift/pull the pan up. **300 levels across 13 packs** — the first 72 hand-authored, the rest generated and solver-verified by `tools/generate-levels.ts`, each pack harder than the last.
+A balance-scale number puzzle for iOS: the left pan holds a fixed **67**, and you fill the right pan with signed weights until its total is **exactly 67** and the beam locks level. Positive weights are down-weights (pan sinks); negative weights are balloons that lift/pull the pan up. **600 levels across 25 packs** — the first 72 hand-authored, the rest generated and solver-verified by `tools/generate-levels.ts`, each pack harder than the last.
 
 ## Stack
 
@@ -22,7 +22,7 @@ A balance-scale number puzzle for iOS: the left pan holds a fixed **67**, and yo
 | `npm run ios:open` | `cap open ios` | Open `ios/App/App.xcodeproj` in Xcode. |
 | `npm run capture` | `vite --port 5199` | Dev server on a fixed port for **marketing video capture** — open `?rec=<level>`. |
 | `npm run capture:levels` | `vite-node tools/cinematic-levels.ts` | Re-rank every level by how well it films → `marketing/CINEMATIC_LEVELS.md`. |
-| `npm run levels:generate` | `vite-node tools/generate-levels.ts -- --report` | Regenerate packs 4–13 (seeded, idempotent, solver-verified) and print the difficulty ramp. **Never edits packs 1–3.** |
+| `npm run levels:generate` | `vite-node tools/generate-levels.ts -- --report` | Regenerate packs 4–25 (seeded, idempotent, solver-verified) and print the difficulty ramp. **Never edits packs 1–3.** |
 | `python3 tools/make-posts.py` | — | Burn hook/beat/CTA text into the rendered clips → upload-ready `marketing/posts/*.mp4` (PIL renders the text; this ffmpeg has no `drawtext`). |
 | `python3 tools/make-endcard.py` | — | Render the animated Noqyris end card to `marketing/brand/endcard.mp4` (PIL frames → H.264 + silent AAC, stream-copy-compatible with the posts). |
 | `python3 tools/splice-opener.py` | — | Conform an AI-generated cold open to 1080×1920/60fps and concatenate it in front of a finished post. |
@@ -43,7 +43,7 @@ Three layers, strict one-way dependency: **`render`/`services` depend on `game`;
 | `solver.ts` | Brute-force subset solver `solveLevel()` + build-time `validatePacks()`. `MAX_LEVEL_WEIGHTS = 16`. |
 | `stars.ts` | `starsForClear(used, minWeights)` → `1 | 2 | 3`. Standalone, no imports. |
 | `progress.ts` | Persisted model (`mergeClear`, `isUnlocked`, `parseProgress`, …). Pure; storage I/O lives in `services`. |
-| `levels/` | `pack1/2/3.ts` hand-authored (24 each) + `pack4…pack13.ts` **generated** → aggregated in `index.ts` as `PACKS`, `TOTAL_LEVELS` (300), `levelByGlobal`/`globalOf`. **Progress is keyed by global level number, so packs may be appended but never reordered or resized.** |
+| `levels/` | `pack1/2/3.ts` hand-authored (24 each) + `pack4…pack25.ts` **generated** → aggregated in `index.ts` as `PACKS`, `TOTAL_LEVELS` (600), `levelByGlobal`/`globalOf`. **Progress is keyed by global level number, so packs may be appended but never reordered or resized.** |
 
 Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `stars` are only exercised together in tests. `rules.ts` never imports `solver`/`stars`/`progress` — the UI orchestrator wires those together.
 

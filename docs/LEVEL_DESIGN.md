@@ -194,7 +194,7 @@ Content correctness is a hard gate, not a convention. `validatePacks` (`src/game
 expect(validatePacks(PACKS)).toEqual([])
 ```
 
-The suite also asserts **300 levels across 13 packs** with packs 1-3 frozen at 24 each, a **monotonically rising difficulty ramp** and **no duplicate trays**, **1–12 weights and `|value| ≤ 99`** per tray (`:20`), the **balloon-onboarding beat at level 6** (`:30`), that **solver minimums are non-null and reachable** (`≤ tray size`, `:43`), and that **global numbering round-trips** (`:53`).
+The suite also asserts **600 levels across 25 packs** with packs 1-3 frozen at 24 each, a **monotonically rising difficulty ramp** and **no duplicate trays**, **1–12 weights and `|value| ≤ 99`** per tray (`:20`), the **balloon-onboarding beat at level 6** (`:30`), that **solver minimums are non-null and reachable** (`≤ tray size`, `:43`), and that **global numbering round-trips** (`:53`).
 
 Because `npm run build` is `tsc --noEmit && vitest run && vite build`, a non-empty `validatePacks` result fails `vitest run` and the `&&` chain **aborts before `vite build` ever runs**. You cannot bundle `dist/` with a malformed or unsolvable level.
 

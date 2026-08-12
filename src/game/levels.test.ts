@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { globalOf, levelByGlobal, PACKS, TOTAL_LEVELS } from './levels'
-import { countSolutions, solveLevel, validatePacks } from './solver'
+import { allSolutions, countSolutions, solveLevel, validatePacks } from './solver'
+import { canPlace, evaluate, initialPlacement, place } from './rules'
 import { TARGET } from './types'
 import type { LevelDef } from './types'
 
@@ -40,7 +41,7 @@ function difficulty(level: LevelDef): number {
     level.weights.length * 0.8 +
     (minWeights ?? 1) * 2.5 +
     level.weights.filter((w) => w < 0).length * 1.5 +
-    Math.min(trapCount(level), 40) * 0.6 +
+    Math.min(trapCount(level), 60) * 0.6 +
     (ways === 1 ? 4 : ways === 2 ? 2 : 0) +
     (level.maxWeights !== undefined ? 3 : 0) +
     (level.locked !== undefined ? 2 : 0)
@@ -52,9 +53,9 @@ describe('shipped level packs', () => {
     expect(validatePacks(PACKS)).toEqual([])
   })
 
-  it('ships 300 levels across 13 packs', () => {
-    expect(PACKS).toHaveLength(13)
-    expect(TOTAL_LEVELS).toBe(300)
+  it('ships 600 levels across 25 packs', () => {
+    expect(PACKS).toHaveLength(25)
+    expect(TOTAL_LEVELS).toBe(600)
   })
 
   /**
@@ -140,6 +141,43 @@ describe('shipped level packs', () => {
     }
   })
 
+  /**
+   * The strongest content test there is: every shipped level is actually PLAYED
+   * to a win through the real placement state machine — `initialPlacement` →
+   * `canPlace`/`place` → `evaluate` — rather than merely proven solvable by the
+   * solver. That covers what the solver cannot: the budget guard in `canPlace`
+   * refusing a piece mid-build, locked weights already occupying budget, and
+   * `evaluate` agreeing that the finished board is a win.
+   */
+  it('every shipped level can be played to a win, one piece at a time', () => {
+    let played = 0
+    for (const pack of PACKS) {
+      pack.levels.forEach((level, li) => {
+        const where = `${pack.id} #${li + 1}`
+        const ways = allSolutions(level)
+        expect(ways.length, `${where} has no winning placement`).toBeGreaterThan(0)
+        // Play the FIRST (fewest-pieces) winning build, the one stars key off.
+        const target = ways[0]
+        let placement = initialPlacement(level)
+        for (const i of target) {
+          if (placement[i]) continue // locked pieces start on the pan
+          const check = canPlace(level, placement, i)
+          expect(check.ok, `${where}: rules refused piece ${i} (${check.reason})`).toBe(true)
+          placement = place(level, placement, i)
+        }
+        // Nothing outside the winning build may have been left aboard.
+        placement.forEach((on, i) => {
+          if (on) expect(target.includes(i), `${where}: piece ${i} should not be placed`).toBe(true)
+        })
+        const ev = evaluate(level, placement)
+        expect(ev.total, `${where} totalled ${ev.total}`).toBe(TARGET)
+        expect(ev.won, `${where} balanced but did not win (${ev.blockedReason ?? 'no reason'})`).toBe(true)
+        played++
+      })
+    }
+    expect(played).toBe(TOTAL_LEVELS)
+  })
+
   it('global level numbering round-trips', () => {
     expect(levelByGlobal(0)).toBeNull()
     expect(levelByGlobal(TOTAL_LEVELS + 1)).toBeNull()
@@ -152,6 +190,6 @@ describe('shipped level packs', () => {
     expect(levelByGlobal(25)!.pack).toBe(PACKS[1])
     expect(levelByGlobal(49)!.pack).toBe(PACKS[2])
     expect(levelByGlobal(73)!.pack).toBe(PACKS[3])
-    expect(levelByGlobal(300)!.pack).toBe(PACKS[12])
+    expect(levelByGlobal(600)!.pack).toBe(PACKS[24])
   })
 })

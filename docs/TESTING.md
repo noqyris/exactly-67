@@ -44,7 +44,7 @@ Phaser + a device.
 | `balance.test.ts` | `panTotal`, `gapToTarget`, `isBalanced`, `beamAngleDeg` (0 at 67, antisymmetry, ±13° saturation). |
 | `rules.test.ts` | `initialPlacement`, `canPlace`/`place`/`canRemove`/`remove`, the immutability contract, `evaluate` incl. `useAll` / `blockedReason`. |
 | `solver.test.ts` | `solveLevel` minimums honoring locked/useAll/maxWeights, the >16-weight throw, `minimalSolution`. |
-| `levels.test.ts` | **The build gate:** `validatePacks(PACKS) == []`, 300 levels across 13 packs, packs 1-3 frozen at 24 (progress is keyed by global number), the difficulty ramp is monotonic pack-to-pack, no duplicate trays, balloon debut at L6, global-number round-trips, tray bounds. |
+| `levels.test.ts` | **The build gate:** `validatePacks(PACKS) == []`, 600 levels across 25 packs, packs 1-3 frozen at 24 (progress is keyed by global number), the difficulty ramp is monotonic pack-to-pack, no duplicate trays, balloon debut at L6, global-number round-trips, tray bounds. |
 | `progress.test.ts` | `mergeClear` monotonicity, `isUnlocked` one-step-back, `parseProgress` dropping corrupt entries. |
 
 ---
