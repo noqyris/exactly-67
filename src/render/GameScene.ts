@@ -52,7 +52,6 @@ import {
   useHint,
 } from '../services/ads'
 import { saveDailyDone, saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
-import { HINT_PACKS, buyHintPack, hintPackPrice, setHintPurchaseListener } from '../services/iap'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, GOOD, INK, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
@@ -670,22 +669,15 @@ export class GameScene extends Phaser.Scene {
     const h = this.scale.height
     const overlay = this.add.container(0, 0).setDepth(120)
     const close = () => {
-      setHintPurchaseListener(null)
       overlay.destroy()
     }
 
     const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45).setInteractive()
 
-    // Only offer packs whose store price has loaded; missing products stay hidden.
-    const packs = HINT_PACKS.map((p) => ({ hints: p.hints, id: p.id, price: hintPackPrice(p.id) })).filter(
-      (p): p is { hints: number; id: string; price: string } => p.price != null,
-    )
-
     const cardW = Math.min(w - u(48), u(340))
-    const packBtnH = u(46)
     const headH = u(84)
     const footH = u(96)
-    const cardH = headH + packs.length * (packBtnH + u(10)) + footH
+    const cardH = headH + footH
     const cx = w / 2
     const cy = Math.min(h * 0.44, h - safeArea().bottom - cardH / 2 - u(16))
     const top = cy - cardH / 2
@@ -711,23 +703,6 @@ export class GameScene extends Phaser.Scene {
 
     const kids: Phaser.GameObjects.GameObject[] = [dim, card, title, body]
 
-    // Buy-a-pack buttons, stacked (bigger pack = better value per hint).
-    let py = top + headH + packBtnH / 2
-    for (const p of packs) {
-      const btn = makeButton(
-        this,
-        `${p.hints} hints  ·  ${p.price}`,
-        cardW * 0.8,
-        packBtnH,
-        PAPER,
-        '#2B2440',
-        () => void buyHintPack(p.id),
-      )
-      btn.setPosition(cx, py)
-      kids.push(btn)
-      py += packBtnH + u(10)
-    }
-
     const btnY = cy + cardH / 2 - u(40)
     const rowH = u(52)
     const watch = makeButton(this, 'Watch video', cardW * 0.5, rowH, 0xf5b942, '#2B2440', () => {
@@ -737,19 +712,18 @@ export class GameScene extends Phaser.Scene {
     const done = makeButton(this, 'Done', cardW * 0.34, rowH, PAPER, '#2B2440', () => close())
     done.setPosition(cx - cardW * 0.29, btnY)
 
+    // The full ladder (packs + the unlimited unlock + restore) lives on the
+    // Store screen; this modal stays a quick "earn one now" and just links out.
     const upsell = this.add
-      .text(cx, btnY - rowH / 2 - u(16), 'Remove ads = unlimited hints', TEXT.ink(11, '600'))
+      .text(cx, btnY - rowH / 2 - u(16), 'More hints in the Store', TEXT.ink(12, '700'))
       .setOrigin(0.5)
       .setColor(INK_SOFT)
-    kids.push(upsell, watch, done)
-
-    // A pack purchase resolves asynchronously (native StoreKit sheet) — refresh + toast then.
-    setHintPurchaseListener((n) => {
-      this.refreshHint()
-      refresh()
-      this.showToast(`${n} hints added!`)
+      .setInteractive({ useHandCursor: true })
+    upsell.on('pointerup', () => {
+      close()
+      this.scene.start('Store')
     })
-    this.events.once('shutdown', () => setHintPurchaseListener(null))
+    kids.push(upsell, watch, done)
 
     overlay.add(kids)
     if (!this.reducedMotion) {

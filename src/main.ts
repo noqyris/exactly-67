@@ -9,6 +9,7 @@ import { DPR, setAdBannerReserve } from './render/layout'
 import { LevelMapScene } from './render/LevelMapScene'
 import { MenuScene } from './render/MenuScene'
 import { BG_CSS } from './render/palette'
+import { StoreScene } from './render/StoreScene'
 import {
   BANNER_RESERVE_DESIGN_PX,
   adsSupported,
@@ -65,17 +66,20 @@ async function boot() {
       mode: Phaser.Scale.NONE,
       zoom: 1 / DPR,
     },
-    scene: [MenuScene, LevelMapScene, GameScene],
+    scene: [MenuScene, LevelMapScene, GameScene, StoreScene],
   })
 
   window.addEventListener('resize', () => {
     game.scale.resize(window.innerWidth * DPR, window.innerHeight * DPR)
   })
 
-  // Dev-only test bridge for Playwright-driven E2E. Dynamically imported behind
-  // an `import.meta.env.DEV` guard, so it is never part of the production bundle.
+  // Dev-only test bridge for Playwright-driven E2E, plus the capture director
+  // that scripts gameplay for marketing video (`?rec=<level>`). Both are
+  // dynamically imported behind an `import.meta.env.DEV` guard, so neither is
+  // ever part of the production bundle.
   if (import.meta.env.DEV) {
     void import('./dev/testBridge').then((m) => m.installTestBridge(game))
+    void import('./dev/capture').then((m) => m.installCapture(game))
   }
 
   // Ads boot after the game so first paint is never blocked on the network.

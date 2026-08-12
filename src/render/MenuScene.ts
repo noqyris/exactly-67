@@ -1,10 +1,10 @@
 import Phaser from 'phaser'
 import { TOTAL_LEVELS } from '../game/levels'
 import { isCleared, totalStars } from '../game/progress'
-import { adsRemoved, adsSupported } from '../services/ads'
+import { adsRemoved } from '../services/ads'
 import { playPlace, setSoundEnabled, soundEnabled } from '../services/audio'
 import { hapticsEnabled, placeTap, setHapticsEnabled } from '../services/haptics'
-import { buyRemoveAds, removeAdsPrice, restorePurchases, setIapListener } from '../services/iap'
+import { iapSupported, setIapListener } from '../services/iap'
 import { progress } from '../services/progressStore'
 import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, safeArea, u } from './layout'
@@ -74,17 +74,19 @@ export class MenuScene extends Phaser.Scene {
     while (next < TOTAL_LEVELS && isCleared(p, next)) next++
     const started = totalStars(p) > 0
 
-    // Whether the "Remove Ads" block will be shown (device only, IAP product
-    // loaded, not yet bought). It adds ~one button of height to the column.
-    const showRemoveAds = () => adsSupported() && !adsRemoved() && removeAdsPrice() !== null
-    const removeAdsVisible = showRemoveAds()
+    // Whether the "Store" button is shown. Everything purchasable now lives on
+    // the Store screen (hint packs + the unlimited/no-ads unlock + Restore), so
+    // the menu carries one button instead of a button plus a restore link.
+    // Owners have nothing left to buy, so they get the status caption instead.
+    const showStore = () => iapSupported() && !adsRemoved()
+    const storeVisible = showStore()
 
     // Button column, pinned just above the banner strip. `columnDrop` is the
     // distance from the Play centre down to the bottom of the toggle row.
     // With the Remove-ads button present the column is taller and lifted a touch
     // higher, so "Restore purchases" gets real breathing room between the button
     // and the toggles instead of being pinched against both.
-    const columnDrop = removeAdsVisible ? u(321) : adsRemoved() ? u(253) : u(221)
+    const columnDrop = storeVisible ? u(281) : adsRemoved() ? u(253) : u(221)
     const playY = h - safe.bottom - u(16) - columnDrop
 
     // The live scale always sits between the subtitle and the buttons. Size it to
@@ -159,11 +161,11 @@ export class MenuScene extends Phaser.Scene {
 
     let toggleRowY = playY + u(134) + u(64)
 
-    if (adsSupported() && !adsRemoved()) {
-      // Rebuild the menu when the button's visibility changes: the product
-      // finishes loading (button appears) or the purchase lands (button clears).
+    if (!adsRemoved()) {
+      // Rebuild when ownership changes (a purchase lands) or the products
+      // finish loading, since either flips what the column should contain.
       setIapListener(() => {
-        if (showRemoveAds() !== removeAdsVisible) {
+        if (showStore() !== storeVisible || adsRemoved()) {
           setIapListener(null)
           this.scene.restart()
         }
@@ -171,26 +173,12 @@ export class MenuScene extends Phaser.Scene {
       this.events.once('shutdown', () => setIapListener(null))
     }
 
-    if (removeAdsVisible) {
-      // The IAP bundles unlimited free hints — put the value prop in the button.
-      const removeAds = makeButton(
-        this,
-        `Remove ads · ${removeAdsPrice()}`,
-        Math.min(f.ew * 0.6, u(260)),
-        u(60),
-        PAPER,
-        '#2B2440',
-        () => void buyRemoveAds(),
-        'No ads + unlimited hints',
+    if (storeVisible) {
+      const store = makeButton(this, 'Store', Math.min(f.ew * 0.6, u(260)), u(52), PAPER, '#2B2440', () =>
+        this.scene.start('Store'),
       )
-      removeAds.setPosition(cx, playY + u(134) + u(72))
-      const restore = this.add
-        .text(cx, playY + u(134) + u(72) + u(50), 'Restore purchases', TEXT.ink(12, '600'))
-        .setOrigin(0.5)
-        .setColor(INK_SOFT)
-        .setInteractive({ useHandCursor: true })
-      restore.on('pointerup', () => void restorePurchases())
-      toggleRowY = playY + u(134) + u(72) + u(50) + u(42)
+      store.setPosition(cx, playY + u(194))
+      toggleRowY = playY + u(258)
     } else if (adsRemoved()) {
       // Owner: confirm the perk they unlocked. It's the only place they learn
       // hints are now unlimited (the purchase was framed around ads), so it stays
