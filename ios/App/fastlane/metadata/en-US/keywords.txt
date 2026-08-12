@@ -1,1 +1,1 @@
-math,logic,iq,games,weights,offline,zen,mental,riddle,sums,addition,mind,tricky,solve,relax
+math,logic,iq,weights,offline,zen,mental,riddle,sums,addition,mind,tricky,solve,relax,nowifi

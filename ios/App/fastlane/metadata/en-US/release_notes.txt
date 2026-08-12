@@ -1,2 +1,5 @@
-Stuck on a puzzle? Tap the new hint button to reveal a weight that helps you reach 67.
-Plus small performance and stability improvements. Thanks for playing!
+Fresh puzzles and extra polish:
+- 11 levels reworked into sharper, more satisfying "find the exact set" challenges
+- A confetti celebration and punchier feedback every time you land on 67
+- Small performance and stability improvements
+Thanks for playing — land on exactly 67!
