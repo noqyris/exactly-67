@@ -12,7 +12,8 @@ import {
   remove,
 } from '../game/rules'
 import type { Placement } from '../game/rules'
-import { minimalSolution, solveLevel } from '../game/solver'
+import { countSolutions, minimalSolution, solutionIndex, solveLevel } from '../game/solver'
+import { shareCard } from '../game/share'
 import { starsForClear } from '../game/stars'
 import type { Evaluation } from '../game/types'
 import {
@@ -34,6 +35,7 @@ import {
   winTap,
 } from '../services/haptics'
 import { progress, recordClear } from '../services/progressStore'
+import { shareText } from '../services/share'
 import { maybeRequestReview } from '../services/review'
 import { bestFor } from '../game/progress'
 import {
@@ -72,6 +74,12 @@ export class GameScene extends Phaser.Scene {
   private ref!: LevelRef
   private placed: Placement = []
   private minWeights = 1
+  /** How many distinct placements win this level; 1 for most of them. */
+  private waysTotal = 1
+  /** Pan total after every board change — the route, for the share card. */
+  private trace: number[] = []
+  /** performance.now() at the first placement, or null before it. */
+  private startedAt: number | null = null
   private wonState = false
   private reducedMotion = false
   private hintBusy = false
@@ -103,6 +111,8 @@ export class GameScene extends Phaser.Scene {
   private hintText!: Phaser.GameObjects.Text | null
   private toastText!: Phaser.GameObjects.Text
   private toastTween: Phaser.Tweens.Tween | null = null
+  private confettiKeys: string[] = []
+  private prevTotal: number | null = null
 
   constructor() {
     super('Game')
@@ -123,6 +133,9 @@ export class GameScene extends Phaser.Scene {
     this.hintCooldownUntil = 0
     this.hintObjects = []
     this.hintTweens = []
+    this.trace = []
+    this.startedAt = null
+    this.prevTotal = null
   }
 
   create() {
@@ -130,7 +143,9 @@ export class GameScene extends Phaser.Scene {
     const level = this.ref.def
     this.placed = initialPlacement(level)
     this.minWeights = solveLevel(level).minWeights ?? 1
+    this.waysTotal = countSolutions(level)
     this.cameras.main.setBackgroundColor(BG)
+    this.makeConfettiTextures()
 
     this.scaleView = new ScaleView(this, this.scaleGeometry())
     this.trayG = this.add.graphics()
@@ -402,6 +417,11 @@ export class GameScene extends Phaser.Scene {
   private updateHud(ev: Evaluation) {
     const level = this.ref.def
     this.totalText.setText(String(ev.total))
+    if (!this.reducedMotion && this.prevTotal !== null && this.prevTotal !== ev.total) {
+      this.tweens.killTweensOf(this.totalText)
+      this.tweens.add({ targets: this.totalText, scale: { from: 1.3, to: 1 }, duration: 240, ease: 'Back.out' })
+    }
+    this.prevTotal = ev.total
 
     if (ev.won || (ev.balanced && !ev.won)) {
       this.totalText.setColor(GOOD_CSS)
@@ -794,6 +814,11 @@ export class GameScene extends Phaser.Scene {
     this.hintShown = false
     this.dismissHintDemo()
     const ev = evaluate(this.ref.def, this.placed)
+    // The route, for the share card: one entry per change, totals only. Locked
+    // pieces are already aboard before the first change, so the trace records
+    // what the player did, not what they were given.
+    this.trace.push(ev.total)
+    this.startedAt ??= performance.now()
     this.scaleView.setTargetAngle(beamAngleDeg(ev.total))
     this.updateHud(ev)
     if (ev.balanced && !ev.won && ev.blockedReason === 'use-all') {
@@ -869,6 +894,47 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
+  /** Generate a few candy-colored confetti textures once (no image assets). */
+  private makeConfettiTextures() {
+    const colors = [0xf5b942, 0x37b24d, 0xff6b9d, 0x4da3ff, 0xa66bff, 0xff8c5a]
+    const cw = Math.round(u(9))
+    const ch = Math.round(u(13))
+    this.confettiKeys = colors.map((c, i) => {
+      const key = `e67-confetti-${i}`
+      if (!this.textures.exists(key)) {
+        const g = this.add.graphics()
+        g.fillStyle(c, 1)
+        g.fillRoundedRect(0, 0, cw, ch, Math.round(u(3)))
+        g.generateTexture(key, cw, ch)
+        g.destroy()
+      }
+      return key
+    })
+  }
+
+  /** A shower of candy confetti over the win card. Skipped under reduced motion. */
+  private burstConfetti() {
+    if (this.reducedMotion || this.confettiKeys.length === 0) return
+    const w = this.scale.width
+    for (const key of this.confettiKeys) {
+      const emitter = this.add
+        .particles(0, 0, key, {
+          x: { min: 0, max: w },
+          y: -u(24),
+          lifespan: 2400,
+          speedY: { min: u(160), max: u(430) },
+          speedX: { min: -u(90), max: u(90) },
+          gravityY: u(360),
+          scale: { start: 1.05, end: 0.6 },
+          rotate: { min: 0, max: 360 },
+          emitting: false,
+        })
+        .setDepth(101)
+      emitter.explode(12)
+      this.time.delayedCall(2700, () => emitter.destroy())
+    }
+  }
+
   // ------------------------------------------------------------------ win
 
   private winSequence() {
@@ -883,6 +949,7 @@ export class GameScene extends Phaser.Scene {
 
     this.time.delayedCall(500, () => {
       if (!this.reducedMotion) this.cameras.main.shake(180, 0.007)
+      this.burstConfetti()
       playWinJingle()
       winTap()
     })
@@ -944,11 +1011,24 @@ export class GameScene extends Phaser.Scene {
     }
 
     const best = bestFor(progress(), this.ref.global)
+    // Which of the level's winning placements this was. Most levels have exactly
+    // one, and saying "the only way" is worth more than saying nothing; where
+    // there are several, naming the one you found turns a clear into something
+    // two players can compare.
+    const ways = this.waysTotal
+    const which = solutionIndex(this.ref.def, this.placed)
+    const wayLine =
+      ways > 1 && which !== null
+        ? ` · way ${which} of ${ways}`
+        : ways === 1
+          ? ' · the only way'
+          : ''
     const summary =
       used <= this.minWeights
-        ? `Solved with ${used} — the perfect minimum!`
+        ? `Solved with ${used} — the perfect minimum!${wayLine}`
         : `Solved with ${used} · minimum is ${this.minWeights}` +
-          (best !== undefined ? ` · your best ${best}` : '')
+          (best !== undefined ? ` · your best ${best}` : '') +
+          wayLine
     const sub = this.add
       .text(cx, cy - cardH / 2 + u(156), summary, TEXT.ink(15, '600'))
       .setOrigin(0.5)
@@ -988,11 +1068,45 @@ export class GameScene extends Phaser.Scene {
     }))
     mapBtn.setPosition(cx - cardW * 0.13, btnY)
 
-    overlay.add([dim, card, title, ...starViews, sub, nextBtn, retryBtn, mapBtn])
+    // Share sits above the navigation row, not in it: the row is a decision
+    // ("what next"), and mixing an optional action into it costs a mis-tap.
+    // It is deliberately outside `once()` — sharing does not navigate, so it
+    // must stay live after the sheet is dismissed.
+    const shareBtn = makeButton(
+      this, 'Share', cardW * 0.34, u(46), PAPER, '#2B2440',
+      () => void this.shareResult(used, stars, which),
+    )
+    shareBtn.setPosition(cx, btnY - u(62))
+
+    overlay.add([dim, card, title, ...starViews, sub, shareBtn, nextBtn, retryBtn, mapBtn])
     if (!this.reducedMotion) {
       overlay.setAlpha(0)
       this.tweens.add({ targets: overlay, alpha: 1, duration: 200 })
     }
+  }
+
+  /**
+   * Hand the route to the OS share sheet. The card carries totals and glyphs
+   * only — never a weight value — so posting it cannot spoil the level for the
+   * person receiving it. See `game/share.ts`.
+   */
+  private async shareResult(used: number, starCount: number, which: number | null) {
+    const seconds =
+      this.startedAt === null ? undefined : (performance.now() - this.startedAt) / 1000
+    const card = shareCard(
+      {
+        level: this.ref.global,
+        pieces: used,
+        stars: starCount,
+        way: which ?? undefined,
+        waysTotal: this.waysTotal,
+        seconds,
+      },
+      this.trace,
+    )
+    const outcome = await shareText(card)
+    if (outcome === 'copied') this.showToast('Copied — paste it anywhere')
+    else if (outcome === 'unavailable') this.showToast('Sharing is not available here')
   }
 
   // ------------------------------------------------------------- keyboard
