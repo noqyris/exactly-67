@@ -12,6 +12,16 @@ const INK_SOFT = '#5D5470'
 export class LevelMapScene extends Phaser.Scene {
   private content!: Phaser.GameObjects.Container
   private contentHeight = 0
+  /**
+   * Level tiles are VIRTUALIZED. Building all of them was fine at 72 levels but
+   * collapses at 300: each tile is its own Graphics (plus Text), and every
+   * Graphics is a separate draw call, which measured 16fps against 121fps on
+   * the menu. `slots` holds the precomputed geometry (pure numbers, no
+   * GameObjects); only the tiles inside the viewport are ever instantiated.
+   */
+  private slots: { global: number; x: number; y: number; size: number }[] = []
+  private live = new Map<number, Phaser.GameObjects.Container>()
+  private headerH = 0
   private scrollY = 0
   private dragStartY = 0
   private dragStartScroll = 0
@@ -68,9 +78,13 @@ export class LevelMapScene extends Phaser.Scene {
     headerBg.setStrokeStyle(0)
     headerBg.setInteractive()
 
+    this.headerH = headerH
     this.content = this.add.container(0, headerH)
+    this.slots = []
+    this.live.clear()
     this.buildContent()
     this.bindScrolling(headerH)
+    this.syncVisible()
 
     if (this.scrollTo !== undefined) {
       // Land with the requested level in view.
@@ -81,6 +95,7 @@ export class LevelMapScene extends Phaser.Scene {
         0,
       )
       this.content.y = headerH + this.scrollY
+      this.syncVisible()
     }
 
     // Portrait-locked on device, but dev browsers can resize: rebuild once.
@@ -118,12 +133,39 @@ export class LevelMapScene extends Phaser.Scene {
         const col = levelIndex % cols
         const x = startX + col * (cell + gap)
         const cy = y + row * (cell + gap) + cell / 2
-        this.content.add(this.levelButton(global, x, cy, cell))
+        this.slots.push({ global, x, y: cy, size: cell })
       })
       y += Math.ceil(pack.levels.length / cols) * (cell + gap) + u(26)
     })
 
     this.contentHeight = y + safe.bottom + u(20)
+  }
+
+  /**
+   * Instantiate the tiles now on screen and destroy the ones that left, so the
+   * live object count stays proportional to the viewport instead of to 300.
+   * The buffer keeps a screen of tiles ready on each side, so a fast flick
+   * never reveals empty space before the next sync.
+   */
+  private syncVisible() {
+    const buffer = this.scale.height
+    const top = -this.scrollY - buffer
+    const bottom = -this.scrollY + (this.scale.height - this.headerH) + buffer
+
+    const wanted = new Set<number>()
+    for (const slot of this.slots) {
+      if (slot.y + slot.size / 2 < top || slot.y - slot.size / 2 > bottom) continue
+      wanted.add(slot.global)
+      if (this.live.has(slot.global)) continue
+      const btn = this.levelButton(slot.global, slot.x, slot.y, slot.size)
+      this.content.add(btn)
+      this.live.set(slot.global, btn)
+    }
+    for (const [global, btn] of this.live) {
+      if (wanted.has(global)) continue
+      btn.destroy()
+      this.live.delete(global)
+    }
   }
 
   private levelButton(global: number, x: number, y: number, size: number) {
@@ -190,6 +232,7 @@ export class LevelMapScene extends Phaser.Scene {
       const minY = Math.min(0, this.scale.height - headerH - this.contentHeight)
       this.scrollY = Phaser.Math.Clamp(this.scrollY, minY, 0)
       this.content.y = headerH + this.scrollY
+      this.syncVisible()
     }
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {

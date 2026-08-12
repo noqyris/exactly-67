@@ -4,7 +4,7 @@ A balance-scale number puzzle for iOS (and Android-ready). The left pan holds a
 fixed **67**. Fill the right pan with down-weights (positive) and lift-weight
 balloons (negative) until the total is **exactly 67** and the beam locks level.
 
-- 72 hand-tuned levels in 3 packs (Warm-Up · Prime Time · Heavy Lifting)
+- 300 levels in 13 packs, each harder than the last — 72 hand-tuned (Warm-Up · Prime Time · Heavy Lifting), then 228 generated and solver-verified (`npm run levels:generate`)
 - Balloons unlock at level 6 — overshoot, then pull back
 - Locked weights, piece budgets and use-every-weight constraints
 - 1–3 stars for efficiency: the solver-proven minimum earns 3
