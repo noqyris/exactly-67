@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { u } from './layout'
+import { prefersReducedMotion, u } from './layout'
 import {
   BALLOON,
   BALLOON_DARK,
@@ -57,6 +57,20 @@ export class WeightView extends Phaser.GameObjects.Container {
     this.add(text)
 
     if (locked) this.drawLockBadge()
+
+    // Balloons gently bob in place — a light floaty touch (never for locked ones,
+    // and off under reduced motion). Staggered so they don't drift in unison.
+    if (this.isBalloon && !locked && !prefersReducedMotion()) {
+      scene.tweens.add({
+        targets: g,
+        y: -u(3.5),
+        duration: 1500,
+        delay: (index % 5) * 220,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      })
+    }
 
     const s = this.bodySize
     this.setSize(Math.max(u(56), s * 1.15), Math.max(u(56), s * 1.15))
