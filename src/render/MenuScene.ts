@@ -117,17 +117,23 @@ export class MenuScene extends Phaser.Scene {
     // fit floor leaves it larger than the gap.
     const cy = Math.min(gapTop + upReach + topPad, gapBottom - scaleDrop)
 
-    // A little live scale, gently weighing — the game's idle heartbeat.
-    this.scaleView = new ScaleView(this, {
-      cx,
-      cy,
-      halfBeam,
-      ropeLen,
-      panWidth,
-      panHeight,
-    })
-    this.scaleView.setTargetAngle(0)
-    this.scaleView.settleImmediately()
+    // A little live scale, gently weighing — the game's idle heartbeat. Only
+    // when the gap can actually hold it: with the ad banner reserved the button
+    // column climbs and the gap collapses, and the size floor would otherwise
+    // ride the beam up over the subtitle. In that crammed case we skip it — the
+    // big 67 block above already carries the visual — rather than overlap text.
+    if (gapH >= scaleH) {
+      this.scaleView = new ScaleView(this, {
+        cx,
+        cy,
+        halfBeam,
+        ropeLen,
+        panWidth,
+        panHeight,
+      })
+      this.scaleView.setTargetAngle(0)
+      this.scaleView.settleImmediately()
+    }
 
     const play = makeButton(
       this,
