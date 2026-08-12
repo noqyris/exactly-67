@@ -38,8 +38,8 @@ export const pack2: LevelPack = {
     // 7 — locked 29: route around it via 61-23 or 43-5. 29+41 = 70 teases.
     { weights: [29, 61, -23, 43, -5, 41], locked: [0] },
 
-    // 8 — useAll breather: every piece, balloons included.
-    { weights: [61, 43, -19, -23, 5], useAll: true },
+    // 8 — breather: 61+11-5; 53+13=66 and 61+13-5=69 bait, 53+11=64.
+    { weights: [61, 11, -5, 53, 13] },
 
     // 9 — budget 3: big route 47+37-17 or sneaky 37+11+19.
     { weights: [47, 37, -17, 11, 13, 19, 5], maxWeights: 3 },
@@ -62,8 +62,8 @@ export const pack2: LevelPack = {
     // 15 — composite impostor: 15 looks helpful, lands on 65/68. 53+37-23 wins.
     { weights: [3, 7, 13, 15, 19, 31, 37, 53, -23] },
 
-    // 16 — useAll with double balloon.
-    { weights: [2, 13, 41, 59, -19, -29], useAll: true },
+    // 16 — parity double-balloon: only the 2 flips it (2+41+47-23); 41+47-23=65, 41+47-19=69.
+    { weights: [2, 41, -19, 47, 29, -23, 13] },
 
     // 17 — budget 4: 3+5+7+23+29 is too many pieces; 61+23-17 or 2+13+23+29.
     { weights: [2, 3, 5, 7, 13, 23, 29, 61, -17], maxWeights: 4 },
@@ -80,8 +80,8 @@ export const pack2: LevelPack = {
     // 21 — five 13s + 2 make 67... but the budget is 5. Spot 41+13+13.
     { weights: [13, 2, 13, 41, 13, 53, 13, -11, 13, 5], maxWeights: 5 },
 
-    // 22 — useAll finale rehearsal: seven pieces, three balloons.
-    { weights: [59, 47, 31, -29, -41, 3, -3], useAll: true },
+    // 22 — tight triple-balloon: 59+43+37-41-31; 43+37+29-41=68, 59+37-31=65.
+    { weights: [59, 43, -41, 37, -31, 29, -19, 13] },
 
     // 23 — budget 4, one needle in the haystack: 2+37+47-19.
     { weights: [2, 17, 23, 29, 37, 43, 47, 53, -19, -41], maxWeights: 4 },

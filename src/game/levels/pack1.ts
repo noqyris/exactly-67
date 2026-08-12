@@ -25,8 +25,8 @@ export const pack1: LevelPack = {
     { weights: [95, -28, 40, 25, -8] },
     // 10 — 24+55−12; 55+9=64 and 24+33+9=66 sting.
     { weights: [24, 55, -12, 33, 9] },
-    // 11 — USE-ALL DEBUT: everything on the pan sums to 67.
-    { weights: [30, 25, -8, 20], useAll: true, hint: 'New rule: every weight must end up on the pan.' },
+    // 11 — 45+30-8; 45+25=70 and 30+25+14=69 bait.
+    { weights: [45, 30, -8, 25, 14] },
     // 12 — 34+45−12; 45+23=68 and 34+23+8=65 are traps.
     { weights: [34, 45, -12, 23, 19, 8] },
     // 13 — twin paths: 90−14−9 or 31+22+14.
@@ -37,8 +37,8 @@ export const pack1: LevelPack = {
     { weights: [26, 31, 18, -8, 42, 15, 9] },
     // 16 — 48+30−11, or double-balloon 48+45−15−11. 48+21=69, 45+21=66.
     { weights: [48, 45, -15, -11, 30, 21] },
-    // 17 — use-all with two balloons: 107 down, 40 of lift.
-    { weights: [25, 34, -18, 40, -22, 8], useAll: true },
+    // 17 — 40+30-18+15; 30+24+15=69 and 40+24=64 tempt.
+    { weights: [40, 30, -18, 15, -22, 24] },
     // 18 — LOCKED DEBUT: a stuck balloon lifts −20; build 87 of down-weight.
     {
       weights: [-20, 52, 35, 18, 29, 33],
@@ -51,8 +51,8 @@ export const pack1: LevelPack = {
     { weights: [23, 29, 27, -12, 45, 16, -9, 35] },
     // 21 — locked 58: 58+34−25 lands it; 58+19−11=66 and 58+16+19−25=68 taunt.
     { weights: [58, 34, -25, 19, -11, 42, 16], locked: [0] },
-    // 22 — use-all finale rehearsal: 133 of iron, 66 of lift.
-    { weights: [21, 39, -16, 28, -24, 45, -26], useAll: true },
+    // 22 — 40+35-16+8; the fat 45 baits: 45+40-16=69 and 45+35-16=64.
+    { weights: [45, 40, -16, 35, -22, 28, 8] },
     // 23 — budget 3 crunch: 40+26=66 and 12+54=66 both die at the cap; 85−30+12 wins.
     { weights: [85, -30, 12, 40, 26, 54, -21], maxWeights: 3 },
     // 24 — finale: five pieces (31+28+24−19+3); 46+22=68, 31+28+24−19=64, 46+28−8=66.

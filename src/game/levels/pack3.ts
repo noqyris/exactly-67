@@ -6,8 +6,8 @@ import type { LevelPack } from '../types'
  * Theme: big numbers and heavy constraints. Down-weights run 40–99, so
  * almost any two overshoot — the signature overshoot-then-balloon move is
  * required nearly everywhere. Ten levels start with locked weights (the pan
- * begins wrong and must be rescued), five useAll levels cancel a whole tray
- * to exactly 67, and six tight piece budgets outlaw the easy stacks. The
+ * begins wrong and must be rescued) and six tight piece budgets outlaw the
+ * easy stacks. The
  * final stretch (69–72) is the hardest in the game: 10–12 weights, dozens
  * of near-misses, and a single path through. No hints — you know the ropes.
  */
@@ -22,20 +22,20 @@ export const pack3: LevelPack = {
     { weights: [80, 72, 74, 48, -13, -5] },
     // 51 — the pan starts overshot at 88: 88−21, or 88−15−6. All five = 68.
     { weights: [88, -21, -15, 22, -6], locked: [0] },
-    // 52 — use-all: the whole tray cancels to exactly 67
-    { weights: [95, 60, -44, -30, -14], useAll: true },
+    // 52 — 64+46 overshoots to 110, -43 hauls it back; twin 44 fakes 64+44-43=65
+    { weights: [64, 46, 44, -29, -43] },
     // 53 — only two pieces allowed; 45+24 lands on a cruel 69
     { weights: [90, 82, 45, 24, -23, -15], maxWeights: 2 },
     // 54 — a balloon is stuck on the pan: −25+92=67, but −25+93=68 taunts
     { weights: [-25, 92, 93, 48, 44, -8], locked: [0] },
-    // 55 — use-all: three downs, three balloons, perfect cancellation
-    { weights: [50, 45, 38, -26, -19, -21], useAll: true },
+    // 55 — 58+56 then -22-25; swap in 60 or -23 and it lands on 69
+    { weights: [58, 60, 56, -22, -25, -23] },
     // 56 — double-balloon signature: 68+48, then −26−23. Bare 65 and 68 tease.
     { weights: [68, 65, 49, 48, -26, -25, -23] },
     // 57 — locked 96, three balloons: −29 lands it, −28 gives 68, −31 gives 65
     { weights: [52, 44, -28, -31, -29, 29, 28], locked: [0, 1] },
-    // 58 — use-all: seven pieces net to 67
-    { weights: [72, 66, 45, -39, -28, -31, -18], useAll: true },
+    // 58 — 69+66 up top, -24-44 down; the 64 twin fakes 65, -35 gives 71
+    { weights: [64, 69, 66, -36, -24, -44, -35] },
     // 59 — three-piece budget with 66 and 68 traps
     { weights: [51, 46, 42, 39, -22, -26, -14], maxWeights: 3 },
     // 60 — the 99 is locked; shed exactly 32
@@ -44,12 +44,12 @@ export const pack3: LevelPack = {
     { weights: [70, 63, 57, 46, -34, -25, -19, -11], maxWeights: 4 },
     // 62 — locked pair overshoots to 126; find the 59 of lift
     { weights: [85, 41, -31, -28, -24, -17, 22, 13], locked: [0, 1] },
-    // 63 — use-all: eight pieces, 211 down vs 144 up
-    { weights: [61, 54, 49, 47, -42, -35, -38, -29], useAll: true },
+    // 63 — lone route 51+56-40; the three ~55 twins and -43 bait 68/70
+    { weights: [57, 51, 58, 56, -43, -40, -35, -31] },
     // 64 — locked 96 plus a three-piece cap; -31 and -28 are lies
     { weights: [96, -31, -16, -13, 24, -28, 33, -20], locked: [0], maxWeights: 3 },
-    // 65 — use-all: nine pieces in perfect balance
-    { weights: [58, 52, 47, 44, 41, -40, -37, -33, -65], useAll: true },
+    // 65 — needle 41+43+42-59; the -58 twin gives 68, 45/51 fake 70
+    { weights: [41, 43, 42, 45, 51, -58, -35, -59, -30] },
     // 66 — a -48 balloon is locked on; climb 115 back up
     { weights: [-48, 62, 53, 46, -19, 71, 38, -26, 15], locked: [0] },
     // 67 — four-piece budget over nine weights, near-misses everywhere
