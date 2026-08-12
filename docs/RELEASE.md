@@ -172,6 +172,7 @@ simulators/emulators the same way live ones fill). Full detail:
 1. iOS: await Apple's decision on `223ea368` → device-test → **Release**.
 2. Android: device-test the internal build → upload the AAB to Production → confirm
    → rollout.
-3. Create the Google Payments profile → then the Play `com.noqyris.exactly67.removeads`
-   product (~$0.99) → the Remove-Ads button transacts on Android too.
+3. Create the Google Payments profile → then the Play products:
+   `com.noqyris.exactly67.removeads` (~$4.99) plus the three consumables
+   `…hints10/30/100` (~$0.99/$1.99/$2.99) → the Store transacts on Android too.
 4. Commit the audit fixes + version bumps; push `feat/monetization`.

@@ -31,7 +31,8 @@ model favors opt-in and light-touch over ad saturation:
 | **Rewarded** | Primary earner. Opt-in → highest eCPM, best goodwill. Hints are a **banked inventory**: **+1 free per day** (top-up at boot) and **+1 per rewarded video** (collect as many as you like). A video **banks** a hint — it does **not** reveal — so the player spends them on their own terms. The 💡 badge shows the **count** (green disc + number, or blue **▶** at zero); tapping spends one to highlight a winning weight. | 💡 button in the game HUD |
 | **Interstitial** | Occasional full-screen at a natural break, under a **hybrid gate**: a clear count decides *where*, time + session + opt-in state decide *whether*. Tuned light (psychology + revenue study). | On the leave-tap after a win, past onboarding (levels 1–8), never on a pack final; see the cadence rule below |
 | **Banner** | Passive fill. | Bottom-anchored, **all screens incl. gameplay** |
-| **Remove Ads (IAP)** | Most reliable revenue in casual games. **$0.99**, one-time. Kills banner + interstitial **and grants unlimited free hints** (owners never see an ad — the 💡 is always lit, no cost, no video). The "+ unlimited hints" perk is advertised on the menu (under the button) and upsold in the hint modal to lift conversion. | Phase 2 |
+| **Hint packs (IAP)** | Consumables for players who want help without buying the unlock: **10 / 30 / 100 hints at $0.99 / $1.99 / $2.99**. Purchased hints are added to the same banked inventory and **never expire** (Apple requires this, and the balance is a plain persisted counter with no decay). | Store screen |
+| **Remove Ads (IAP)** | Most reliable revenue in casual games. **$4.99**, one-time. Kills banner + interstitial **and grants unlimited free hints** (owners never see an ad — the 💡 is always lit, no cost, no video). Sits at the **top** of the Store ladder as the hero tier. | Store screen |
 | **Rate this app** | Not revenue — but the App Store rating *is* the funnel. Fires the native StoreKit prompt **once**, at a post-win delight peak. | `review.ts`, from the win overlay (~1.8s after the star pop) |
 
 **Network:** **AdMob** (`@capacitor-community/admob` v8) — first-class Capacitor
@@ -190,16 +191,37 @@ Step-by-step build/upload/submission commands and gotchas: [`RELEASE.md`](RELEAS
 
 ---
 
-## Phase 2 — Remove Ads ($0.99 IAP)
+## Phase 2 — the Store (hint packs + Remove Ads)
+
+> **Read this before touching prices.** The four products form a deliberate ladder:
+> `10 = $0.99 < 30 = $1.99 < 100 = $2.99 < unlimited+no-ads = $4.99`. The unlock
+> grants unlimited hints, so it must always cost **more than the largest pack**.
+> When it was $0.99 it strictly dominated every pack (cheaper *and* unlimited),
+> which turned the packs into dominated decoys — anyone who bought one paid more
+> for less. That is both self-cannibalising and the exact harm the EU CPC Network
+> names (Mar 2025): *"causing consumers to overspend compared to what they
+> otherwise would have."* Keep `unlock > largest pack`, or delete the packs.
+>
+> [`StoreScene.ts`](../src/render/StoreScene.ts) also deliberately omits countdown
+> timers, fake scarcity, "Most Popular" badges (no sales data ⇒ untrue) and
+> crossed-out prices we never charged. Truthfully-disclosed fake reference prices
+> measurably *reduce* willingness to buy. Don't add them.
+
+## Phase 2a — Remove Ads (non-consumable)
 
 Implemented as a skeleton against **StoreKit via `cordova-plugin-purchase`** (the
 `CdvPurchase` global) — no third-party backend or account. It lives in
 [`src/services/iap.ts`](../src/services/iap.ts): registers one non-consumable,
 verifies + finishes transactions, mirrors ownership into `setAdsRemoved()`
 (hides the banner, skips interstitials, **keeps** the rewarded hint), and exposes
-buy / restore. The menu surfaces "Remove ads" + "Restore purchases". The
+buy / restore. The menu surfaces a single **"Store"** button; the Store screen
+carries the packs, the unlock and "Restore purchases". The
 `exactly67.adsRemoved` flag persists and gates `main.ts` on boot; `initIap()`
 reconciles on every launch, so a restore after reinstall clears the banner.
+
+Owners are **never** shown a pack: `adsRemoved()` already makes hints unlimited
+(`GameScene.doHint` bypasses the stash), so a pack would be selling nothing.
+`StoreScene` renders an owned state for them instead.
 
 `iap.ts` already picks the store platform at runtime (`APPLE_APPSTORE` on iOS,
 `GOOGLE_PLAY` on Android), so the same code transacts on both once each store has
@@ -208,10 +230,13 @@ the product.
 **To make it transact:**
 1. **App Store Connect** → create a **Non-Consumable** IAP with product id
    `com.noqyris.exactly67.removeads` (must match `REMOVE_ADS_ID` in `iap.ts`),
-   price tier $0.99. *(Already created.)*
-2. **Google Play Console** → Monetise with Play → In-app products → create a
-   one-time product with the **same** id `com.noqyris.exactly67.removeads`,
-   ~$0.99. *(Blocked: needs a **Google Payments profile** — legal name, bank
+   price **$4.99**. *(Already created; repriced from $0.99 — see the ladder note
+   above.)* The three consumables (`…hints10/30/100`, matching `HINT_PACKS`) are
+   created too, at $0.99 / $1.99 / $2.99, all **Ready to Submit**.
+2. **Google Play Console** → Monetise with Play → In-app products → create the
+   one-time product with the **same** id `com.noqyris.exactly67.removeads`
+   (~$4.99) **and** the three consumables at the same prices as iOS.
+   *(Blocked: needs a **Google Payments profile** — legal name, bank
    account, tax info — created first at Play Console → Settings → Payments profile.
    This is the developer's own financial/legal data. Android production can ship
    with ads meanwhile; the Remove-Ads product can be added later without a new
@@ -223,9 +248,9 @@ the product.
 5. The web bundle never includes the plugin (no import; types via a `///
    <reference>`), so dev/browser stays unaffected.
 
-> Pricing note: $0.99 is an easy yes; under Apple's **Small Business Program**
-> (likely eligible, revenue < $1M) commission is 15%, so ~$0.84 nets through.
-> $1.99 earns more per buyer at similar conversion if you want to revisit.
+> Pricing note: under Apple's **Small Business Program** (likely eligible,
+> revenue < $1M) commission is 15%, so ~$4.24 nets through on the $4.99 unlock
+> and ~$0.84 on the $0.99 pack.
 
 ---
 

@@ -112,8 +112,19 @@ Thanks for playing — land on exactly 67!
 **4+** — no objectionable content of any kind.
 
 ## Price
-**Free**, with a single in-app purchase: **"Remove Ads"** (Non-Consumable, $0.99, product id
-`com.noqyris.exactly67.removeads`). It also grants unlimited hints.
+**Free**, with four in-app purchases — three consumable hint packs plus one permanent unlock:
+
+| Product | Type | Price | Product id |
+|---|---|---|---|
+| 10 Hints | Consumable | $0.99 | `com.noqyris.exactly67.hints10` |
+| 30 Hints | Consumable | $1.99 | `com.noqyris.exactly67.hints30` |
+| 100 Hints | Consumable | $2.99 | `com.noqyris.exactly67.hints100` |
+| **Remove Ads** (+ unlimited hints) | Non-Consumable | **$4.99** | `com.noqyris.exactly67.removeads` |
+
+> **The ladder is load-bearing, not arbitrary.** The unlock must stay priced *above* every pack.
+> It grants unlimited hints, so at its old $0.99 it strictly dominated all three packs — cheaper
+> *and* better — which made every pack a trap for anyone who didn't notice. If you ever reprice,
+> keep `unlock > largest pack`, or delete the packs.
 
 ## App Privacy (Data collection) — MUST match the AdMob reality
 The app serves Google AdMob ads, so the old "we do not collect data" answer is **no longer correct**

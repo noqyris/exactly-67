@@ -20,6 +20,12 @@ A balance-scale number puzzle for iOS: the left pan holds a fixed **67**, and yo
 | `npm run build` | `tsc --noEmit && vitest run && vite build` | Typecheck → test → bundle to `dist/`. **`&&`-chained: any stage failing aborts the rest.** |
 | `npm run ios:sync` | `npm run build && cap sync ios` | Build web, copy into the native iOS project, sync plugins. Needs Node >= 22. |
 | `npm run ios:open` | `cap open ios` | Open `ios/App/App.xcodeproj` in Xcode. |
+| `npm run capture` | `vite --port 5199` | Dev server on a fixed port for **marketing video capture** — open `?rec=<level>`. |
+| `npm run capture:levels` | `vite-node tools/cinematic-levels.ts` | Re-rank all 72 levels by how well they film → `marketing/CINEMATIC_LEVELS.md`. |
+| `python3 tools/make-posts.py` | — | Burn hook/beat/CTA text into the rendered clips → upload-ready `marketing/posts/*.mp4` (PIL renders the text; this ffmpeg has no `drawtext`). |
+| `python3 tools/make-endcard.py` | — | Render the animated Noqyris end card to `marketing/brand/endcard.mp4` (PIL frames → H.264 + silent AAC, stream-copy-compatible with the posts). |
+| `python3 tools/splice-opener.py` | — | Conform an AI-generated cold open to 1080×1920/60fps and concatenate it in front of a finished post. |
+| `npm run capture:render` | `node tools/render-clip.mjs` | Render a 1080×1920/60fps MP4 of a level offline, SFX included (headless Chrome + virtual time + offline Web Audio + ffmpeg). Needs the dev server up and **Node ≥ 22**. |
 
 > **`npm run build` is a hard content gate, not just a compile.** Stage 2 (`vitest run`) runs `src/game/levels.test.ts`, which asserts `validatePacks(PACKS)` returns `[]`. If any shipped level is unsolvable or malformed, that array is non-empty, the test throws, vitest exits non-zero, and the chain aborts **before `vite build` ever runs**. You cannot bundle a broken level.
 
@@ -46,7 +52,7 @@ Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `s
 | `../main.ts` | Boot: awaits font + settings, builds `Phaser.Game`, scenes `[MenuScene, LevelMapScene, GameScene]` (Menu auto-starts). |
 | `layout.ts` | `DPR` (clamped 1–3), `u(n)=n*DPR`, `contentFrame()` (caps play area to 680×940), `safeArea()`, `prefersReducedMotion()`. |
 | `palette.ts` | Single color/typography source: `INK`, `BG`, candy fills, `weightColor(value)`, `FONT`. |
-| `MenuScene.ts` / `LevelMapScene.ts` / `GameScene.ts` | The three scenes. `GameScene` (~700 LOC) is the play loop. |
+| `MenuScene.ts` / `LevelMapScene.ts` / `GameScene.ts` / `StoreScene.ts` | The four scenes. `GameScene` (~700 LOC) is the play loop; `StoreScene` is the shop (hint packs + the unlimited/no-ads unlock + Restore). |
 | `ScaleView.ts` | The beam: under-damped angular spring toward a target angle; upright hanging pans; `setWon()` locks level. |
 | `WeightView.ts` | One draggable weight (`value>0` = candy block, `value<0` = balloon), Graphics-only. |
 | `ui.ts` | Shared helpers: `makeButton`, `makeIconButton`, `drawStar`, icon glyphs, `TEXT.ink/cream` style factory. |
@@ -57,10 +63,20 @@ Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `s
 | `audio.ts` | Web Audio **synth** — every SFX generated from oscillators + gain envelopes at play time. No audio files. |
 | `haptics.ts` | Toggle-gated `@capacitor/haptics` wrapper; fire-and-forget, silently no-ops on web. |
 | `ads.ts` | Toggle-gated `@capacitor-community/admob` wrapper (banner / interstitial / rewarded-hint); same fire-and-forget, web-no-op pattern as `haptics.ts`. Runs on **Google test ad units** until real IDs are wired — see [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
-| `iap.ts` | "Remove Ads" IAP wrapper — StoreKit via `cordova-plugin-purchase` (`CdvPurchase` global; no bundler import, injected natively). Web-no-op; mirrors ownership into `ads.setAdsRemoved`. Needs an App Store Connect product — see [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
+| `iap.ts` | IAP wrapper — StoreKit via `cordova-plugin-purchase` (`CdvPurchase` global; no bundler import, injected natively). Sells three **consumable** hint packs (`HINT_PACKS`, 10/30/100) plus the **non-consumable** unlock; web-no-op; mirrors ownership into `ads.setAdsRemoved` and grants hints via `ads.grantHints`. **Price-ladder invariant: the unlock ($4.99) must stay dearer than the largest pack ($2.99)** — it grants unlimited hints, so pricing it below would strictly dominate every pack and make them traps. See [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
 | `review.ts` | "Rate this app" wrapper — native StoreKit prompt via `@capacitor-community/in-app-review`. One-shot (persisted flag), web-no-op; `maybeRequestReview` fires from the win overlay at a delight peak. See [`docs/MONETIZATION.md`](docs/MONETIZATION.md). |
 | `storage.ts` | `@capacitor/preferences` wrapper. Keys: `exactly67.progress` (JSON), `exactly67.sound`, `exactly67.haptics` (`'on'`/`'off'`), `exactly67.adClears`, `exactly67.adsRemoved`, `exactly67.hintFreeDate` (daily-top-up date), `exactly67.hintCount` (hint inventory), `exactly67.reviewRequested`. |
 | `progressStore.ts` | In-memory cache of `Progress` so scenes read synchronously; write-through on every clear. |
+
+### `src/dev` — dev-only surfaces (never in the shipped bundle)
+Both are dynamically imported from `main.ts` behind `import.meta.env.DEV`, which is
+statically `false` in a production build, so Vite tree-shakes them out entirely.
+
+| File | Role |
+|---|---|
+| `testBridge.ts` | Read-mostly `window.__e67` view of the running game for E2E: active scene, all Text strings, every `WeightView` with its world position, interactive buttons, `seedProgress`. Never mutates state. |
+| `capture.ts` | **Capture director** for marketing video. `?rec=<level>` scripts a level through the real `placeWeight` path (so sound/haptics/spring/win all fire authentically) in "drama order" — heaviest weights first, balloons last, so the pan overshoots hard then gets hauled back to 67. Modes: `solve` / `fail` (stops on the nearest legal wrong answer) / `asmr` (chains levels). See [`marketing/TIKTOK_PLAYBOOK.md`](marketing/TIKTOK_PLAYBOOK.md). |
+| `audioRender.ts` | Offline **SFX re-render** for those clips. Swaps `window.AudioContext` for a proxy over an `OfflineAudioContext` whose `currentTime` reports elapsed virtual time, so every note `services/audio.ts` schedules lands at its true offset in a WAV buffer. `services/audio.ts` is untouched — the proxy just has to be installed before the first sound, since that module caches its context on first use. |
 
 ## Core data flow
 
@@ -125,6 +141,12 @@ For the full authoring guide — every constraint explained, the star economy, t
 - [`docs/MONETIZATION.md`](docs/MONETIZATION.md) — ads & IAP: the strategy, how `ads.ts` is wired, and the exact steps to go from test ads to live App-Store-approved revenue.
 - [`docs/TESTING.md`](docs/TESTING.md) — build gate, the unit + E2E matrix, how to run/drive (web + simulator), and the adversarial audit + confirmed fixes.
 - [`docs/RELEASE.md`](docs/RELEASE.md) — build & release runbook for both stores: version bumps, fastlane, the ASC version+IAP submission, Android AAB, current status.
+- [`marketing/TIKTOK_PLAYBOOK.md`](marketing/TIKTOK_PLAYBOOK.md) — short-form video playbook: the "67 = six-seven" positioning, recording setup, six shot-listed formats, hooks/captions/hashtags, and where AI generation does and doesn't belong.
+- [`marketing/CINEMATIC_LEVELS.md`](marketing/CINEMATIC_LEVELS.md) — **generated** (`npm run capture:levels`): all 72 levels scored on how well they film, with the best picks per video format.
+- [`marketing/PRODUCTION_BRIEF.md`](marketing/PRODUCTION_BRIEF.md) — **the source of truth for marketing decisions.** Researched July 2026 (81 findings; the 14 riskiest adversarially re-verified, 9 corrected): Apple's rules on the logo/badge/wording in video, the Noqyris studio-account setup, the numeric reel spec, the original-vs-trending audio call, the fal.ai model choice, and an honest low-confidence list. Supersedes parts of the two files below.
+- [`marketing/FAL_BRIEF.md`](marketing/FAL_BRIEF.md) — what to generate on fal.ai (2s cold opens only — never gameplay), the output spec the splicer expects, and six ready prompts.
+- [`marketing/POSTING.md`](marketing/POSTING.md) — the copy-paste sheet: the App Store link and where it may go, the pinned comment, hashtags, every caption, per-platform differences, and Apple's binding wording rules.
+- [`marketing/BATCH-01.md`](marketing/BATCH-01.md) — the executable version: twelve videos fully specified (capture URL, overlay timings, caption, hashtags), account setup, posting order. iOS-only; the App Store listing is live as `id6787536995`.
 - `README.md` — project overview + command summary.
 - `src/game/levels/pack1.ts` … `pack3.ts` — annotated level data and difficulty ramp.
 - `store/` — App Store release collateral: `STORE_LISTING.md`, `PRIVACY_POLICY.md`, `SUBMISSION.md` (runbook), `icon-1024.png`, `screenshots/`.

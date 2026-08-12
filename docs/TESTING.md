@@ -85,7 +85,8 @@ xcrun simctl io booted screenshot menu.png       # observe
 
 The simulator is the only place the **native layer** runs: the real AdMob banner
 loads (test ads — simulators are always AdMob test devices, never billed), the IAP
-product's price loads via StoreKit (`Remove ads · $0.99`), and ATT is prompted.
+products' prices load via StoreKit (the Store screen shows `$0.99 / $1.99 /
+$2.99` packs and the `$4.99` unlock), and ATT is prompted.
 
 > ⚠️ **You cannot programmatically drive the simulator's UI.** macOS blocks
 > synthetic mouse/keyboard input into another app without an **Accessibility**
@@ -143,7 +144,8 @@ row below was exercised and passed.
 
 **Native-only (simulator, observed — not gameplay-driven):** clean launch with no
 crash/exception in the logs; `[CdvPurchase.AppleAppStore.objc] Initialized.`; the
-real banner loads + displays; `Remove ads · $0.99` + `Restore purchases` render;
+real banner loads + displays; the menu `Store` button opens a Store screen whose
+four prices + `Restore purchases` all render;
 ATT resolved; the responsive menu layout accommodates the real banner without the
 scale overlapping the buttons.
 
