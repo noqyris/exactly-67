@@ -65,7 +65,15 @@ export function makeButton(
   c.add(kids)
   c.setSize(width, height + drop)
   c.setInteractive({ useHandCursor: true })
+
+  // Arm on press, fire on release. Phaser re-hit-tests at the release position,
+  // so a bare `pointerup` handler also fires for a finger that went down
+  // somewhere else entirely — on the splash overlay, or on a modal that closed
+  // under the thumb — and merely happened to lift here. Requiring the matching
+  // press keeps such a stray release inert.
+  let armed = false
   c.on('pointerdown', () => {
+    armed = true
     draw(true)
     text.y = mainY + drop
     if (sub) sub.y = subY + drop
@@ -75,9 +83,14 @@ export function makeButton(
     text.y = mainY
     if (sub) sub.y = subY
   }
-  c.on('pointerout', release)
+  c.on('pointerout', () => {
+    armed = false
+    release()
+  })
   c.on('pointerup', () => {
     release()
+    if (!armed) return
+    armed = false
     onTap()
   })
   return c
@@ -113,7 +126,15 @@ export function makeIconButton(
   c.add([g, icon])
   c.setSize(size, size)
   c.setInteractive({ useHandCursor: true })
-  c.on('pointerup', onTap)
+  // Same press-arming as makeButton: a release that didn't start here is ignored.
+  let armed = false
+  c.on('pointerdown', () => (armed = true))
+  c.on('pointerout', () => (armed = false))
+  c.on('pointerup', () => {
+    if (!armed) return
+    armed = false
+    onTap()
+  })
   return c
 }
 

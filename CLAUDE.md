@@ -52,6 +52,7 @@ Internal deps only: `balance ← rules`, `types ← everything`, `solver` and `s
 | File | Role |
 |---|---|
 | `../main.ts` | Boot: awaits font + settings, builds `Phaser.Game`, scenes `[MenuScene, LevelMapScene, GameScene, StoreScene]` (Menu auto-starts). Also grandfathers the pre-split `unlimitedHints` entitlement — see `services/storage.ts`. |
+| `../splash.ts` | Studio sting (`public/splash.mp4`, muted + `playsinline`, markup inline in `index.html`). Plays *over* the boot; dismisses on end/tap/error/autoplay-refusal/8s timeout, skipped under reduced motion. Two invariants: the overlay stays in the DOM as an **invisible input shield** until the finger is up (Phaser fires buttons on a bare `pointerup` re-hit-tested at the release point, so a skip tap would otherwise press Play underneath), and `initSplash()` returns a promise that ads wait on so no native view draws over the sting. |
 | `layout.ts` | `DPR` (clamped 1–3), `u(n)=n*DPR`, `contentFrame()` (caps play area to 680×940), `safeArea()`, `prefersReducedMotion()`. |
 | `palette.ts` | Single color/typography source: `INK`, `BG`, candy fills, `weightColor(value)`, `FONT`. |
 | `MenuScene.ts` / `LevelMapScene.ts` / `GameScene.ts` / `StoreScene.ts` | The four scenes. `GameScene` (~700 LOC) is the play loop; `StoreScene` is the shop (hint packs + the unlimited/no-ads unlock + Restore). |

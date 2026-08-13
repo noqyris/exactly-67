@@ -36,8 +36,9 @@ import {
 
 async function boot() {
   // Kick the studio sting off first, before any await: it plays OVER the boot
-  // below, so the menu is already built by the time it finishes.
-  initSplash()
+  // below, so the menu is already built by the time it finishes. The promise
+  // settles when it is off the screen — ads wait on it (see below).
+  const splashGone = initSplash()
 
   // Canvas text uses the bundled font — wait so first paint is correct.
   await document.fonts.ready.catch(() => {})
@@ -109,6 +110,13 @@ async function boot() {
   // Ads boot after the game so first paint is never blocked on the network.
   // No-ops on web/dev; on device it initializes, collects consent + ATT, then
   // shows the persistent bottom banner in the strip reserved above.
+  //
+  // They also wait for the splash. Everything `initAds` puts on screen is a
+  // NATIVE view stacked above the web view — the banner, the UMP consent sheet,
+  // the ATT prompt — so none of it is covered by the sting; it would draw on top
+  // of it. The layout reserve above is applied immediately either way, so the
+  // strip is already held open and nothing reflows when the banner arrives.
+  // `splashGone` always settles (hard timeout), so ads can't be stranded.
   if (wantAds) {
     // When the banner reports its real height, reserve exactly that and relayout
     // so the tray/UI always clears it (no overlap regardless of ad size).
@@ -116,7 +124,7 @@ async function boot() {
       setAdBannerReserve(designPx * DPR)
       game.scale.emit('resize')
     })
-    void initAds().then(showBanner)
+    void splashGone.then(initAds).then(showBanner)
   }
 
   // IAP boots regardless so a fresh purchase or "Restore purchases" can grant.
