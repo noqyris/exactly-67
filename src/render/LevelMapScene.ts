@@ -89,7 +89,15 @@ export class LevelMapScene extends Phaser.Scene {
     headerBg.setInteractive()
 
     this.headerH = headerH
-    this.content = this.add.container(0, headerH)
+    // Phaser REUSES the scene instance, so `scrollY` survives leaving the map
+    // and coming back. It has to be reset here or it disagrees with the content
+    // container, which always starts at the top: the tiles were then
+    // instantiated for wherever the player last scrolled and every one of them
+    // landed off-screen, so the map looked empty until the first drag resynced
+    // it. Harmless before virtualization (all tiles existed regardless), which
+    // is why it only surfaced now.
+    this.scrollY = 0
+    this.content = this.add.container(0, headerH + this.scrollY)
     this.slots = []
     this.live.clear()
     this.buildContent()
@@ -97,10 +105,15 @@ export class LevelMapScene extends Phaser.Scene {
     this.syncVisible()
 
     if (this.scrollTo !== undefined) {
-      // Land with the requested level in view.
-      const row = Math.floor((this.scrollTo - 1) / 4)
+      // Land with the requested level in view. This used to estimate the row as
+      // `floor((level - 1) / 4) * u(96)`, which ignores the height of every pack
+      // header above it — a rounding error with 3 packs, but it accumulates
+      // across 25 and pushed the target off the bottom of the screen. The exact
+      // position is already known, so use it and centre the tile.
+      const slot = this.slots.find((s) => s.global === this.scrollTo)
+      const viewH = this.scale.height - headerH
       this.scrollY = Phaser.Math.Clamp(
-        -(row * u(96) - u(120)),
+        slot ? -(slot.y - viewH * 0.45) : 0,
         Math.min(0, this.scale.height - headerH - this.contentHeight),
         0,
       )
