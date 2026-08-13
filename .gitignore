@@ -21,3 +21,20 @@ ios/App/fastlane/Preview.html
 # Playwright MCP browser-automation artifacts
 .playwright-mcp/
 admob-login.png
+
+# Rendered marketing clips — deterministic output of tools/render-clip.mjs,
+# so they are reproducible from the command in marketing/BATCH-01.md rather
+# than worth carrying as binaries in git history.
+marketing/clips/
+marketing/posts/
+marketing/openers/
+# brand assets are generated from the game itself (tools/make-posts.py notes)
+marketing/brand/
+
+# Splash master (4.3 MB, 2192x3824, with audio). The shipped derivative is
+# public/splash.mp4 — 1200px wide, audio stripped, ~0.5 MB — which IS committed.
+# Regenerate it with:
+#   ffmpeg -i splashscreen-9-16.mp4 -an -vf scale=1200:-2 -c:v libx264 \
+#     -profile:v main -pix_fmt yuv420p -crf 24 -preset slow \
+#     -movflags +faststart public/splash.mp4
+splashscreen-9-16.mp4

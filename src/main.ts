@@ -1,4 +1,5 @@
 import './style.css'
+import { initSplash } from './splash'
 import '@fontsource/baloo-2/500.css'
 import '@fontsource/baloo-2/600.css'
 import '@fontsource/baloo-2/700.css'
@@ -34,6 +35,10 @@ import {
 } from './services/storage'
 
 async function boot() {
+  // Kick the studio sting off first, before any await: it plays OVER the boot
+  // below, so the menu is already built by the time it finishes.
+  initSplash()
+
   // Canvas text uses the bundled font — wait so first paint is correct.
   await document.fonts.ready.catch(() => {})
 
