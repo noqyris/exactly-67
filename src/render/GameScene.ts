@@ -19,6 +19,7 @@ import { shareCard } from '../game/share'
 import { starsForClear } from '../game/stars'
 import type { Evaluation } from '../game/types'
 import {
+  playCelebration,
   playHintChime,
   playPlace,
   playPlaceBalloon,
@@ -28,6 +29,7 @@ import {
   setSoundEnabled,
   soundEnabled,
 } from '../services/audio'
+import { duckMusic } from '../services/music'
 import {
   hapticsEnabled,
   placeTap,
@@ -53,7 +55,7 @@ import {
 } from '../services/ads'
 import { saveDailyDone, saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
-import { BG, GOOD, INK, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
+import { BG, CREAM_CSS, FONT, GOOD, INK, INK_CSS, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
 import type { ScaleGeometry } from './ScaleView'
 import { drawBackIcon, drawHapticsIcon, drawHintIcon, drawSoundIcon, drawStar, makeButton, makeIconButton, TEXT } from './ui'
@@ -980,13 +982,25 @@ export class GameScene extends Phaser.Scene {
     else recordClear(this.ref.global, stars, used)
     noteCleared() // count this clear toward the interstitial cadence
 
+    // The celebration runs in two beats. First the impact: the beam locks, the
+    // camera kicks, confetti drops, the jingle fires and "Congratulations!"
+    // pops over the board. Then the reward: the card slides up with the stars
+    // and the fanfare. Splitting them is what makes a clear feel earned rather
+    // than merely acknowledged — one lump of feedback reads as a notification.
     this.time.delayedCall(500, () => {
       if (!this.reducedMotion) this.cameras.main.shake(180, 0.007)
       this.burstConfetti()
+      // Pull the music bed down so the jingle and fanfare cut through instead
+      // of fighting the pad underneath.
+      duckMusic(0.2, 2.6)
       playWinJingle()
       winTap()
+      this.showCongratulations()
     })
-    this.time.delayedCall(1000, () => this.showWinOverlay(stars, used))
+    this.time.delayedCall(1000, () => {
+      playCelebration()
+      this.showWinOverlay(stars, used)
+    })
     // Ask for a store rating at the delight peak — after the jingle + star pop,
     // once ever, on an engaged/happy moment. But never pair the ask with an
     // interstitial on the same win: that one-two punch poisons the ask. If an ad
@@ -994,6 +1008,60 @@ export class GameScene extends Phaser.Scene {
     // consumed when skipped), so it simply defers to the next clean, ad-free win.
     this.time.delayedCall(1800, () => {
       if (!interstitialWouldShow(this.ref.global)) void maybeRequestReview(this.ref.global, stars)
+    })
+  }
+
+  /**
+   * "Congratulations!" over the live board, in the half-second before the win
+   * card arrives. It sits here rather than on the card on purpose: the card is
+   * already carrying the score, the stars and three buttons, and a congratulation
+   * squeezed in among them reads as a label. On its own, over the confetti, it
+   * reads as someone actually saying it.
+   */
+  private showCongratulations() {
+    const f = contentFrame(this.scale.width, this.scale.height)
+    // Below the scale, not across it. The balanced beam IS the achievement —
+    // covering it at the exact moment it locks level trades the payoff for the
+    // announcement of the payoff. The band under the pans is empty anyway.
+    const label = this.add
+      .text(f.cx, this.scale.height * 0.47, 'Congratulations!', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(u(34))}px`,
+        fontStyle: '800',
+        color: CREAM_CSS,
+      })
+      .setOrigin(0.5)
+      .setDepth(102) // above the confetti, below the card
+    // Chunky ink outline — the same treatment as the buttons, and the only way
+    // cream text stays readable over a busy board.
+    label.setStroke(INK_CSS, u(7))
+    label.setShadow(0, u(3), '#2B2440', 0, true, true)
+    // One long word at a fixed size runs off a narrow phone; scale it to the
+    // frame rather than let it clip. (The stroke grows the measured width, so
+    // measure after it is applied.)
+    const fit = Math.min(1, (f.ew - u(28)) / Math.max(label.width, 1))
+
+    const fade = () =>
+      this.tweens.add({
+        targets: label,
+        alpha: 0,
+        duration: 220,
+        onComplete: () => label.destroy(),
+      })
+
+    if (this.reducedMotion) {
+      label.setScale(fit)
+      this.time.delayedCall(700, fade)
+      return
+    }
+    label.setScale(fit * 0.4)
+    this.tweens.add({
+      targets: label,
+      scale: fit,
+      duration: 380,
+      ease: 'Back.easeOut',
+      // Hold it just long enough to be read, then clear the way for the card.
+      onComplete: () => this.time.delayedCall(260, fade),
     })
   }
 

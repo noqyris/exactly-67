@@ -22,6 +22,7 @@ import {
   showBanner,
 } from './services/ads'
 import { initIap } from './services/iap'
+import { primeMusicEnabled, startMusic } from './services/music'
 import { initReview } from './services/review'
 import { setSoundEnabled } from './services/audio'
 import { setHapticsEnabled } from './services/haptics'
@@ -29,10 +30,17 @@ import { initProgress } from './services/progressStore'
 import {
   loadAdsRemoved,
   loadHapticsEnabled,
+  loadMusicEnabled,
   loadSoundEnabled,
   loadUnlimitedHints,
   saveUnlimitedHints,
 } from './services/storage'
+
+/**
+ * Whether the music bed plays for someone who has never touched the toggle.
+ * See docs/AUDIO.md for the reasoning; change it here, not in the storage layer.
+ */
+const MUSIC_ON_BY_DEFAULT = true
 
 async function boot() {
   // Kick the studio sting off first, before any await: it plays OVER the boot
@@ -43,10 +51,11 @@ async function boot() {
   // Canvas text uses the bundled font — wait so first paint is correct.
   await document.fonts.ready.catch(() => {})
 
-  const [, soundOn, hapticsOn, adsAlreadyRemoved, storedUnlimited] = await Promise.all([
+  const [, soundOn, hapticsOn, musicOn, adsAlreadyRemoved, storedUnlimited] = await Promise.all([
     initProgress(),
     loadSoundEnabled(),
     loadHapticsEnabled(),
+    loadMusicEnabled(MUSIC_ON_BY_DEFAULT),
     loadAdsRemoved(),
     loadUnlimitedHints(),
     // Load the hint stash + grant the daily free hint before the HUD first
@@ -55,6 +64,8 @@ async function boot() {
   ])
   setSoundEnabled(soundOn)
   setHapticsEnabled(hapticsOn)
+  // Only reflect the flag — starting needs a user gesture (see below).
+  primeMusicEnabled(musicOn)
 
   // Reflect the persisted remove-ads flag into the ads service before scenes
   // read adsRemoved() — initAds (which also loads it) is skipped for owners, so
@@ -126,6 +137,13 @@ async function boot() {
     })
     void splashGone.then(initAds).then(showBanner)
   }
+
+  // iOS will not let audio start without a user gesture, so the bed can't come
+  // up at boot even when the player had it on last session. Arm it on the first
+  // touch anywhere. Capture phase on purpose: the splash overlay stops taps from
+  // bubbling (it must, or a skip tap would press a menu button), and capture runs
+  // before that. No-op while music is off.
+  window.addEventListener('pointerdown', () => startMusic(), { once: true, capture: true })
 
   // IAP boots regardless so a fresh purchase or "Restore purchases" can grant.
   // (Relaunch of an owner is handled by the persisted flag primed above.)

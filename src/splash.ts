@@ -1,3 +1,5 @@
+import { loadSoundEnabled } from './services/storage'
+
 /**
  * Noqyris studio sting, played once per cold start over the booting game.
  *
@@ -6,8 +8,11 @@
  * This file only drives it.
  *
  * Four things are non-negotiable:
- *   - `muted` + `playsinline`, or iOS refuses to autoplay without a user
- *     gesture. The shipped file also has its audio track stripped.
+ *   - `playsinline`, and `muted` *to start with*. The sting has sound and is
+ *     meant to be heard; a Capacitor WKWebView permits that (Capacitor sets
+ *     `mediaTypesRequiringUserActionForPlayback = []`), but a plain browser does
+ *     not. Starting muted means playback is never refused outright, and the
+ *     unmute below turns the sound on wherever it is allowed.
  *   - The splash must NEVER be able to strand the player on a black screen.
  *     Every failure path (autoplay rejected, decode error, a codec the WebView
  *     dislikes, a file that never loads) dismisses, and a hard timeout backs
@@ -207,6 +212,34 @@ export function initSplash(): Promise<void> {
   // on a frozen first frame if it is.
   const started = video.play()
   if (started && typeof started.catch === 'function') started.catch(dismiss)
+
+  // The sting has an audio track and it is meant to be heard. Capacitor's
+  // WKWebView allows that — it sets `mediaTypesRequiringUserActionForPlayback`
+  // to `[]`, so unlike mobile Safari there is no gesture requirement. A plain
+  // browser still blocks it, which is why the element starts muted in the
+  // markup and is only unmuted here: playback can then never be refused
+  // outright, and the fallback is a silent sting rather than no sting.
+  //
+  // Gated on the game's own sound switch. Someone who muted the game and then
+  // gets a jingle on every cold start has been ignored, not served.
+  void loadSoundEnabled()
+    .then((on) => {
+      if (!on || dismissed || !video.isConnected) return
+      video.volume = 1
+      video.muted = false
+      // WebKit's way of refusing an unmute it dislikes is to pause. Take the
+      // video back rather than leave the player staring at a frozen frame.
+      const rescue = () => {
+        if (dismissed || video.ended) return
+        video.muted = true
+        void video.play().catch(() => {})
+      }
+      video.addEventListener('pause', rescue)
+      timers.push(window.setTimeout(() => video.removeEventListener('pause', rescue), 900))
+    })
+    .catch(() => {
+      // Settings unreadable — keep the sting silent rather than guess.
+    })
 
   return gone
 }

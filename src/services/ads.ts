@@ -9,6 +9,7 @@ import {
 } from '@capacitor-community/admob'
 import type { AdMobBannerSize } from '@capacitor-community/admob'
 import { resumeAudio } from './audio'
+import { startMusic, stopMusic } from './music'
 import {
   loadAdClears,
   loadAdsRemoved,
@@ -214,8 +215,21 @@ export async function initAds(): Promise<void> {
     await AdMob.initialize({ initializeForTesting: TESTING })
     // A full-screen ad backgrounds the web view and suspends the iOS
     // AudioContext; restore sound the moment the ad is dismissed.
-    void AdMob.addListener(InterstitialAdPluginEvents.Dismissed, () => resumeAudio())
-    void AdMob.addListener(RewardAdPluginEvents.Dismissed, () => resumeAudio())
+    //
+    // FailedToShow is not optional here. Nothing in the AdMob SDK or in this
+    // plugin ducks or pauses game audio — Google's own iOS guidance is to pause
+    // at the call site and resume on dismiss — so `maybeShowInterstitial` stops
+    // the music before showing. If the ad then fails to present, Dismissed never
+    // fires, and without this the bed would stay dead for the rest of the
+    // session. Cheap insurance against a silent game.
+    const back = () => {
+      resumeAudio()
+      startMusic()
+    }
+    void AdMob.addListener(InterstitialAdPluginEvents.Dismissed, back)
+    void AdMob.addListener(InterstitialAdPluginEvents.FailedToShow, back)
+    void AdMob.addListener(RewardAdPluginEvents.Dismissed, back)
+    void AdMob.addListener(RewardAdPluginEvents.FailedToShow, back)
     await requestConsent()
   } catch {
     // Init failed — later calls guard on errors and no-op.
@@ -331,6 +345,10 @@ export async function maybeShowInterstitial(clearedGlobal: number): Promise<void
   if (!interstitialWouldShow(clearedGlobal)) return
   try {
     await AdMob.prepareInterstitial({ adId: UNITS.interstitial, isTesting: TESTING })
+    // Pause our own audio at the call site, as Google's iOS guidance says to:
+    // neither the SDK nor this plugin ducks it for us. Resume is handled by the
+    // Dismissed/FailedToShow listeners in initAds, plus the catch below.
+    stopMusic()
     await AdMob.showInterstitial()
     // Spend the cadence only once an ad actually showed; a no-fill/offline
     // break leaves the counter armed (and the time floor unmoved) so the next
@@ -340,7 +358,10 @@ export async function maybeShowInterstitial(clearedGlobal: number): Promise<void
     lastInterstitialAt = Date.now()
     adsThisSession++
   } catch {
-    // no fill — skip this break, keep the counter armed
+    // no fill — skip this break, keep the counter armed. The ad never appeared,
+    // so give the music straight back rather than wait for an event that will
+    // not come.
+    startMusic()
   }
 }
 
@@ -355,11 +376,15 @@ export async function showRewardedHint(): Promise<boolean> {
   if (!adsSupported()) return true
   try {
     await AdMob.prepareRewardVideoAd({ adId: UNITS.rewarded, isTesting: TESTING })
+    // Rewarded video plays with sound, so this one matters most: our bed under
+    // an ad's soundtrack is the worst audio moment the game can produce.
+    stopMusic()
     const reward = await AdMob.showRewardVideoAd()
     // Record the opt-in so the next interstitial is suppressed for a while.
     if (reward != null) lastRewardedAt = Date.now()
     return reward != null
   } catch {
+    startMusic()
     return false
   }
 }

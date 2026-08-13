@@ -5,12 +5,20 @@ import { hintsUnlimited } from '../services/ads'
 import { playPlace, setSoundEnabled, soundEnabled } from '../services/audio'
 import { hapticsEnabled, placeTap, setHapticsEnabled } from '../services/haptics'
 import { iapSupported, setIapListener } from '../services/iap'
+import { musicEnabled, setMusicEnabled } from '../services/music'
 import { progress } from '../services/progressStore'
-import { saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
+import { saveHapticsEnabled, saveMusicEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, safeArea, u } from './layout'
 import { BG, INK, OUTLINE, PAPER, weightColor } from './palette'
 import { ScaleView } from './ScaleView'
-import { drawHapticsIcon, drawSoundIcon, makeButton, makeIconButton, TEXT } from './ui'
+import {
+  drawHapticsIcon,
+  drawMusicIcon,
+  drawSoundIcon,
+  makeButton,
+  makeIconButton,
+  TEXT,
+} from './ui'
 
 const INK_SOFT = '#5D5470'
 
@@ -204,7 +212,8 @@ export class MenuScene extends Phaser.Scene {
       toggleRowY = playY + row(230)
     }
 
-    // Sound + haptics toggles.
+    // Sound + music + haptics toggles. Music is its own switch, not a slice of
+    // the sound one: plenty of players want the taps and none of the bed.
     const size = u(46) * kc
     const sound = makeIconButton(
       this,
@@ -217,7 +226,20 @@ export class MenuScene extends Phaser.Scene {
         if (soundEnabled()) playPlace()
       },
     )
-    sound.setPosition(cx - size * 0.75, toggleRowY)
+    sound.setPosition(cx - size * 1.5, toggleRowY)
+    const music = makeIconButton(
+      this,
+      size,
+      (g, s) => drawMusicIcon(g, s, musicEnabled()),
+      () => {
+        // This tap is itself the user gesture iOS wants before audio may start,
+        // so switching it on here is enough to hear it immediately.
+        setMusicEnabled(!musicEnabled())
+        void saveMusicEnabled(musicEnabled())
+        music.refresh()
+      },
+    )
+    music.setPosition(cx, toggleRowY)
     const haptics = makeIconButton(
       this,
       size,
@@ -229,7 +251,7 @@ export class MenuScene extends Phaser.Scene {
         if (hapticsEnabled()) placeTap()
       },
     )
-    haptics.setPosition(cx + size * 0.75, toggleRowY)
+    haptics.setPosition(cx + size * 1.5, toggleRowY)
 
     // Portrait-locked on device, but dev browsers can resize: rebuild once.
     this.scale.once('resize', () => {

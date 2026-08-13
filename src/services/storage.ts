@@ -6,6 +6,8 @@ import { emptyProgress, parseProgress } from '../game/progress'
 const PROGRESS_KEY = 'exactly67.progress'
 const SOUND_KEY = 'exactly67.sound'
 const HAPTICS_KEY = 'exactly67.haptics'
+// Background music. Its own switch, separate from sound effects.
+const MUSIC_KEY = 'exactly67.music'
 // Level clears counted since the last interstitial (drives the ad cadence).
 const AD_CLEARS_KEY = 'exactly67.adClears'
 // Whether the player owns any ad-removal entitlement (either store product).
@@ -58,6 +60,24 @@ export const loadSoundEnabled = () => loadFlag(SOUND_KEY)
 export const saveSoundEnabled = (on: boolean) => saveFlag(SOUND_KEY, on)
 export const loadHapticsEnabled = () => loadFlag(HAPTICS_KEY)
 export const saveHapticsEnabled = (on: boolean) => saveFlag(HAPTICS_KEY, on)
+
+/**
+ * Music defaults differently from the flags above: `loadFlag` treats an absent
+ * key as ON, which is right for effects (a silent tap feels broken) and wrong
+ * for a continuous bed the player never asked for. Absent means OFF here, so
+ * the default is decided by an explicit constant in main.ts rather than by
+ * which helper happened to get reused.
+ */
+export async function loadMusicEnabled(fallback: boolean): Promise<boolean> {
+  try {
+    const { value } = await Preferences.get({ key: MUSIC_KEY })
+    if (value !== 'on' && value !== 'off') return fallback
+    return value === 'on'
+  } catch {
+    return fallback
+  }
+}
+export const saveMusicEnabled = (on: boolean) => saveFlag(MUSIC_KEY, on)
 
 export async function loadAdClears(): Promise<number> {
   try {

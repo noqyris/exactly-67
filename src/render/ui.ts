@@ -176,6 +176,27 @@ export function drawSoundIcon(g: Phaser.GameObjects.Graphics, size: number, on: 
   }
 }
 
+/** Eighth-note icon for the music toggle; slashed when the bed is off. */
+export function drawMusicIcon(g: Phaser.GameObjects.Graphics, size: number, on: boolean) {
+  const s = size / 44
+  // Stem + flag.
+  g.lineStyle(2.8 * s, INK, 1)
+  g.lineBetween(5 * s, -12 * s, 5 * s, 6 * s)
+  g.beginPath()
+  g.moveTo(5 * s, -12 * s)
+  g.lineTo(12 * s, -8.5 * s)
+  g.lineTo(12 * s, -3 * s)
+  g.lineTo(5 * s, -6.5 * s)
+  g.strokePath()
+  // Note head.
+  g.fillStyle(INK, 1)
+  g.fillEllipse(0, 7 * s, 11 * s, 8 * s)
+  if (!on) {
+    g.lineStyle(3.4 * s, INK, 1)
+    g.lineBetween(-11 * s, 11 * s, 11 * s, -11 * s)
+  }
+}
+
 /** Buzzing-phone icon; slashed when haptics are off. */
 export function drawHapticsIcon(g: Phaser.GameObjects.Graphics, size: number, on: boolean) {
   const s = size / 44

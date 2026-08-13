@@ -14,11 +14,15 @@ export function soundEnabled(): boolean {
 }
 
 /**
- * iOS creates AudioContexts suspended until a user gesture; every play call
- * goes through here so the first tap unlocks audio.
+ * The one AudioContext the whole game shares — SFX here, the music bed in
+ * `music.ts`. iOS creates it suspended until a user gesture, so every play call
+ * goes through here and the first tap unlocks audio.
+ *
+ * Deliberately NOT gated on `enabled`: that flag is the *sound-effects* toggle,
+ * and music has its own. Use `context()` below for anything that should fall
+ * silent when the player mutes effects.
  */
-function context(): AudioContext | null {
-  if (!enabled) return null
+export function audioContext(): AudioContext | null {
   try {
     ctx ??= new AudioContext()
     // iOS WebKit can also report the non-standard 'interrupted' (after a
@@ -28,6 +32,11 @@ function context(): AudioContext | null {
   } catch {
     return null
   }
+}
+
+/** The SFX-gated context: null when the player has effects muted. */
+function context(): AudioContext | null {
+  return enabled ? audioContext() : null
 }
 
 /**
@@ -51,10 +60,18 @@ export function resumeAudio(): void {
 
 // Foreground again → unlock audio immediately, before the next tap. Covers
 // backgrounding paths that don't route through an ad-dismiss callback.
+//
+// Three events, not one: `visibilitychange` is the documented signal but is
+// unreliable inside an iOS WKWebView on some foreground paths (the classic
+// symptom is audio dead after backgrounding on iOS while Android is fine), so
+// `focus` and `pageshow` back it up. They are cheap and idempotent — resumeAudio
+// returns immediately when the context is already running.
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') resumeAudio()
   })
+  window.addEventListener('focus', () => resumeAudio())
+  window.addEventListener('pageshow', () => resumeAudio())
 }
 
 interface ToneOpts {
@@ -121,6 +138,37 @@ export function playRefuse() {
   if (!ac) return
   tone(ac, { freq: 130, dur: 0.06, type: 'square', gain: 0.07 })
   tone(ac, { freq: 110, at: 0.08, dur: 0.08, type: 'square', gain: 0.07 })
+}
+
+/**
+ * The celebration fanfare, played as the win card lands — a second, bigger beat
+ * than the jingle above. The split is deliberate: the jingle is the *impact*
+ * (the beam locked at 67), this is the *reward* (here is what you earned). One
+ * sound doing both jobs has to compromise on each.
+ */
+export function playCelebration() {
+  const ac = context()
+  if (!ac) return
+  // A plain C major arpeggio. Anything cleverer starts to read as a ringtone.
+  const arp = [523.25, 659.25, 783.99, 1046.5] // C5 E5 G5 C6
+  arp.forEach((f, i) => {
+    const at = i * 0.075
+    tone(ac, { freq: f, at, dur: 0.32, type: 'triangle', gain: 0.2 })
+    tone(ac, { freq: f * 2, at, dur: 0.18, type: 'sine', gain: 0.045 })
+  })
+  // Sparkle tail — the confetti, in sound. Randomised so repeat wins don't
+  // land identically; the arpeggio underneath keeps it anchored.
+  for (let i = 0; i < 6; i++) {
+    tone(ac, {
+      freq: 1200 + Math.random() * 1400,
+      at: 0.3 + i * 0.055,
+      dur: 0.12,
+      type: 'sine',
+      gain: 0.035,
+    })
+  }
+  // Low bloom so it has body on a phone speaker instead of sounding thin.
+  tone(ac, { freq: 130.81, dur: 0.7, type: 'triangle', gain: 0.12 })
 }
 
 /**

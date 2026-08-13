@@ -31,10 +31,11 @@ marketing/openers/
 # brand assets are generated from the game itself (tools/make-posts.py notes)
 marketing/brand/
 
-# Splash master (4.3 MB, 2192x3824, with audio). The shipped derivative is
-# public/splash.mp4 — 1200px wide, audio stripped, ~0.5 MB — which IS committed.
+# Splash master (4.3 MB, 2192x3824). The shipped derivative is public/splash.mp4
+# — 1200px wide, audio kept at 96k AAC, ~0.6 MB — which IS committed.
 # Regenerate it with:
-#   ffmpeg -i splashscreen-9-16.mp4 -an -vf scale=1200:-2 -c:v libx264 \
+#   ffmpeg -i splashscreen-9-16.mp4 -vf scale=1200:-2 -c:v libx264 \
 #     -profile:v main -pix_fmt yuv420p -crf 24 -preset slow \
+#     -c:a aac -b:a 96k -ar 44100 -ac 2 \
 #     -movflags +faststart public/splash.mp4
 splashscreen-9-16.mp4
