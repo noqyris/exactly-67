@@ -45,7 +45,21 @@ Play**, including the version-number mechanics and the gotchas learned shipping
 | `npm run dev` | Vite dev server (browser). |
 | `npm test` / `test:watch` | Vitest logic + content gate. |
 | `npm run build` | `tsc --noEmit && vitest run && vite build` → `dist/`. **Hard content gate.** |
-| `npm run ios:sync` | `npm run build && cap sync ios` (Node ≥ 22). |
+| `npm run ios:sync` | `npm run build && cap sync ios` (Node ≥ 22). **Use this for App Store builds.** |
+| `npm run ios:sync:tf` | Same, but sets `VITE_UNLOCK_ALL=1` so **every level is unlocked** — TestFlight only. |
+
+> ### ⚠️ Two flags must be right before an App Store submission
+> Both default to the safe value; both are opt-in, and both are invisible in a
+> screenshot if you forget:
+> 1. **`TESTING` in [`ads.ts`](../src/services/ads.ts)** — `true` for TestFlight
+>    (test ads, safe to tap), **`false` only for the App Store build**.
+> 2. **The unlock flag** — build the App Store binary with plain
+>    `npm run ios:sync`, never `ios:sync:tf`. A TestFlight build shows
+>    **"TEST BUILD · all levels unlocked"** under the *Levels* title; if you ever
+>    see that on a production build, the wrong script was used. The flag is
+>    absent from a normal build, so the branch is tree-shaken out entirely —
+>    verify with `grep -r 'TEST BUILD' dist/assets/*.js`, which must print
+>    nothing for a release build.
 | `npm run ios:open` | Open the Xcode project. |
 
 ---

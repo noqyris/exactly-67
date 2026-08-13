@@ -14,7 +14,9 @@
     "capture:render": "node tools/render-clip.mjs",
     "ios:sync": "npm run build && cap sync ios",
     "ios:open": "cap open ios",
-    "levels:generate": "vite-node tools/generate-levels.ts -- --report"
+    "levels:generate": "vite-node tools/generate-levels.ts -- --report",
+    "build:tf": "VITE_UNLOCK_ALL=1 npm run build",
+    "ios:sync:tf": "npm run build:tf && cap sync ios"
   },
   "dependencies": {
     "@capacitor-community/admob": "^8.0.0",

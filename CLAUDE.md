@@ -18,7 +18,8 @@ A balance-scale number puzzle for iOS: the left pan holds a fixed **67**, and yo
 | `npm test` | `vitest run` | Run the logic + level-validation suite once. |
 | `npm run test:watch` | `vitest` | Same suite in watch mode. |
 | `npm run build` | `tsc --noEmit && vitest run && vite build` | Typecheck → test → bundle to `dist/`. **`&&`-chained: any stage failing aborts the rest.** |
-| `npm run ios:sync` | `npm run build && cap sync ios` | Build web, copy into the native iOS project, sync plugins. Needs Node >= 22. |
+| `npm run ios:sync` | `npm run build && cap sync ios` | Build web, copy into the native iOS project, sync plugins. Needs Node >= 22. **This is the App Store path.** |
+| `npm run ios:sync:tf` | `VITE_UNLOCK_ALL=1 npm run build && cap sync ios` | Same, but unlocks **every level** for testers (`services/buildFlags.ts`). TestFlight only — the flag is absent from a normal build, so production is locked by default. |
 | `npm run ios:open` | `cap open ios` | Open `ios/App/App.xcodeproj` in Xcode. |
 | `npm run capture` | `vite --port 5199` | Dev server on a fixed port for **marketing video capture** — open `?rec=<level>`. |
 | `npm run capture:levels` | `vite-node tools/cinematic-levels.ts` | Re-rank every level by how well it films → `marketing/CINEMATIC_LEVELS.md`. |

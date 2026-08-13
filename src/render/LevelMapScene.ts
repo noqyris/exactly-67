@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { globalOf, PACKS, TOTAL_LEVELS } from '../game/levels'
 import { isUnlocked, starsFor, totalStars } from '../game/progress'
+import { allLevelsUnlocked } from '../services/buildFlags'
 import { progress } from '../services/progressStore'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BEAM, BG, FONT, INK, INK_CSS, OUTLINE, PAPER } from './palette'
@@ -52,6 +53,15 @@ export class LevelMapScene extends Phaser.Scene {
       .text(f.cx, top + u(10), 'Levels', TEXT.ink(26, '800'))
       .setOrigin(0.5, 0)
       .setDepth(10)
+    if (allLevelsUnlocked()) {
+      // Unmistakable marker: if this ever shows up in a production build, the
+      // wrong build script was used.
+      this.add
+        .text(f.cx, top + u(40), 'TEST BUILD · all levels unlocked', TEXT.ink(10, '700'))
+        .setOrigin(0.5, 0)
+        .setColor(INK_SOFT)
+        .setDepth(10)
+    }
 
     // Total-stars chip on the right.
     const starsChip = this.add
@@ -170,7 +180,9 @@ export class LevelMapScene extends Phaser.Scene {
 
   private levelButton(global: number, x: number, y: number, size: number) {
     const p = progress()
-    const unlocked = isUnlocked(p, global)
+    // TestFlight builds open everything so a tester can reach level 600 without
+    // clearing 599 first. False in any App Store build — see buildFlags.ts.
+    const unlocked = allLevelsUnlocked() || isUnlocked(p, global)
     const stars = starsFor(p, global)
     const current = unlocked && stars === 0
 
