@@ -21,6 +21,8 @@ const HINT_DATE_KEY = 'exactly67.hintFreeDate'
 const HINT_COUNT_KEY = 'exactly67.hintCount'
 // Whether the native "Rate this app" prompt has already been requested (one-shot).
 const REVIEW_REQUESTED_KEY = 'exactly67.reviewRequested'
+// Whether the one-time LevelPlay consent reset has run (see loadConsentMigrated()).
+const CONSENT_MIGRATED_KEY = 'exactly67.levelplayConsentMigrated'
 
 export async function loadProgress(): Promise<Progress> {
   try {
@@ -146,6 +148,39 @@ export async function saveReviewRequested(on: boolean): Promise<void> {
     await Preferences.set({ key: REVIEW_REQUESTED_KEY, value: on ? 'on' : 'off' })
   } catch {
     // non-fatal: worst case the prompt is requested once more next session
+  }
+}
+
+/**
+ * Whether this install has had its consent record reset for LevelPlay.
+ *
+ * 1.2.0 asked for ad consent through Google's form, which — wherever a GDPR
+ * message was live — writes the IAB TCF keys (IABTCF_*) into the same
+ * UserDefaults the LevelPlay plugin reads. The plugin treats any such key as a
+ * decision it already has and skips its own "Ads and your data" modal — so a
+ * 1.2.0 player could come back GRANTED or DENIED on an answer given to a
+ * different network. The reset clears them (services/ads.ts initAds()), and
+ * this flag is what makes it happen once.
+ *
+ * Absent means "not yet": a fresh install runs the reset too, where it clears
+ * nothing and costs nothing. Unlike loadFlag() an unreadable store reads as
+ * false: a storage hiccup costs at worst one more modal, while skipping the
+ * reset could start the SDK on a Google-era answer.
+ */
+export async function loadConsentMigrated(): Promise<boolean> {
+  try {
+    const { value } = await Preferences.get({ key: CONSENT_MIGRATED_KEY })
+    return value === 'on'
+  } catch {
+    return false
+  }
+}
+
+export async function saveConsentMigrated(): Promise<void> {
+  try {
+    await Preferences.set({ key: CONSENT_MIGRATED_KEY, value: 'on' })
+  } catch {
+    // non-fatal: the reset runs once more next launch and shows the modal again
   }
 }
 

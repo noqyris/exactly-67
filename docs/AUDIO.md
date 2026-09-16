@@ -126,36 +126,55 @@ measurement.
 
 So the category is *correct and free*, not *load-bearing*. **Verify on a real
 device**: start Spotify, launch Exactly 67, and check that Spotify keeps playing
-and is neither stopped nor solo-ducked. If it is not, the fix is native — a
-`GADAudioVideoManagerDelegate` shim in `ios/App` — not a TypeScript change.
+and is neither stopped nor solo-ducked. If it is not, the fix is native — an
+audio-session shim in `ios/App` — not a TypeScript change.
 
-There is a second, sharper version of the same risk. Google documents that the
-**AdMob SDK manages the audio session itself** by default: `Ambient` while an ad
-plays muted, but `SoloAmbient` once a video ad becomes *unmuted* — which is
-exactly our rewarded-hint format. `SoloAmbient` is the hostile one. Taking the
-session back requires `audioSessionIsApplicationManaged = YES` and a
-`GADAudioVideoManagerDelegate`, and `@capacitor-community/admob` does not
-surface either (a recursive grep for `AVAudioSession` across its native tree
-returns zero hits), so that too would be a native shim.
+There is a second, sharper version of the same risk: **ad SDKs can set the audio
+session themselves** while a video ad plays with sound — which is exactly our
+rewarded-hint format. Google documented this for the AdMob SDK (`SoloAmbient`
+once a video ad is unmuted), which the game used until the AdMob account was
+closed in August 2026. How the Unity LevelPlay SDK and the Unity Ads adapter
+handle the session has **not been verified** for this app: check on a device that
+the player's own music survives a hint video, and treat a failure as a native
+fix, not a TypeScript one.
 
 ## Ads and the music bed
 
-Nothing pauses game audio around ads automatically. Google's iOS guidance is to
-pause *at the moment you call `show()`*, and the Capacitor plugin provides no
-ducking whatsoever — only lifecycle events you wire yourself.
+Nothing pauses game audio around ads automatically: neither the LevelPlay SDK
+nor `capacitor-levelplay-ads` ducks game audio — the plugin only emits lifecycle
+events you wire yourself. Our pad playing under an ad's own soundtrack is the
+worst audio moment the game can produce.
 
-`ads.ts` therefore calls `stopMusic()` immediately before `showInterstitial()`
-and `showRewardVideoAd()`, and resumes on **three** paths:
+So every full-screen ad (interstitial or rewarded hint video) runs inside
+`underFullScreenAd()` in `ads.ts`, which takes a **hold** on the bed with
+`suppressMusic(true)`, calls `stopMusic()` (and sleeps the Phaser loop and hides the
+banner) immediately before the show, and gives everything back in a **`finally`** —
+`resumeAudio()`, then `suppressMusic(false)`, then `startMusic()` — so it runs on every
+way an ad can end:
 
-| Path | Why it exists |
+| Ending | Why it has to be covered |
 |---|---|
-| `Dismissed` | the normal one |
-| `FailedToShow` | `Showed` may never fire, and a pause with no matching resume strands the music dead for the whole session |
-| the local `catch` | prepare/show threw, so the ad never appeared at all |
+| dismissed (closed) | the normal one |
+| failed to present | no close event ever arrives; a pause with no matching resume strands the music dead for the whole session |
+| the show call rejected, or a timeout | the ad never appeared at all, or an event was dropped |
 
-`startMusic()` and `resumeAudio()` are both idempotent, so firing them more than
-once costs nothing — which is the point of covering every path rather than the
-tidiest one.
+`resumeAudio()` matters as much as the music: a full-screen ad interrupts the iOS
+`AudioContext`, and without the nudge every later sound effect is silent.
+`startMusic()` and `resumeAudio()` are both idempotent (and `startMusic()` is a
+no-op when the player has music off), so covering every path costs nothing.
+
+**Why a `stopMusic()` alone is not enough.** `music.ts` restarts the bed from its own
+`visibilitychange` (to visible), `focus` and `pageshow` listeners. A player who taps
+through an ad to the App Store and comes back can land on a web view that reports
+"visible" while the ad is still on screen — whether that happens depends on how the
+network presents, which nobody can check without playing a real ad — and the pad would
+start under the ad's soundtrack. `suppressMusic(on)` is a **counted** hold that
+`startMusic()` obeys: two holders cannot release each other, and an extra release
+cannot bank credit against the next hold. The hold is released **before** the final
+`startMusic()`, or the restart would be the one call it eats. The hold lives in
+`music.ts` because `ads.ts` imports the music module, never the reverse.
+`adsMusicHold.test.ts` runs the real module against a stand-in document and window, and
+`adsPolicy.test.ts` checks the hold is released however the ad ended.
 
 ## Gotchas
 
@@ -166,9 +185,12 @@ tidiest one.
   so it plays immediately.
 - **`music.ts` must not import `context()`.** It would then fall silent whenever
   a player muted sound effects.
-- **Ads suspend the context.** `initAds` registers `resumeAudio()` on the
-  interstitial and rewarded *Dismissed* events; the music scheduler re-syncs on
-  its own once the context is running again.
+- **Ads suspend the context.** `ads.ts` calls `resumeAudio()` in the `finally`
+  of every full-screen ad; the music scheduler re-syncs on its own once the
+  context is running again.
+- **Never call `startMusic()` expecting it to win over an ad.** While a full-screen ad
+  holds `suppressMusic`, every start — a foreground event, a direct call — is a
+  no-op by design; the ad layer's own restart comes after it lets go.
 - **Every voice ends in an exponential ramp to `0.0001`, never to `0`.**
   `exponentialRampToValueAtTime` cannot reach zero, and passing it produces a
   click or an exception depending on the browser.

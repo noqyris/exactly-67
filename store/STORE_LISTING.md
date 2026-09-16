@@ -1,154 +1,95 @@
 # App Store listing — Exactly 67
 
-Copy-paste these into **App Store Connect → your app → (version) → App Information / Product Page**.
-Everything here is tuned for App Store Optimization (ASO) so the app is easy to find.
-
-> **Source of truth for the live iOS listing is `ios/App/fastlane/metadata/en-US/*.txt`** — that's
-> what `fastlane deliver` pushes. This file is the human-readable mirror; keep the two in sync.
-> As of 1.1.0 the app is **monetized** (AdMob banner + interstitial + rewarded, and a one-time
-> "Remove Ads" in-app purchase), so the copy and the App Privacy answers below reflect that
-> honestly — the earlier "no ads / no data" wording was removed.
+> **Internal mirror, not the source of truth.** The listing text `fastlane deliver` pushes lives in
+> [`ios/App/fastlane/metadata/`](../ios/App/fastlane/metadata/) — edit it there, never here. This
+> file records those values in brief, plus the answers fastlane does **not** manage (in-app
+> purchases, App Privacy), which are set in the App Store Connect UI. Last synced 16 September 2026
+> (1.2.1). The earlier copy in this file (72 levels, "no ads", AdMob-era privacy answers) is in git
+> history only.
 
 ---
 
-## App name (max 30 chars)
-```
-Exactly 67: Number Puzzle
-```
-*(25 chars. The name is the single strongest search-ranking factor, so it carries the top
-keyword "Number Puzzle" while keeping the brand first. The home-screen name stays the short
-"Exactly 67" — that's `CFBundleDisplayName`, separate from this store name.)*
+## Text fields (fastlane-managed)
 
-## Subtitle (max 30 chars)
-```
-Balance scale brain teaser
-```
-*(26 chars. Adds "balance", "scale", "brain teaser" — none repeated from the name, so no wasted
-keyword space.)*
+| Field | Limit | Current value, or the file that holds it |
+|---|---|---|
+| Name | 30 | `Exactly 67: Number Puzzle` (25) — `metadata/en-US/name.txt`. The home-screen name stays `Exactly 67` (`CFBundleDisplayName`). |
+| Subtitle | 30 | `Balance scale brain teaser` (26) — `subtitle.txt` |
+| Keywords | 100 | `math,logic,iq,weights,offline,zen,mental,riddle,sums,addition,mind,tricky,solve,relax,nowifi` (92) — `keywords.txt` |
+| Promotional text | 170 | `promotional_text.txt` (165; editable any time without review) |
+| Description | 4000 | `description.txt` |
+| What's New | 4000 | `release_notes.txt` (1.2.1) |
+| Privacy Policy URL | — | `https://noqyris.github.io/exactly-67/privacy.html` — `privacy_url.txt`, served by GitHub Pages from [`docs/privacy.html`](../docs/privacy.html) |
+| Support / Marketing URL | — | `https://noqyris.github.io/exactly-67/` |
+| Categories | — | Games → Puzzle, and Board (`metadata/primary_*.txt`) |
 
-## Keywords (max 100 chars, comma-separated, NO spaces after commas)
-```
-math,logic,iq,games,weights,offline,zen,mental,riddle,sums,addition,mind,tricky,solve,relax
-```
-*(91 chars. Deliberately excludes words already in the name/subtitle — Apple indexes those
-automatically, and repeating them wastes the 100-char budget. Singular forms are used because the
-App Store matches plurals automatically. `games` is the high-value multiplier: it combines with the
-name/subtitle to form "number games", "math games", "logic games", "offline games", etc. — so it
-was worth dropping the redundant "brainteaser" (the subtitle already carries "brain teaser").)*
+Keyword rules: never repeat a word already in the name or subtitle (Apple indexes those), use
+singular forms, commas with no spaces.
 
-## Promotional text (max 170 chars — editable anytime without review)
-```
-Land on exactly 67! Drop weights, lift balloons, balance the scale across 600 levels that just keep getting harder. Stuck? Grab a hint. Calm, clever number puzzling.
-```
+What the description promises about ads and data, which the app and the privacy policy must keep
+true: a banner and an occasional full-screen ad between levels, never mid-puzzle; hint videos are
+optional; "No ads" removes the banner and the ads between levels, hints not included, and the
+optional hint videos stay available; "Unlimited hints" gives unlimited hints and no ads; the game
+asks how data may be used for ads and the choice can be changed under *Privacy choices*; the
+puzzles play offline, ads need a connection. The in-app Store card and `release_notes.txt` say the
+same about "No ads".
 
-## Description (max 4000 chars)
-```
-Can you land on EXACTLY 67?
+**Screenshots** (`ios/App/fastlane/screenshots/en-US/`, pushed by `fastlane screenshots`) are stale:
+they date from the 72-level build (the map chip reads `83/216`, the win card has no Share button),
+while the description advertises 600 levels, sharing and the Daily Challenge. Re-capture them from
+an ads-off build before 1.2.1 goes to review — see the pre-release checklist in
+[`docs/RELEASE.md`](../docs/RELEASE.md#0-before-you-start--the-pre-release-checklist).
 
-Exactly 67 is a chunky, satisfying number puzzle built around one deceptively simple goal: fill the
-right pan of a balance scale so it totals exactly 67. Hit it and the beam settles perfectly level
-with a happy little "six-seven" chime.
-
-The twist is the balloons. Weights pull the pan DOWN. Balloons pull it UP. So you can overshoot 67
-with a heavy weight, then pull it back down — up, really — with a balloon. That plus-and-minus
-tug-of-war is the whole game, and it makes every level a tiny, tactile brain teaser.
-
-HOW IT PLAYS
-- Drag weights and balloons from the tray onto the pan (or just tap to place).
-- Watch the beam tip toward whichever side is heavier — the closer to 67, the closer to level.
-- Land on exactly 67 to clear the level.
-- No timers. No fail states. Rearrange as much as you like. It's a calm, think-at-your-own-pace
-  puzzle, not a reflex test.
-
-72 HANDCRAFTED LEVELS
-Three packs, each with its own flavour and a gentle difficulty ramp:
-- Warm-Up — learn the ropes and meet the balloons.
-- Prime Time — prime-heavy sets where hitting 67 gets sneaky.
-- Heavy Lifting — big numbers and deep overshoots that only balloons can rescue.
-Along the way you'll meet locked weights, tight piece budgets, and "use every weight" puzzles that
-keep the ideas fresh right to the end.
-
-EARN THREE STARS
-Every level has a known minimum number of pieces. Solve it in the fewest weights for a perfect
-three-star rating. Chasing efficiency turns even a solved level into a fresh challenge.
-
-MADE TO FEEL GOOD
-- Bold, candy-colored, hand-drawn look with a chunky physics-toy feel.
-- Gentle haptics and an original, generated soundtrack — no licensed audio.
-- Optimized for both iPhone and iPad.
-- Respects Reduced Motion.
-
-FREE TO PLAY
-- Free to download, with all 600 levels unlocked from the start.
-- A banner and the occasional full-screen ad help keep the game free.
-- Stuck? Watch a short optional video to bank an extra hint — and collect one free hint every day.
-- Prefer a clean board? Remove ads forever with one small in-app purchase, and your hints become unlimited.
-- No timers, no energy meters, no fail states — play at your own pace.
-
-PLAY ANYWHERE
-- The puzzles are fully offline; ads simply pause when you're off the grid.
-- No account and no sign-in. Your level progress is saved right on your device.
-
-If you love number puzzles, math games, logic brain teasers, or just a calm way to keep your mind
-busy, Exactly 67 is a pocketful of quiet "aha" moments. Grab a balloon and balance the scale.
-```
-
-## What's New (release notes for v1.0.0)
-```
-The first release of Exactly 67!
-- 600 levels across twenty-five packs, each harder than the last
-- Weights, balloons, locked pieces, piece budgets and use-every-weight puzzles
-- Three-star efficiency ratings, fully offline, no ads
-Thanks for playing — land on exactly 67!
-```
+**Age rating** is set in App Store Connect; the `Deliverfile` deliberately pushes no rating config.
+The app is **4+**, and guideline 2.5.18 requires ads to be appropriate for that rating, so the Unity
+Ad Controls age limit is part of the pre-release checklist in
+[`docs/RELEASE.md`](../docs/RELEASE.md#0-before-you-start--the-pre-release-checklist).
 
 ---
 
-## Categories
-- **Primary:** Games → Puzzle
-- **Secondary:** Games → Board  *(or Education, if you'd rather target learners)*
+## In-app purchases (App Store Connect UI)
 
-## Age rating
-**4+** — no objectionable content of any kind.
+| Product (what it delivers) | ASC display name (last recorded) | Type | Price | Product id |
+|---|---|---|---|---|
+| 10 hints | 10 Hints | Consumable | $0.99 | `com.noqyris.exactly67.hints10` |
+| 30 hints | 30 Hints | Consumable | $1.99 | `com.noqyris.exactly67.hints30` |
+| 100 hints | 100 Hints | Consumable | $2.99 | `com.noqyris.exactly67.hints100` |
+| No ads: removes the banner and the ads between levels; hints not included; the optional hint videos stay | No Ads | Non-Consumable | $0.99 | `com.noqyris.exactly67.noads` |
+| Unlimited hints + no ads | **Remove Ads** — rename before 1.2.1 | Non-Consumable | **$4.99** | `com.noqyris.exactly67.removeads` (the original 1.1.0 "Remove Ads" id) |
 
-## Price
-**Free**, with five in-app purchases — three consumable hint packs plus two permanent unlocks:
+The display names are the ones this file last recorded, not re-read from App Store Connect. They
+matter because StoreKit's purchase sheet and the player's purchase history show the **ASC display
+name**, never the in-app label: a player who taps the $4.99 *Unlimited hints* card is asked to
+confirm "Remove Ads", next to a separate $0.99 "No Ads" — a buyer who only wanted ads gone can
+believe they paid five times the price for the same thing (a 2.3 / 3.1.1 accurate-metadata risk,
+and refunds). **Before 1.2.1 goes to review**, rename `removeads`'s en-US localization (e.g.
+*Unlimited Hints + No Ads*) with a matching description (e.g. *Unlimited hints, and no banner or
+between-level ads, forever.*), make `noads`'s description say the hint videos stay, and update this
+column with the names App Store Connect actually holds.
 
-| Product | Type | Price | Product id |
-|---|---|---|---|
-| 10 Hints | Consumable | $0.99 | `com.noqyris.exactly67.hints10` |
-| 30 Hints | Consumable | $1.99 | `com.noqyris.exactly67.hints30` |
-| 100 Hints | Consumable | $2.99 | `com.noqyris.exactly67.hints100` |
-| No Ads | Non-Consumable | $0.99 | `com.noqyris.exactly67.noads` |
-| **Remove Ads** (+ unlimited hints) | Non-Consumable | **$4.99** | `com.noqyris.exactly67.removeads` |
+The three packs and `noads` are first-time products in 1.2.1 and go into review **with** the version
+(see [`docs/RELEASE.md`](../docs/RELEASE.md)).
 
-> **The ladder is load-bearing, not arbitrary.** The $4.99 unlock must stay priced *above* every pack.
-> It grants unlimited hints, so at its old $0.99 it strictly dominated all three packs — cheaper
-> *and* better — which made every pack a trap for anyone who didn't notice. If you ever reprice,
-> keep `unlock > largest pack`, or delete the packs.
+> **The ladder is load-bearing.** The $4.99 unlock grants unlimited hints, so it must stay priced
+> *above* the largest pack; at its old $0.99 it strictly dominated every pack. Keep
+> `unlock > largest pack`, or delete the packs. Detail: [`docs/MONETIZATION.md`](../docs/MONETIZATION.md).
 
-## App Privacy (Data collection) — MUST match the AdMob reality
-The app serves Google AdMob ads, so the old "we do not collect data" answer is **no longer correct**
-and would be misleading. In App Store Connect → App Privacy, declare what the Google Mobile Ads SDK
-collects. A standard, honest configuration:
+---
 
-- **Data Used to Track You** (drives the ATT prompt — we ship `NSUserTrackingUsageDescription`):
-  - **Identifiers → Device ID** (IDFA) — *Used for Tracking* + *Third-Party Advertising*.
-  - **Usage Data → Product Interaction** — *Used for Tracking* + *Third-Party Advertising*.
-- **Data Linked / Not Linked to You:** AdMob's identifiers are **Not Linked** to an identity (we have
-  no accounts). Mark Device ID and Product Interaction as collected for *Third-Party Advertising* and
-  *Analytics*, **Not Linked to the user**.
-- **Diagnostics → Crash/Performance Data** — only if you enable it; by default we don't.
-- Our own on-device progress (UserDefaults) is **not** "collected" in the privacy-label sense — it
-  never leaves the device — but it stays declared as a required-reason API in `PrivacyInfo.xcprivacy`.
+## App Privacy
 
-> Confirm the exact toggles against Google's current "AdMob & App Privacy" guidance before submitting
-> — the SDK's declared collection can change with SDK versions.
+Set in the App Store Connect UI at app level; fastlane does not manage it.
 
-## URLs you must provide
-- **Privacy Policy URL** — REQUIRED by Apple. A ready-to-host policy is in
-  `store/PRIVACY_POLICY.md`; publish it somewhere public (GitHub Pages, a Notion page, your site)
-  and paste the link here.
-- **Support URL** — REQUIRED. Can be a simple page or even a mailto-style contact page.
-- **Marketing URL** — optional.
-```
+The published label declares **Identifiers**, **Location** and **Usage Data** as *used to track
+you*, plus **Diagnostics**. It was written for AdMob and needs **no change** for Unity LevelPlay:
+the label is network-agnostic, and the data *types* the ad SDK collects did not change. It agrees
+with [`docs/privacy.html`](../docs/privacy.html): the ad SDK (Unity LevelPlay with Unity Ads) may
+collect the advertising identifier (only with ATT permission), the IDFV, the IP address, device and
+system information and ad interaction data, and it starts only after the player accepts the
+consent prompt. Our own on-device data (progress, settings, purchases, hint balance) never leaves
+the device and is not "collected" in the label's sense. Re-check the label only if a network is
+added.
+
+`ios/App/App/PrivacyInfo.xcprivacy` declares `NSPrivacyTracking = false` and no collected data for
+**the app's own code**; the ad SDKs ship their own manifests. The comment in that file explains why
+(KVIZKO's ITMS-91064 rejection).

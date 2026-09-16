@@ -1,5 +1,9 @@
-Fresh puzzles and extra polish:
-- 11 levels reworked into sharper, more satisfying "find the exact set" challenges
-- A confetti celebration and punchier feedback every time you land on 67
-- Small performance and stability improvements
+The biggest update yet:
+- 600 levels in 25 packs, up from 72, each pack harder than the last. Every level is solver-verified.
+- Daily Challenge: a fresh puzzle every day.
+- A new Store: hint packs of 10, 30 or 100 hints, "No ads" (removes the banner and the ads between levels), and "Unlimited hints" (no ads at all). Already removed ads before this update? You keep unlimited hints.
+- Share your route to 67 from the win card, without giving the answer away.
+- Relaxed background music with its own on/off switch, and a bigger celebration with confetti when you land on 67.
+- 11 of the original 72 levels reworked into sharper "find the exact set" puzzles, and balloons now bob gently in the tray.
+- Ads now come from a new ad partner. The game asks how your data may be used for ads, and you can change your answer any time under Privacy choices on the main menu.
 Thanks for playing — land on exactly 67!

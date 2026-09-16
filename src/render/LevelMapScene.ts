@@ -3,11 +3,18 @@ import { globalOf, PACKS, TOTAL_LEVELS } from '../game/levels'
 import { isUnlocked, starsFor, totalStars } from '../game/progress'
 import { allLevelsUnlocked } from '../services/buildFlags'
 import { progress } from '../services/progressStore'
-import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
+import { adBannerReserve, contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BEAM, BG, FONT, INK, INK_CSS, OUTLINE, PAPER } from './palette'
 import { drawBackIcon, drawStar, makeIconButton, TEXT } from './ui'
 
 const INK_SOFT = '#5D5470'
+
+/**
+ * Design points the map's footer backdrop extends above the banner reserve.
+ * The reserve already holds 8 pt of air over the 50 pt ad, so this puts the
+ * nearest visible (and tappable) tile edge 24 pt above the ad instead of 8.
+ */
+const FOOTER_GAP = 16
 
 /** Scrollable star/level map: three packs, a button per level. */
 export class LevelMapScene extends Phaser.Scene {
@@ -23,6 +30,8 @@ export class LevelMapScene extends Phaser.Scene {
   private slots: { global: number; x: number; y: number; size: number }[] = []
   private live = new Map<number, Phaser.GameObjects.Container>()
   private headerH = 0
+  /** Height of the opaque strip over the ad banner (0 with no banner reserve). */
+  private footerH = 0
   private scrollY = 0
   private dragStartY = 0
   private dragStartScroll = 0
@@ -89,6 +98,26 @@ export class LevelMapScene extends Phaser.Scene {
     headerBg.setInteractive()
 
     this.headerH = headerH
+
+    // Footer backdrop over the banner strip, mirroring the header. The map is
+    // the one screen whose tappable tiles SCROLL: without it a tile slides
+    // through the reserve's 8 pt of air and under the native banner, so a tap on
+    // a half-hidden tile lands a finger right next to the ad. Unity's placement
+    // policy forbids ads where fingers land by accident, and accidental clicks
+    // are what closed the AdMob account. Opaque so no tile is drawn beside the
+    // ad, interactive so a tile under it cannot be tapped through it. With no
+    // banner reserve (No ads, Unlimited, no ad surface) there is no footer:
+    // tiles scroll under the home indicator like any iOS list, as they always did.
+    const footerH = adBannerReserve() > 0 ? safe.bottom + u(FOOTER_GAP) : 0
+    this.footerH = footerH
+    if (footerH > 0) {
+      const footerBg = this.add
+        .rectangle(w / 2, this.scale.height - footerH / 2, w, footerH, BG)
+        .setDepth(5)
+      footerBg.setStrokeStyle(0)
+      footerBg.setInteractive()
+    }
+
     // Phaser REUSES the scene instance, so `scrollY` survives leaving the map
     // and coming back. It has to be reset here or it disagrees with the content
     // container, which always starts at the top: the tiles were then
@@ -111,7 +140,9 @@ export class LevelMapScene extends Phaser.Scene {
       // across 25 and pushed the target off the bottom of the screen. The exact
       // position is already known, so use it and centre the tile.
       const slot = this.slots.find((s) => s.global === this.scrollTo)
-      const viewH = this.scale.height - headerH
+      // The visible band is between the header and the footer, not the screen
+      // bottom — otherwise a level near the end centres partly under the footer.
+      const viewH = this.scale.height - headerH - footerH
       this.scrollY = Phaser.Math.Clamp(
         slot ? -(slot.y - viewH * 0.45) : 0,
         Math.min(0, this.scale.height - headerH - this.contentHeight),
@@ -161,7 +192,10 @@ export class LevelMapScene extends Phaser.Scene {
       y += Math.ceil(pack.levels.length / cols) * (cell + gap) + u(26)
     })
 
-    this.contentHeight = y + safe.bottom + u(20)
+    // Pad the scroll end past whatever covers the bottom — the footer backdrop
+    // when a banner is reserved, else the home-indicator inset — so the last row
+    // can always scroll fully clear of it, never parked half under the footer.
+    this.contentHeight = y + Math.max(safe.bottom, this.footerH) + u(20)
   }
 
   /**

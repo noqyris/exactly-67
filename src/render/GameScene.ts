@@ -50,9 +50,12 @@ import {
   interstitialWouldShow,
   maybeShowInterstitial,
   noteCleared,
-  showRewardedHint,
+  rewardedOffered,
+  showBanner,
   useHint,
+  watchRewardedHint,
 } from '../services/ads'
+import type { RewardedOutcome } from '../services/ads'
 import { saveDailyDone, saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, CREAM_CSS, FONT, GOOD, INK, INK_CSS, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
@@ -65,6 +68,42 @@ const GOOD_CSS = '#37B24D'
 const OVER_CSS = '#E8590C'
 const UNDER_CSS = '#4DABF7'
 const INK_SOFT = '#5D5470'
+
+/**
+ * Every word the hint modal says about the rewarded video.
+ *
+ * The offer names BOTH the ad and the reward before the player opts in, and it
+ * keeps naming them after a hint is banked and the modal stays open. Unity's
+ * Rewarded Inventory Policy requires publishers to "clearly disclose the reward
+ * and the required action for each applicable reward (e.g. 'View this Ad to
+ * receive 10 gems')", and withholds payment for inventory that does not. The
+ * old "Watch video" said neither. Nothing here asks the player to support us:
+ * the same policy names that framing as a violation.
+ */
+const HINT_COPY = {
+  /** Needs a ~180 pt button; hintWatchLabel() falls back to the short one on a 320 pt phone. */
+  watch: 'Watch ad: +1 hint',
+  watchShort: 'Ad: +1 hint',
+  loading: 'Loading…',
+  /** The modal opens at zero hints; the stash can grow while it stays open. */
+  body: (n: number) =>
+    n === 0
+      ? 'Out of hints — watch a short ad for 1 hint, or grab a pack.'
+      : `You have ${n} hint${n === 1 ? '' : 's'}. Watch a short ad for 1 more.`,
+  /**
+   * No consent, no SDK, so no video can ever play — say why, and where the
+   * decision lives (MenuScene's "Privacy choices" link), instead of offering a
+   * button that fails on every tap after a consent modal that promised "no
+   * hint videos".
+   */
+  videosOff:
+    'Hint videos are off because ads were declined. Turn them on under Privacy choices on the menu, or grab a pack.',
+  earned: 'Hint earned!',
+  /** No video was ever shown: no fill, a failed or slow load. True of each. */
+  unavailable: 'No video available right now — try again soon',
+  /** A video was handed over and did not pay out: closed early, or failed to present. */
+  notEarned: "No hint this time — the ad didn't play to the end",
+} as const
 
 interface TrayMetrics {
   x: number
@@ -181,6 +220,12 @@ export class GameScene extends Phaser.Scene {
 
     // Snap weights to their homes on the first frame instead of gliding in.
     this.steerWeights(1)
+
+    // Re-ask for the bottom banner on every level start. Idempotent (a live
+    // banner is only resumed), and it heals a first request that found no fill
+    // or an SDK still waiting on consent — otherwise the strip layoutAll() just
+    // reserved could stay empty for the whole session. No-op without ads.
+    void showBanner()
 
     this.input.dragDistanceThreshold = u(10)
     this.scale.on('resize', this.layoutAll, this)
@@ -343,7 +388,9 @@ export class GameScene extends Phaser.Scene {
     const hint = makeIconButton(
       this,
       size,
-      (g, s) => drawHintIcon(g, s, hintsUnlimited() || hasHint() ? 'have' : 'empty'),
+      // 'empty' promises a hint video (the ▶ chip); a player who declined ad
+      // consent gets none, so their spent bulb must not advertise one.
+      (g, s) => drawHintIcon(g, s, hintsUnlimited() || hasHint() ? 'have' : rewardedOffered() ? 'empty' : 'spent'),
       () => {
         void this.doHint()
       },
@@ -652,41 +699,107 @@ export class GameScene extends Phaser.Scene {
    * Watch a rewarded video to bank ONE hint. It does not reveal anything — the
    * player spends it later on their own terms — which is exactly why it's safe
    * to keep the modal open so they can stock up. Updates the badge + the modal.
+   *
+   * While it runs, `hintBusy` holds the modal shut (see showHintMenu): the load
+   * can take seconds, and a modal closed under it let the video present late —
+   * over the level map, or over a board the player had meanwhile won, where the
+   * reward they then sat through was thrown away.
    */
-  private async watchForHint(refresh: () => void) {
+  private async watchForHint(modal: { refresh: () => void; say: (message: string) => void }) {
     if (this.hintBusy || this.wonState) return
     this.hintBusy = true
-    const granted = await showRewardedHint()
-    this.hintBusy = false
-    if (this.wonState) return
-    if (!granted) {
-      this.showToast('No ad available right now — try again soon')
-      return
+    modal.refresh() // "Loading…" on the button, every way out locked
+    let outcome: RewardedOutcome = 'unavailable'
+    try {
+      // 'earned' only on a reward actually earned; never a hang (see RewardedOutcome).
+      outcome = await watchRewardedHint()
+    } finally {
+      this.hintBusy = false
     }
-    grantHint()
+    // Pay FIRST, before any question about where the player is now: the stash
+    // is global, and a video watched to the end is owed its hint whatever
+    // happened to this board meanwhile.
+    if (outcome === 'earned') grantHint()
+    // Scene stopped under the ad (the desktop keyboard shortcuts still work):
+    // its Texts are destroyed, and the next create() reads the stash fresh.
+    if (!this.sys.isActive()) return
     this.refreshHint()
-    refresh()
-    this.showToast('Hint earned!')
+    modal.refresh()
+    if (this.wonState) return
+    if (outcome === 'earned') modal.say(HINT_COPY.earned)
+    // Consent withdrawn meanwhile: refresh() just put the reason in the modal.
+    else if (!rewardedOffered()) return
+    else modal.say(outcome === 'unavailable' ? HINT_COPY.unavailable : HINT_COPY.notEarned)
   }
 
-  /** Modal to earn a hint (free video) or buy a hint pack. */
+  /** The watch button's label: the full disclosure when it fits, the short one on a 320 pt phone. */
+  private hintWatchLabel(buttonW: number, rowH: number): string {
+    // Same style makeButton gives its label, measured off the display list.
+    const probe = this.make.text(
+      {
+        text: HINT_COPY.watch,
+        style: { fontFamily: FONT, fontSize: `${Math.round(rowH * 0.42)}px`, fontStyle: '700' },
+      },
+      false,
+    )
+    const fits = probe.width <= buttonW - u(20)
+    probe.destroy()
+    return fits ? HINT_COPY.watch : HINT_COPY.watchShort
+  }
+
+  /** Modal to earn a hint (a rewarded ad) or buy a hint pack. */
   private showHintMenu() {
     const w = this.scale.width
     const h = this.scale.height
     const overlay = this.add.container(0, 0).setDepth(120)
+    // No way out while a video is loading or on screen — see watchForHint().
     const close = () => {
+      if (this.hintBusy) return
       overlay.destroy()
     }
 
     const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45).setInteractive()
 
     const cardW = Math.min(w - u(48), u(340))
-    const headH = u(84)
-    const footH = u(96)
-    const cardH = headH + footH
     const cx = w / 2
+
+    const title = this.add.text(cx, 0, 'Hints', TEXT.ink(21, '800')).setOrigin(0.5)
+    const body = this.add.text(cx, 0, '', TEXT.ink(13, '600')).setOrigin(0.5, 0)
+    body.setColor(INK_SOFT).setAlign('center').setWordWrapWidth(cardW - u(40))
+    // The body's box is sized once, for the longest thing it can ever say, so
+    // the card never resizes — and the buttons never move — under a thumb when
+    // a hint is banked or the offer changes while the modal is open.
+    let bodyBox = 0
+    for (const text of [HINT_COPY.body(0), HINT_COPY.body(99), HINT_COPY.videosOff]) {
+      body.setText(text)
+      bodyBox = Math.max(bodyBox, body.height)
+    }
+
+    // The full ladder (packs + the unlimited unlock + restore) lives on the
+    // Store screen; this modal stays a quick "earn one now" and just links out.
+    const upsell = this.add
+      .text(cx, 0, 'More hints in the Store', TEXT.ink(12, '700'))
+      .setOrigin(0.5)
+      .setColor(INK_SOFT)
+      .setInteractive({ useHandCursor: true })
+    upsell.on('pointerup', () => {
+      if (this.hintBusy) return
+      close()
+      // Overlay, not a scene swap: the player is buying hints to finish THIS
+      // board, so it has to still be here when they come back.
+      this.scene.pause()
+      this.scene.launch('Store', { returnTo: 'Game' })
+    })
+
+    // Vertical rhythm, top down: title, the body box, the Store link, the buttons.
+    const rowH = u(52)
+    const bodyOff = u(54)
+    const upsellOff = bodyOff + bodyBox + u(10) + upsell.height / 2
+    const btnOff = upsellOff + upsell.height / 2 + u(14) + rowH / 2
+    const cardH = btnOff + rowH / 2 + u(20)
     const cy = Math.min(h * 0.44, h - safeArea().bottom - cardH / 2 - u(16))
     const top = cy - cardH / 2
+    const btnY = top + btnOff
 
     const card = this.add.graphics()
     card.fillStyle(INK, 1)
@@ -695,53 +808,98 @@ export class GameScene extends Phaser.Scene {
     card.fillRoundedRect(cx - cardW / 2, top, cardW, cardH, u(24))
     card.lineStyle(OUTLINE + u(1), INK, 1)
     card.strokeRoundedRect(cx - cardW / 2, top, cardW, cardH, u(24))
+    title.setY(top + u(34))
+    upsell.setY(top + upsellOff)
 
-    const title = this.add.text(cx, top + u(34), 'Hints', TEXT.ink(21, '800')).setOrigin(0.5)
-    const body = this.add.text(cx, top + u(60), '', TEXT.ink(13, '600')).setOrigin(0.5)
-    body.setColor(INK_SOFT).setAlign('center')
+    // Button row: Done left, the (wider) watch button right, with fixed side
+    // margins and gap so the pair fills a 320 pt card as well as a 430 pt one.
+    const margin = u(16)
+    const gap = u(12)
+    const rowInner = cardW - margin * 2 - gap
+    const doneW = rowInner * 0.33
+    const watchW = rowInner - doneW
+    const watchLabel = this.hintWatchLabel(watchW, rowH)
+
+    let watch: Phaser.GameObjects.Container | null = null
+    let done: Phaser.GameObjects.Container | null = null
+
+    // What happened to a tap, said just under the card. The scene's own toast
+    // sits under the dim and, on most phones, behind this very card — a "no
+    // video available" nobody can read is the dead tap this modal exists to avoid.
+    const note = this.add
+      .text(cx, top + cardH + u(30), '', TEXT.cream(15, '700'))
+      .setOrigin(0.5)
+      .setAlign('center')
+      .setWordWrapWidth(cardW)
+      .setAlpha(0)
+    note.setStroke(INK_CSS, u(5))
+    let noteTween: Phaser.Tweens.Tween | null = null
+    const say = (message: string) => {
+      // Modal already closed: the scene's toast is in plain sight again.
+      if (!note.active) {
+        this.showToast(message)
+        return
+      }
+      noteTween?.stop()
+      note.setText(message).setAlpha(1)
+      noteTween = this.tweens.add({ targets: note, alpha: 0, delay: 1800, duration: 350 })
+    }
+    overlay.once(Phaser.GameObjects.Events.DESTROY, () => noteTween?.stop())
+
+    overlay.add([dim, card, title, body, upsell, note])
+
+    // Re-reads everything on every call — the stash, the busy flag and whether
+    // the offer stands — so a GRANTED decision made later from Privacy choices
+    // brings the watch button back the next time the modal draws.
     const refresh = () => {
-      const n = hintCountValue()
-      body.setText(
-        n === 0 ? 'Out of hints — watch a video or grab a pack.' : `You have ${n} hint${n === 1 ? '' : 's'}.`,
-      )
+      // The modal can already be gone when a video settles (its scene left).
+      if (!body.active) return
+      const offered = rewardedOffered()
+      body.setText(offered ? HINT_COPY.body(hintCountValue()) : HINT_COPY.videosOff)
+      body.setY(top + bodyOff + (bodyBox - body.height) / 2)
+      upsell.setAlpha(this.hintBusy ? 0.5 : 1)
+
+      watch?.destroy()
+      done?.destroy()
+      watch = null
+      done = null
+      if (offered) {
+        watch = makeButton(
+          this,
+          this.hintBusy ? HINT_COPY.loading : watchLabel,
+          watchW,
+          rowH,
+          0xf5b942,
+          '#2B2440',
+          () => void this.watchForHint({ refresh, say }),
+        )
+        watch.setPosition(cx + cardW / 2 - margin - watchW / 2, btnY)
+        if (this.hintBusy) watch.setAlpha(0.6).disableInteractive()
+        done = makeButton(this, 'Done', doneW, rowH, PAPER, '#2B2440', () => close())
+        done.setPosition(cx - cardW / 2 + margin + doneW / 2, btnY)
+      } else {
+        // Nothing to watch: Done alone, centred; the body says why and where.
+        done = makeButton(this, 'Done', cardW * 0.4, rowH, PAPER, '#2B2440', () => close())
+        done.setPosition(cx, btnY)
+      }
+      if (this.hintBusy) done.setAlpha(0.5)
+      overlay.add(watch ? [watch, done] : [done])
     }
     refresh()
 
-    const kids: Phaser.GameObjects.GameObject[] = [dim, card, title, body]
-
-    const btnY = cy + cardH / 2 - u(40)
-    const rowH = u(52)
-    const watch = makeButton(this, 'Watch video', cardW * 0.5, rowH, 0xf5b942, '#2B2440', () => {
-      void this.watchForHint(refresh)
-    })
-    watch.setPosition(cx + cardW * 0.23, btnY)
-    const done = makeButton(this, 'Done', cardW * 0.34, rowH, PAPER, '#2B2440', () => close())
-    done.setPosition(cx - cardW * 0.29, btnY)
-
-    // The full ladder (packs + the unlimited unlock + restore) lives on the
-    // Store screen; this modal stays a quick "earn one now" and just links out.
-    const upsell = this.add
-      .text(cx, btnY - rowH / 2 - u(16), 'More hints in the Store', TEXT.ink(12, '700'))
-      .setOrigin(0.5)
-      .setColor(INK_SOFT)
-      .setInteractive({ useHandCursor: true })
-    upsell.on('pointerup', () => {
-      close()
-      // Overlay, not a scene swap: the player is buying hints to finish THIS
-      // board, so it has to still be here when they come back.
-      this.scene.pause()
-      this.scene.launch('Store', { returnTo: 'Game' })
-    })
-    kids.push(upsell, watch, done)
-
-    overlay.add(kids)
     if (!this.reducedMotion) {
       overlay.setAlpha(0)
       this.tweens.add({ targets: overlay, alpha: 1, duration: 160 })
     }
   }
 
-  /** Show a cadence-gated interstitial, then run the navigation either way. */
+  /**
+   * Show a cadence-gated interstitial, then run the navigation either way.
+   * maybeShowInterstitial resolves only once the player has DISMISSED the ad (or
+   * at once when none shows, fails to load or fails to present), so the next
+   * level never starts underneath a live ad. The game loop sleeps while the ad
+   * is up; the ad service wakes it before this resolves.
+   */
   private leaveAfterClear(go: () => void) {
     void maybeShowInterstitial(this.ref.global).finally(go)
   }
@@ -1115,20 +1273,23 @@ export class GameScene extends Phaser.Scene {
     // Which of the level's winning placements this was. Most levels have exactly
     // one, and saying "the only way" is worth more than saying nothing; where
     // there are several, naming the one you found turns a clear into something
-    // two players can compare.
+    // two players can compare. It gets its own line: appended with a middle dot
+    // it wrapped at the card's width and left "way" stranded on a line alone.
     const ways = this.waysTotal
     const which = solutionIndex(this.ref.def, this.placed)
     const wayLine =
       ways > 1 && which !== null
-        ? ` · way ${which} of ${ways}`
+        ? `\nway ${which} of ${ways}`
         : ways === 1
-          ? ' · the only way'
+          ? '\nthe only way'
           : ''
     const summary =
       used <= this.minWeights
         ? `Solved with ${used} — the perfect minimum!${wayLine}`
         : `Solved with ${used} · minimum is ${this.minWeights}` +
-          (best !== undefined ? ` · your best ${best}` : '') +
+          // The clear above is already recorded, so `best` can equal `used`;
+          // only a better earlier run is worth naming.
+          (best !== undefined && best < used ? ` · your best ${best}` : '') +
           wayLine
     const sub = this.add
       .text(cx, cy - cardH / 2 + u(156), summary, TEXT.ink(15, '600'))
@@ -1136,6 +1297,12 @@ export class GameScene extends Phaser.Scene {
     sub.setColor(INK_SOFT)
     sub.setWordWrapWidth(cardW - u(40))
     sub.setAlign('center')
+    // On a 320 pt phone the longest summary wraps to three lines and climbs into
+    // the stars above; step the size down until it is back to two (or the floor).
+    for (let size = 15; size > 12 && sub.getWrappedText(summary).length > 2; ) {
+      size -= 1
+      sub.setFontSize(`${Math.round(u(size))}px`)
+    }
 
     // The Next/Map paths await an interstitial before navigating, leaving the
     // overlay live for a beat. Lock every button on the first press so a second

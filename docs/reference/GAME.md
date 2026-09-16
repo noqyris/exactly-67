@@ -173,10 +173,10 @@ numeric strings, out-of-range — is silently dropped rather than throwing.
 
 | Export | Signature | Behavior |
 |---|---|---|
-| `PACKS` | `readonly LevelPack[]` (`:6`) | `[pack1, pack2, pack3]`. Pack order defines global numbering (1–24 / 25–48 / 49–72). |
-| `TOTAL_LEVELS` | `number` (`:8`) | `PACKS.reduce(...)` = 72. **Derived**, not hard-coded. |
+| `PACKS` | `readonly LevelPack[]` | `[pack1, …, pack25]` (packs 1–3 hand-authored, 4–25 generated). Pack order defines global numbering (1–24 / 25–48 / … / 577–600). Append only — never reorder or resize. |
+| `TOTAL_LEVELS` | `number` | `PACKS.reduce(...)` = 600. **Derived**, not hard-coded. |
 | `LevelRef` | `{ def; pack; packIndex; levelIndex; global }` (`:10`) | `levelIndex` is 0-based in the pack; `global` is the 1-based player-facing number. |
-| `levelByGlobal` | `(global: number) => LevelRef \| null` (`:21`) | Walks packs accumulating an offset. Global 0 → `null` (levelIndex < 0); global > 72 → `null`. |
+| `levelByGlobal` | `(global: number) => LevelRef \| null` (`:21`) | Walks packs accumulating an offset. Global 0 → `null` (levelIndex < 0); global > 600 → `null`. |
 | `globalOf` | `(packIndex: number, levelIndex: number) => number` (`:35`) | Inverse: sum of prior pack lengths + `levelIndex + 1`. |
 
 **Global numbering** is **not** stored on levels — it is derived from pack order

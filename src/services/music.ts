@@ -64,6 +64,8 @@ const LOOKAHEAD_S = 0.3
 const TICK_MS = 60
 
 let enabled = false
+/** Holders of "not now" — a full-screen ad, see suppressMusic(). */
+let suppressed = 0
 let ctx: AudioContext | null = null
 let master: GainNode | null = null
 let timer: number | null = null
@@ -92,12 +94,29 @@ export function setMusicEnabled(on: boolean): void {
 }
 
 /**
- * Begin (or resume) the bed. Idempotent, and a no-op while muted, so it can be
- * called from every "the player just touched something" path — which is what
- * unlocks audio on iOS in the first place.
+ * Hold the bed down while something else owns the speaker — a full-screen ad.
+ * Counted, so two holders cannot release each other; `services/ads` takes it
+ * before stopping the music and gives it back just before restarting it.
+ *
+ * Why a stopMusic() is not enough: the listeners at the bottom of this file
+ * restart the bed on every visibilitychange, focus and pageshow. A player who
+ * taps through an ad to the App Store and comes back can land on a web view that
+ * reports "visible" while the ad is still on screen — whether it does depends
+ * on how the network presents, which nobody can check without playing a real
+ * ad — and without this the pad would start under the ad's own soundtrack. The ad layer imports this module,
+ * never the reverse, so the hold lives here rather than as a question asked of it.
+ */
+export function suppressMusic(on: boolean): void {
+  suppressed = Math.max(0, suppressed + (on ? 1 : -1))
+}
+
+/**
+ * Begin (or resume) the bed. Idempotent, and a no-op while muted or held down
+ * by suppressMusic(), so it can be called from every "the player just touched
+ * something" path — which is what unlocks audio on iOS in the first place.
  */
 export function startMusic(): void {
-  if (!enabled || timer !== null) return
+  if (!enabled || suppressed > 0 || timer !== null) return
   const ac = audioContext()
   if (!ac) return
   // A context can be thrown away and rebuilt after an unrecoverable iOS

@@ -12,15 +12,16 @@ import { MenuScene } from './render/MenuScene'
 import { BG_CSS } from './render/palette'
 import { StoreScene } from './render/StoreScene'
 import {
-  BANNER_RESERVE_DESIGN_PX,
-  adsSupported,
+  adsForegrounded,
+  bannerReserve,
   initAds,
   initHintState,
   primeAdsRemoved,
   primeUnlimitedHints,
-  setBannerHeightHandler,
+  setGameLoopHooks,
   showBanner,
 } from './services/ads'
+import { stampBuildFlags } from './services/buildFlags'
 import { initIap } from './services/iap'
 import { primeMusicEnabled, startMusic } from './services/music'
 import { initReview } from './services/review'
@@ -48,6 +49,10 @@ async function boot() {
   // settles when it is off the screen — ads wait on it (see below).
   const splashGone = initSplash()
 
+  // The TestFlight "all levels unlocked" marker, when this build has it — the
+  // release gate counts it in the bundle (services/buildFlags.ts).
+  stampBuildFlags()
+
   // Canvas text uses the bundled font — wait so first paint is correct.
   await document.fonts.ready.catch(() => {})
 
@@ -68,8 +73,7 @@ async function boot() {
   primeMusicEnabled(musicOn)
 
   // Reflect the persisted remove-ads flag into the ads service before scenes
-  // read adsRemoved() — initAds (which also loads it) is skipped for owners, so
-  // without this an owner would see the banner/interstitial + buy button again.
+  // read adsRemoved() and before the banner strip is decided below.
   primeAdsRemoved(adsAlreadyRemoved)
 
   // Unlimited hints used to be bundled into the single $0.99 remove-ads
@@ -83,10 +87,13 @@ async function boot() {
   primeUnlimitedHints(unlimited)
   if (storedUnlimited === null) void saveUnlimitedHints(unlimited)
 
-  // Reserve the bottom banner strip before scenes lay out, so the drag area
-  // and tray sit above the ad from the very first frame (no reflow jank).
-  const wantAds = adsSupported() && !adsAlreadyRemoved
-  if (wantAds) setAdBannerReserve(BANNER_RESERVE_DESIGN_PX * DPR)
+  // Reserve the bottom banner strip before scenes lay out, so the drag area and
+  // tray sit above the ad from the very first frame (no reflow jank). Only when
+  // a banner will actually be requested: 0 with no ad surface, for No Ads and
+  // for Unlimited owners. The banner's height is fixed (LevelPlay 'BANNER',
+  // 320×50), so the reserve is exact up front; layout.ts adds it on top of the
+  // home-indicator inset the native banner sits above.
+  setAdBannerReserve(bannerReserve() * DPR)
 
   // Size the canvas in physical pixels and display it at CSS size, so
   // vector art and text stay crisp on retina screens. Phaser's RESIZE mode
@@ -109,6 +116,13 @@ async function boot() {
     game.scale.resize(window.innerWidth * DPR, window.innerHeight * DPR)
   })
 
+  // Let the ad layer put the game to sleep under a full-screen ad and wake it
+  // after — the services layer never imports Phaser, so it gets callbacks.
+  setGameLoopHooks({
+    pause: () => game.loop.sleep(),
+    resume: () => game.loop.wake(),
+  })
+
   // Dev-only test bridge for Playwright-driven E2E, plus the capture director
   // that scripts gameplay for marketing video (`?rec=<level>`). Both are
   // dynamically imported behind an `import.meta.env.DEV` guard, so neither is
@@ -118,25 +132,24 @@ async function boot() {
     void import('./dev/capture').then((m) => m.installCapture(game))
   }
 
-  // Ads boot after the game so first paint is never blocked on the network.
-  // No-ops on web/dev; on device it initializes, collects consent + ATT, then
-  // shows the persistent bottom banner in the strip reserved above.
-  //
-  // They also wait for the splash. Everything `initAds` puts on screen is a
-  // NATIVE view stacked above the web view — the banner, the UMP consent sheet,
-  // the ATT prompt — so none of it is covered by the sting; it would draw on top
-  // of it. The layout reserve above is applied immediately either way, so the
-  // strip is already held open and nothing reflows when the banner arrives.
+  // Ads boot after the game so first paint is never blocked on the network, and
+  // after the splash: everything initAds() puts on screen — the consent modal,
+  // the ATT alert, then the banner — is a NATIVE view stacked above the web
+  // view, so it would draw over the sting rather than be covered by it.
   // `splashGone` always settles (hard timeout), so ads can't be stranded.
-  if (wantAds) {
-    // When the banner reports its real height, reserve exactly that and relayout
-    // so the tray/UI always clears it (no overlap regardless of ad size).
-    setBannerHeightHandler((designPx) => {
-      setAdBannerReserve(designPx * DPR)
-      game.scale.emit('resize')
-    })
-    void splashGone.then(initAds).then(showBanner)
-  }
+  //
+  // Unconditional on purpose: the ads service decides who gets what. No ad
+  // surface (browser, ADS:off) → nothing; Unlimited owners → no SDK at all; No
+  // Ads owners → the SDK (the hint video is a real ad) but never a banner.
+  void splashGone.then(initAds).then(showBanner)
+
+  // Coming back to the foreground is the one moment a failed SDK start (no
+  // network at boot) has a reason to succeed — the ads service retries there and
+  // re-asks for a banner a refused request never delivered. No-op before
+  // initAds() has run and in builds without ads.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') adsForegrounded()
+  })
 
   // iOS will not let audio start without a user gesture, so the bed can't come
   // up at boot even when the player had it on last session. Arm it on the first
@@ -146,12 +159,12 @@ async function boot() {
   window.addEventListener('pointerdown', () => startMusic(), { once: true, capture: true })
 
   // IAP boots regardless so a fresh purchase or "Restore purchases" can grant.
-  // (Relaunch of an owner is handled by the persisted flag primed above.)
+  // (Relaunch of an owner is handled by the persisted flags primed above.)
   void initIap()
 
   // Load the one-shot "already asked for a review" flag so the win overlay can
   // decide whether to request the native rating prompt. Own boot line (not tied
-  // to initAds, which is skipped for Remove-Ads owners).
+  // to initAds, which is skipped for Unlimited owners).
   void initReview()
 }
 

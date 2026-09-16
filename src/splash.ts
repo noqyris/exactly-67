@@ -49,9 +49,9 @@ const SHIELD_MAX_MS = 5000
 
 /**
  * Start the sting. Resolves once it is **visually** gone (end of the fade), so
- * callers can hold back anything that would draw over it — notably the AdMob
- * banner, which is a native view stacked ABOVE the web view, and the UMP consent
- * / ATT prompts, which are full-screen native modals. Always resolves: on the
+ * callers can hold back anything that would draw over it — notably the ad
+ * banner, which is a native view stacked ABOVE the web view, and the consent /
+ * ATT prompts, which are full-screen native modals. Always resolves: on the
  * reduced-motion path immediately, otherwise via the hard timeout at the latest.
  */
 export function initSplash(): Promise<void> {

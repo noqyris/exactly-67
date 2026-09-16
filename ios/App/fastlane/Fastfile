@@ -1,10 +1,16 @@
 default_platform(:ios)
 
+require "fileutils"
+require "json"
+require "net/http"
+require "open3"
+require "time"
+require "uri"
+
 # App Store Connect API key. Preferred: keys/asc_api_key.json (fastlane API-key
 # JSON: key_id, issuer_id, key, duration, in_house) — gitignored, never commit.
 # Fallback: env vars ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH (path to the .p8).
 def asc_api_key
-  require "json"
   json = File.join(__dir__, "keys", "asc_api_key.json")
   # set_spaceship_token so the older produce/tunes actions authenticate too.
   if File.exist?(json)
@@ -61,7 +67,333 @@ end
 TEAM = "YMN45WC2QR"
 APP_ID = "com.noqyris.exactly67"
 
+# Absolute paths: plain Ruby in a Fastfile runs from the fastlane/ directory,
+# actions from ios/App, so a relative path means two different files.
+REPO_ROOT = File.expand_path("../../..", __dir__)
+APP_PUBLIC_ASSETS = File.expand_path("../App/public/assets", __dir__)
+APP_CAP_CONFIG = File.expand_path("../App/capacitor.config.json", __dir__)
+PBXPROJ = File.expand_path("../App.xcodeproj/project.pbxproj", __dir__)
+IPA_PATH = File.expand_path("../build/Exactly67.ipa", __dir__)
+LEVELPLAY_CONFIG_CHECK = File.join(REPO_ROOT, "scripts", "check-levelplay-config.mjs")
+NATIVE_SYNC_CHECK = File.join(REPO_ROOT, "scripts", "check-native-sync.mjs")
+
+# =============================================================================
+# The ad-mode gate
+# =============================================================================
+#
+# WHY. The npm chains gate the BUNDLE (scripts/check-ad-mode.mjs before the
+# sync, scripts/check-native-sync.mjs after it). Nothing there gates the ARCHIVE
+# or the UPLOAD, and those are not the same moment: `cap sync` copies whatever
+# sits in dist/ into ios/App/App/public, and a lane compiles whatever sits in
+# ios/App/App/public, hours later, from another terminal, after any `vite build`
+# at all. That gap is how a real-ads build reaches TestFlight with every check
+# green, and a real-ads build on TestFlight, opened and tapped by the owner, is
+# how Google terminated this app's AdMob publisher account on 2026-08-18.
+#
+# So every lane that builds or uploads a binary states what it is meant to be,
+# in AD_TARGET, and refuses when the bundle disagrees:
+#
+#   live  App Store build N. ADMODE:live + ADS:on, no UNLOCKALL:1, and the real
+#         LevelPlay app key + unit ids (scripts/check-levelplay-config.mjs ios)
+#         present in the bundle. REAL ads.
+#   off   TestFlight build N+1, uploaded IMMEDIATELY after N. ADMODE:test +
+#         ADS:off; UNLOCKALL:1 allowed (npm run ios:testflight sets it). The ad
+#         layer never starts, so there is nothing on the owner's phone to tap.
+#   test  ADMODE:test + ADS:on. On Unity LevelPlay `isTesting` only unlocks the
+#         Test Suite: this is the REAL waterfall under a reassuring name. It is
+#         never archived and never uploaded: an app-store export of it sits in
+#         Xcode Organizer, one "Distribute App" click from TestFlight. Dev
+#         integration is `npm run ios:sync:test` plus an Xcode Run with
+#         AD_TARGET=test.
+#
+# ADS:mock (our own drawn fake ads) passes no target. The same rules run in
+# Xcode itself (ios/App/ad-mode-guard.sh, the first build phase of the App
+# target), which is what catches Product > Archive and a bare xcodebuild; the
+# archive lane forwards AD_TARGET into that phase as a build setting.
+#
+# Before an archive the lane also re-runs scripts/check-native-sync.mjs: a chain
+# that ended red there (SDK not pinned, a Google surface, a stale native copy)
+# still leaves its bundle in App/public, and the markers alone would pass it.
+#
+# The two-build release, end to end (CLAUDE.md "Ad safety"):
+#   npm run ios:appstore                                   # bundle: live
+#   AD_TARGET=live fastlane archive                        # build N
+#   AD_TARGET=live fastlane upload_testflight              # N: REAL ads, recorded
+#   bump the build number (pbxproj ×2); npm run ios:testflight   # bundle: ads off
+#   AD_TARGET=off fastlane archive                         # build N+1
+#   AD_TARGET=off fastlane upload_testflight               # N+1, minutes later, recorded
+#   APP_VERSION=x.y.z BUILD_NUMBER=N fastlane submit       # ledger: N live, then N+1 off
+# Once N is READY_FOR_SALE, expire every real-ads build on TestFlight.
+
+AD_TARGETS = %w[live off test].freeze
+
+# The literals the bundler folds each build-time env read into. Each must
+# appear exactly once (UNLOCKALL:1 at most once), same contract as
+# scripts/check-ad-mode.mjs and scripts/check-native-sync.mjs.
+AD_MARKERS = {
+  test: "ADMODE:test",
+  live: "ADMODE:live",
+  on: "ADS:on",
+  off: "ADS:off",
+  mock: "ADS:mock",
+  unlock: "UNLOCKALL:1",
+}.freeze
+
+def ad_target!
+  want = ENV["AD_TARGET"].to_s
+  unless AD_TARGETS.include?(want)
+    UI.user_error!(
+      "AD_TARGET must be 'live' (App Store build N), 'off' (TestFlight build N+1) or " \
+      "'test' (a dev Run, never archived or uploaded); got '#{want}'. Refusing to build or upload " \
+      "a binary whose ad mode nobody stated."
+    )
+  end
+  want
+end
+
+# The target of anything that produces an archive. `test` is refused here, not
+# only at upload: an app-store export of the real waterfall is uploadable from
+# Organizer, Transporter or altool, none of which run a gate.
+def archive_target!
+  want = ad_target!
+  if want == "test"
+    UI.user_error!(
+      "AD_TARGET=test is never archived: an app-store export of the REAL LevelPlay waterfall sits in Xcode Organizer, " \
+      "one Distribute App click from TestFlight. For ad integration run `npm run ios:sync:test` and an Xcode Run with " \
+      "AD_TARGET=test. The store builds are live (build N) and off (build N+1)."
+    )
+  end
+  want
+end
+
+# Why `js` cannot be `want`, as sentences; empty when it can. Pure, so the gate
+# can be exercised without building anything.
+def ad_mode_problems(js, want)
+  if js.include?("ca-app-pub-")
+    return ["it carries AdMob unit ids (ca-app-pub-): an AdMob-era bundle from a terminated publisher account"]
+  end
+  %w[TESTSUITE:1 ADIDCAPTURE:1].each do |m|
+    return ["it is a #{m} boot-mode build, not the game"] if js.include?(m)
+  end
+
+  c = AD_MARKERS.transform_values { |literal| js.scan(literal).length }
+  problems = []
+  modes = c[:test] + c[:live]
+  if modes != 1
+    problems << (modes.zero? ?
+      "it carries no ADMODE marker: it predates the LevelPlay migration or the seam moved, so it cannot be proven" :
+      "it carries more than one ADMODE marker: a stale chunk sits beside a fresh one")
+  end
+  ads = c[:on] + c[:off] + c[:mock]
+  if ads != 1
+    problems << (ads.zero? ?
+      "it carries no ADS marker (ADS:on / ADS:off / ADS:mock), so it cannot be proven" :
+      "it carries more than one ADS marker: a stale chunk sits beside a fresh one")
+  end
+  problems << "it carries UNLOCKALL:1 #{c[:unlock]} times: a stale chunk or a second seam" if c[:unlock] > 1
+  return problems unless problems.empty?
+
+  mode = c[:live] == 1 ? "live" : "test"
+  ads_mode = c[:on] == 1 ? "on" : (c[:off] == 1 ? "off" : "mock")
+
+  if ads_mode == "mock"
+    # Carries ADMODE:test like an ordinary test build and would otherwise pass as
+    # one, then show players rectangles we drew ourselves while earning nothing.
+    return ["it is the FAKE-ADS build (ADS:mock): our own drawn ads, zero revenue. It is never archived or uploaded"]
+  end
+  if mode == "live" && ads_mode == "off"
+    return ["it carries ADMODE:live with ADS:off: a store build that never loads a real ad is a contradiction"]
+  end
+  if c[:unlock] == 1 && (mode == "live" || want == "live")
+    problems << "it unlocks EVERY level (UNLOCKALL:1, the TestFlight-only VITE_UNLOCK_ALL flag): on the App Store that gives all 600 levels to every player"
+  end
+
+  case want
+  when "live"
+    problems << "it is a TEST bundle (ADMODE:test) going to the store: zero revenue. Only VITE_AD_MODE=live (npm run ios:appstore) declares a build live" if mode == "test"
+    problems << "it is ads-off (ADS:off): a store build that never loads an ad" if ads_mode == "off"
+  when "off"
+    problems << "it is declared LIVE (ADMODE:live): a real-ads binary on the owner's phone is how the AdMob account was lost" if mode == "live"
+    problems << "it loads the LIVE waterfall (ADS:on). The TestFlight follow-up must be ads-off: npm run ios:testflight" if ads_mode == "on"
+  when "test"
+    problems << "it is declared LIVE (ADMODE:live)" if mode == "live"
+    problems << "it is ads-off (ADS:off), which never passes as the test build; say AD_TARGET=off if it is meant" if ads_mode == "off"
+  end
+  problems
+end
+
+def refuse_ad_mode!(where, want, problems)
+  UI.user_error!(
+    "Ad-mode gate: #{where} cannot ship as AD_TARGET=#{want}:\n  - " +
+    problems.join("\n  - ") +
+    "\nRe-run the matching npm chain (ios:appstore = live, ios:testflight = off), then this lane."
+  )
+end
+
+# A live-reload leftover. `npx cap run ios -l` writes server.url into
+# App/capacitor.config.json and removes it only on Ctrl+C; close the terminal
+# instead, and every later build loads its JavaScript from that dev server (whose
+# default bundle is ADS:on) while the App/public bundle this gate proves goes
+# unused. Archived, it ships a binary pointing at a LAN address. `json` is the
+# file's text; nil when there is no such file. Pure, returns a sentence or nil.
+def server_url_problem(json, where)
+  return nil if json.nil?
+  cfg = JSON.parse(json)
+  server = cfg.is_a?(Hash) ? cfg["server"] : nil
+  return nil unless server.is_a?(Hash) && server.key?("url")
+  "#{where} carries server.url #{server['url'].inspect} (a leftover of `cap run -l`): the app would load that dev " \
+  "server, not the bundle this gate proves. Re-run the npm sync chain, which rewrites the file from capacitor.config.ts."
+rescue JSON::ParserError => e
+  "#{where} is not valid JSON (#{e.message.lines.first.to_s.strip}), so whether it points the app at a dev server " \
+  "cannot be proven. Re-run the npm sync chain."
+end
+
+def refuse_server_url!(json, where)
+  problem = server_url_problem(json, where)
+  UI.user_error!("Ad-mode gate: #{problem}") if problem
+end
+
+# nvm puts Node on PATH only in shells that sourced it, and fastlane is often
+# started from one that did not; a bare "node" would then fail every Node gate
+# with ENOENT. NODE_BINARY wins, then the Node 22 this repo is built with (see
+# CLAUDE.md), then whatever PATH offers.
+NVM_NODE = File.expand_path("~/.nvm/versions/node/v22.23.2/bin/node")
+
+def node_binary
+  explicit = ENV["NODE_BINARY"].to_s.strip
+  return explicit unless explicit.empty?
+  return NVM_NODE if File.executable?(NVM_NODE)
+  "node"
+end
+
+def run_node_gate(script, *args, what:)
+  Open3.capture2e(node_binary, script, *args, chdir: REPO_ROOT)
+rescue Errno::ENOENT
+  UI.user_error!(
+    "Ad-mode gate: no Node at '#{node_binary}', so #{what} cannot be proven. " \
+    "Set NODE_BINARY to a Node >= 22, or run fastlane from a shell that has one on PATH."
+  )
+end
+
+# A live build must carry the REAL Exactly 67 LevelPlay ids. An empty key does
+# not crash anything: init fails quietly, every load reports no fill, and the
+# App Store build looks healthy while earning nothing. Two proofs: the source
+# passes scripts/check-levelplay-config.mjs (shape, not KVIZKO's ids, not
+# shared across platforms), and the bundle being shipped carries exactly those
+# ids, so a placeholder bundle synced before the ids were filled in cannot pass.
+# The ids are read from that script's success line; if its wording changes this
+# refuses rather than guesses.
+def verify_levelplay_ids!(js, where, script: LEVELPLAY_CONFIG_CHECK)
+  out, status = run_node_gate(script, "ios", what: "the LevelPlay ids")
+  unless status.success?
+    UI.user_error!("Ad-mode gate: a LIVE build needs the real Exactly 67 LevelPlay ids.\n#{out}")
+  end
+  m = out.match(/app key ([0-9a-f]{9}); units banner ([a-z0-9]{16}), interstitial ([a-z0-9]{16}), rewarded ([a-z0-9]{16})/)
+  UI.user_error!("Ad-mode gate: could not read the ids from #{File.basename(script)}'s output:\n#{out}") unless m
+  missing = m.captures.reject { |id| js.include?(id) }
+  unless missing.empty?
+    UI.user_error!(
+      "Ad-mode gate: #{where} does not carry the LevelPlay id(s) #{missing.join(', ')} that the source declares. " \
+      "It was built before the ids were filled in. Re-run npm run ios:appstore."
+    )
+  end
+  UI.success("Ad-mode gate: #{where} carries the real LevelPlay app key and all three unit ids")
+end
+
+# The post-sync proof, once more, at the moment it matters: the LevelPlay SDK is
+# linked and resolved at exactly the tested versions, no generated file links
+# Google, and ios/App/App/public is the very bundle dist/ holds. The npm chain
+# ran this already, but a red last line is easy to miss in a long log, and the
+# bundle it refused stays in App/public for the archive to pick up.
+def verify_native_sync!(want)
+  out, status = run_node_gate(NATIVE_SYNC_CHECK, "ios", want, what: "the native project")
+  unless status.success?
+    UI.user_error!(
+      "Ad-mode gate: ios/App is not the project the npm chain approved (scripts/check-native-sync.mjs ios #{want}):\n#{out}\n" \
+      "Re-run the matching npm chain (ios:appstore = live, ios:testflight = off) and read its last line before archiving."
+    )
+  end
+  UI.success("Ad-mode gate: #{out.lines.last.to_s.strip}")
+end
+
+def bundle_js_from_public!
+  unless Dir.exist?(APP_PUBLIC_ASSETS)
+    UI.user_error!("#{APP_PUBLIC_ASSETS} does not exist: run the npm sync chain first. Nothing to verify.")
+  end
+  files = Dir.glob(File.join(APP_PUBLIC_ASSETS, "*.js")).sort
+  UI.user_error!("#{APP_PUBLIC_ASSETS} holds no JavaScript: run the npm sync chain first.") if files.empty?
+  files.map { |f| File.read(f) }.join("\n")
+end
+
+def ipa_entries!(ipa)
+  UI.user_error!("#{ipa} does not exist: run `AD_TARGET=… fastlane archive` first.") unless File.exist?(ipa)
+  list, status = Open3.capture2e("unzip", "-Z1", ipa)
+  UI.user_error!("Cannot list #{ipa}:\n#{list}") unless status.success?
+  list.lines.map(&:strip)
+end
+
+def ipa_read!(ipa, name)
+  body, st = Open3.capture2("unzip", "-p", ipa, name)
+  UI.user_error!("Cannot read #{name} from #{ipa}") unless st.success?
+  body
+end
+
+# The web bundle INSIDE an .ipa: what is actually about to be uploaded, not what
+# the working tree holds now.
+def bundle_js_from_ipa!(ipa, names = ipa_entries!(ipa))
+  js = names.select { |n| n =~ %r{\APayload/[^/]+\.app/public/assets/[^/]+\.js\z} }
+  UI.user_error!("#{ipa} carries no web bundle (Payload/*.app/public/assets/*.js), so its ad mode cannot be proven.") if js.empty?
+  js.sort.map { |name| ipa_read!(ipa, name) }.join("\n")
+end
+
+def verify_ad_mode!(want = ad_target!)
+  refuse_server_url!(File.exist?(APP_CAP_CONFIG) ? File.read(APP_CAP_CONFIG) : nil, "ios/App/App/capacitor.config.json")
+  js = bundle_js_from_public!
+  problems = ad_mode_problems(js, want)
+  refuse_ad_mode!("ios/App/App/public", want, problems) unless problems.empty?
+  verify_levelplay_ids!(js, "ios/App/App/public") if want == "live"
+  announce_ad_mode(want, "ios/App/App/public")
+end
+
+def verify_ipa_ad_mode!(want, ipa = IPA_PATH)
+  names = ipa_entries!(ipa)
+  config = names.find { |n| n =~ %r{\APayload/[^/]+\.app/capacitor\.config\.json\z} }
+  unless config
+    UI.user_error!("#{File.basename(ipa)} carries no Payload/*.app/capacitor.config.json, so where the app loads its JavaScript from cannot be proven.")
+  end
+  refuse_server_url!(ipa_read!(ipa, config), "#{File.basename(ipa)}:#{config}")
+  js = bundle_js_from_ipa!(ipa, names)
+  problems = ad_mode_problems(js, want)
+  refuse_ad_mode!(File.basename(ipa), want, problems) unless problems.empty?
+  verify_levelplay_ids!(js, File.basename(ipa)) if want == "live"
+  announce_ad_mode(want, File.basename(ipa))
+end
+
+def announce_ad_mode(want, where)
+  case want
+  when "live"
+    UI.important("Ad-mode gate: #{where} is a LIVE-ads build, as requested. REAL ads. Two-build rule: upload the ads-off build N+1 (AD_TARGET=off) right after this one, and never open this build from TestFlight.")
+  when "off"
+    UI.success("Ad-mode gate: #{where} is ADS-OFF, as requested: the ad layer never starts, nothing loads.")
+  when "test"
+    UI.important("Ad-mode gate: #{where} is a TEST bundle: on LevelPlay it serves the REAL waterfall. Dev integration only: never archive or upload it, never tap an ad.")
+  end
+end
+
+# Signing + archive + app-store export. Every lane that produces an .ipa comes
+# through here, so none of them can skip the gate. AD_TARGET rides into
+# xcodebuild as a build setting so the Xcode "Ad-mode guard" phase sees the same
+# answer verify_ad_mode! just checked, whatever the environment does; the .ipa
+# is then checked once more, because it is the artifact that gets uploaded.
+#
+# disable_package_automatic_updates: the tested SDK graph (LevelPlay 9.6.0,
+# UnityAds adapter 5.11.0, Unity Ads 4.20.0) is held only by the committed
+# Package.resolved, because the patched plugin manifest says `from:`. With this,
+# an archive that would resolve anything else fails instead of shipping it.
 def build_ipa
+  want = archive_target!
+  verify_ad_mode!(want)
+  verify_native_sync!(want)
   update_code_signing_settings(
     use_automatic_signing: true,
     team_id: TEAM,
@@ -73,12 +405,275 @@ def build_ipa
     scheme: "App",
     configuration: "Release",
     export_method: "app-store",
-    output_directory: "./build",
-    output_name: "Exactly67.ipa",
-    xcargs: "-allowProvisioningUpdates",
+    output_directory: File.dirname(IPA_PATH),
+    output_name: File.basename(IPA_PATH),
+    xcargs: "-allowProvisioningUpdates AD_TARGET=#{want}",
     clean: true,
+    disable_package_automatic_updates: true,
+  )
+  verify_ipa_ad_mode!(want)
+  want
+end
+
+# Uploading is where a build reaches the owner's phone: App Store Connect makes
+# every processed build the newest on TestFlight. `test` is never uploaded, and
+# the .ipa itself must match AD_TARGET.
+def upload_target!
+  want = ad_target!
+  if want == "test"
+    UI.user_error!("AD_TARGET=test is never uploaded: on LevelPlay a test build serves the REAL waterfall. Upload live (build N) or off (build N+1).")
+  end
+  want
+end
+
+def required_env!(name, hint)
+  value = ENV[name].to_s.strip
+  UI.user_error!("#{name} is required (#{hint}).") if value.empty?
+  value
+end
+
+# =============================================================================
+# The upload ledger
+# =============================================================================
+#
+# WHY. The ad-mode gate proves what ONE binary is. The two-build rule is about
+# the ORDER of binaries: live N, then ads-off N+1 straight away, and only N ever
+# submitted. App Store Connect keeps no copy of the web bundle to check, so
+# after both uploads, 28 and 29 of 1.2.1 look alike in the build picker: pick
+# N+1 (the newest, and what `tf_latest` prints) and 1.2.1 ships to every player
+# with no ads and all 600 levels unlocked. Re-run the live upload from shell
+# history instead of the ads-off one, and a second real-ads build sits newest
+# on TestFlight: the exact exposure that cost the AdMob account.
+#
+# So every successful upload lane appends what it verified inside the .ipa,
+# {version, build, mode, at}, to ios/App/build/ad-ledger.json (gitignored, one
+# JSON array, oldest first, readable from Node). Then:
+#   - a LIVE upload refuses while the newest entry is a live one (no ads-off
+#     build has followed it), unless ALLOW_CONSECUTIVE_LIVE=1. Re-uploading the
+#     SAME version and build number is allowed: App Store Connect holds one
+#     build per number, so a retry cannot become a second real-ads build;
+#   - `submit` refuses unless BUILD_NUMBER is recorded as live for APP_VERSION
+#     AND a later ads-off upload of the same version with a higher number exists.
+#
+# A live upload whose lane RAISES is recorded too (with "upload": "raised"):
+# deliver uploads the binary before its metadata/precheck/submit steps, so a
+# failure after that point still leaves real ads on TestFlight. An ads-off
+# upload is recorded only when it succeeds, because an entry for it is what
+# lets `submit` through.
+#
+# The ledger is per machine and the only record of which number carried real
+# ads: never delete ios/App/build wholesale while a release is open.
+AD_LEDGER = File.expand_path("../build/ad-ledger.json", __dir__)
+AD_LEDGER_SHOWN = "ios/App/build/ad-ledger.json"
+
+def read_ad_ledger(path = AD_LEDGER)
+  return [] unless File.exist?(path)
+  data = begin
+    JSON.parse(File.read(path))
+  rescue JSON::ParserError => e
+    UI.user_error!(
+      "Upload ledger: #{path} is not valid JSON (#{e.message.lines.first.to_s.strip}). It is the only record of which " \
+      "build number carried real ads: repair it by hand (`fastlane tf_builds` lists what App Store Connect holds), never delete it."
+    )
+  end
+  valid = data.is_a?(Array) && data.all? do |e|
+    e.is_a?(Hash) && %w[version build mode].all? { |k| e[k].is_a?(String) && !e[k].empty? } && %w[live off].include?(e["mode"])
+  end
+  unless valid
+    UI.user_error!("Upload ledger: #{path} is not an array of {version, build, mode: live|off, at} entries. Repair it by hand; never delete it.")
+  end
+  data
+end
+
+def append_ad_ledger!(entry, path = AD_LEDGER)
+  entries = read_ad_ledger(path) + [entry]
+  FileUtils.mkdir_p(File.dirname(path))
+  tmp = "#{path}.tmp"
+  File.write(tmp, JSON.pretty_generate(entries) + "\n")
+  File.rename(tmp, path)
+  entry
+end
+
+# A build number as something comparable, or nil when it is not a plain dotted
+# number (then nothing is "higher" than it, and `submit` refuses).
+def build_number_value(build)
+  s = build.to_s.strip
+  s.match?(/\A\d+(\.\d+)*\z/) ? Gem::Version.new(s) : nil
+end
+
+# Why a LIVE upload of version/build may not go up now, or nil. Pure.
+# version/build are nil when not known (never, in practice: the lanes read the
+# .ipa, or the pbxproj before an archive).
+def consecutive_live_problem(entries, version, build)
+  last = entries.last
+  return nil if last.nil? || last["mode"] != "live"
+  return nil if version && build && last["version"] == version && last["build"] == build
+  "the newest upload in #{AD_LEDGER_SHOWN} is LIVE build #{last['build']} of #{last['version']} (#{last['at']}), and no ads-off " \
+  "build has been uploaded after it. Another live upload now would put a second real-ads build newest on TestFlight."
+end
+
+def refuse_consecutive_live!(version, build, entries = read_ad_ledger)
+  unless File.exist?(AD_LEDGER)
+    UI.important("Upload ledger: #{AD_LEDGER_SHOWN} does not exist yet, so nothing proves the previous upload was ads-off. This live upload starts it.")
+  end
+  problem = consecutive_live_problem(entries, version, build)
+  return unless problem
+  if ENV["ALLOW_CONSECUTIVE_LIVE"] == "1"
+    UI.important("!" * 78)
+    UI.important("ALLOW_CONSECUTIVE_LIVE=1: #{problem} Uploading anyway. The ads-off build must follow THIS one before anyone opens TestFlight.")
+    UI.important("!" * 78)
+    return
+  end
+  UI.user_error!(
+    "Upload ledger: refusing a LIVE upload: #{problem}\n" \
+    "Upload the ads-off build first: bump the build number, `npm run ios:testflight`, `AD_TARGET=off fastlane archive`, " \
+    "`AD_TARGET=off fastlane upload_testflight`. Only if the previous live build never reached App Store Connect or failed " \
+    "processing, re-run with ALLOW_CONSECUTIVE_LIVE=1. `fastlane ledger` prints the record."
   )
 end
+
+# Why build `build` of `version` may not be submitted for review, or nil. Pure.
+def submit_problem(entries, version, build)
+  mine = entries.each_with_index.select { |e, _| e["version"] == version && e["build"] == build }
+  if mine.empty?
+    return "#{AD_LEDGER_SHOWN} has no upload of #{version} (#{build}). Only a build this machine uploaded as AD_TARGET=live, and verified as such inside the .ipa, is submitted"
+  end
+  other = mine.map(&:first).map { |e| e["mode"] }.uniq - ["live"]
+  unless other.empty?
+    return "#{version} (#{build}) is recorded as #{other.join('/')} in #{AD_LEDGER_SHOWN}: an ads-off build submitted for review ships a version that never shows an ad, with every level unlocked"
+  end
+  n = build_number_value(build)
+  return "BUILD_NUMBER #{build.inspect} is not a plain build number" unless n
+  after = entries[(mine.map(&:last).max + 1)..-1] || []
+  followed = after.any? do |e|
+    b = build_number_value(e["build"])
+    e["version"] == version && e["mode"] == "off" && b && b > n
+  end
+  unless followed
+    return "live build #{build} of #{version} has no ads-off build of #{version} with a higher number uploaded after it. The two-build rule comes first: while N is the newest build, TestFlight offers real ads to the owner"
+  end
+  nil
+end
+
+# The version and build number INSIDE the .ipa, which is what the ledger must
+# name: the pbxproj may have been bumped since the archive.
+def ipa_version_and_build!(ipa = IPA_PATH)
+  version = FastlaneCore::IpaFileAnalyser.fetch_app_version(ipa).to_s
+  build = FastlaneCore::IpaFileAnalyser.fetch_app_build(ipa).to_s
+  if version.empty? || build.empty? || version.include?("$(") || build.include?("$(")
+    UI.user_error!("Upload ledger: cannot read CFBundleShortVersionString / CFBundleVersion from #{ipa} (got #{version.inspect} / #{build.inspect}), so this upload could not be recorded. Nothing was uploaded.")
+  end
+  [version, build]
+end
+
+# MARKETING_VERSION / CURRENT_PROJECT_VERSION as the App target sets them (the
+# Info.plist reads both), for the live preflight that runs before an archive
+# exists. [nil, nil] when the two configs disagree or the file cannot be read;
+# the check on the .ipa right before the upload is the one that decides.
+def project_version_and_build
+  pbx = File.read(PBXPROJ)
+  versions = pbx.scan(/MARKETING_VERSION = ([^;\n]+);/).flatten.map(&:strip).uniq
+  builds = pbx.scan(/CURRENT_PROJECT_VERSION = ([^;\n]+);/).flatten.map(&:strip).uniq
+  versions.size == 1 && builds.size == 1 ? [versions.first, builds.first] : [nil, nil]
+rescue Errno::ENOENT
+  [nil, nil]
+end
+
+# Runs one upload and records it. See "The upload ledger" for why a raised live
+# upload is recorded and a raised ads-off one is not.
+def with_upload_record(version, build, mode)
+  entry = { "version" => version, "build" => build, "mode" => mode, "at" => Time.now.utc.iso8601 }
+  begin
+    yield
+  rescue Exception
+    if mode == "live"
+      append_ad_ledger!(entry.merge("upload" => "raised"))
+      UI.important("Upload ledger: the LIVE upload of #{version} (#{build}) raised; it is recorded anyway, because the binary may already be on App Store Connect. Check with `fastlane tf_builds` before anything else.")
+    end
+    raise
+  end
+  append_ad_ledger!(entry)
+  UI.success("Upload ledger: recorded #{version} (#{build}) as #{mode.upcase} in #{AD_LEDGER_SHOWN}")
+end
+
+# =============================================================================
+# The privacy gate
+# =============================================================================
+#
+# WHY. The live build's consent modal ("Ads and your data"), the App Store
+# listing (metadata privacy_url.txt) and App Review all send people to this one
+# page, and GitHub Pages serves it from main, not from the release branch. Until
+# the rewritten docs/privacy.html is merged and deployed, it still describes
+# Google AdMob, a terminated integration, and never names Unity LevelPlay: a
+# false third-party disclosure behind the consent the modal collects. So a LIVE
+# upload or submit fetches the published page and refuses unless it names
+# LevelPlay and no longer mentions AdMob. SKIP_PRIVACY_CHECK=1 overrides, loudly.
+PRIVACY_URL = "https://noqyris.github.io/exactly-67/privacy.html"
+
+# Why the published page cannot back a live build, as sentences. Pure.
+def privacy_page_problems(body)
+  text = body.to_s.dup.force_encoding("UTF-8").scrub
+  problems = []
+  problems << "it does not mention LevelPlay, the ad network this build uses" unless text.include?("LevelPlay")
+  problems << "it still mentions AdMob, whose publisher account was terminated on 2026-08-18" if text =~ /AdMob/i
+  problems
+end
+
+def fetch_privacy_page(url, redirects = 3)
+  uri = URI(url)
+  res = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: 15, read_timeout: 30) do |http|
+    req = Net::HTTP::Get.new(uri)
+    req["Cache-Control"] = "no-cache"
+    http.request(req)
+  end
+  if res.is_a?(Net::HTTPRedirection) && redirects > 0 && res["location"]
+    return fetch_privacy_page(URI.join(url, res["location"]).to_s, redirects - 1)
+  end
+  [res.code.to_i, res.body.to_s]
+end
+
+def verify_privacy_page!(url = PRIVACY_URL)
+  if ENV["SKIP_PRIVACY_CHECK"] == "1"
+    UI.important("!" * 78)
+    UI.important("SKIP_PRIVACY_CHECK=1: the published privacy policy was NOT checked (#{url}).")
+    UI.important("If it still describes AdMob, App Review and every player who taps 'Privacy policy' in the consent modal read a false disclosure.")
+    UI.important("!" * 78)
+    return
+  end
+  code, body = begin
+    fetch_privacy_page(url)
+  rescue StandardError => e
+    UI.user_error!("Privacy gate: could not fetch #{url} (#{e.class}: #{e.message}). A LIVE upload or submit needs the published policy checked; retry online, or set SKIP_PRIVACY_CHECK=1 only after reading the page yourself.")
+  end
+  UI.user_error!("Privacy gate: #{url} answered HTTP #{code}. A LIVE build must link a published privacy policy.") unless code == 200
+  problems = privacy_page_problems(body)
+  unless problems.empty?
+    UI.user_error!(
+      "Privacy gate: the published privacy policy (#{url}) cannot back a LIVE build:\n  - " + problems.join("\n  - ") +
+      "\nMerge docs/privacy.html (and docs/index.html) to main, wait for GitHub Pages to deploy, then re-run."
+    )
+  end
+  UI.success("Privacy gate: #{url} names LevelPlay and no longer mentions AdMob")
+end
+
+# Everything a LIVE upload must clear, run before an archive or an upload is
+# spent on it.
+def live_upload_preflight!(version, build)
+  verify_privacy_page!
+  refuse_consecutive_live!(version, build)
+end
+
+# add_id_info_*: the app shows ads through Unity LevelPlay (Unity Ads demand),
+# and the ad SDK reads the IDFA only after consent and the ATT prompt.
+SUBMISSION_INFORMATION = {
+  add_id_info_uses_idfa: true,
+  add_id_info_serves_ads: true,
+  add_id_info_tracks_install: false,
+  add_id_info_tracks_action: false,
+  add_id_info_limits_tracking: true,
+  export_compliance_uses_encryption: false,
+  content_rights_contains_third_party_content: false,
+}
 
 platform :ios do
   desc "Verify auth + create the App Store Connect app record only"
@@ -86,115 +681,185 @@ platform :ios do
     ensure_app_exists(asc_api_key)
   end
 
-  desc "Build + sign the store IPA only (no app record / upload needed)"
+  desc "Run the archive's ad-mode gate alone, building nothing and contacting nobody — AD_TARGET=live|off"
+  lane :ad_gate do
+    # The same checks `archive` runs before it builds, on their own: cheap before
+    # committing to a fifteen-minute archive, and the only way to exercise the
+    # gate without building. It checks ios/App/App (bundle, capacitor.config.json)
+    # and re-runs check-native-sync; an .ipa left in build/ may be an older
+    # archive of another target, and the upload lanes check the .ipa itself. The
+    # privacy page and the upload ledger are the upload lanes' checks, not this.
+    want = archive_target!
+    verify_ad_mode!(want)
+    verify_native_sync!(want)
+  end
+
+  desc "Archive + export a signed App Store .ipa to build/Exactly67.ipa — AD_TARGET=live|off"
+  lane :archive do
+    build_ipa
+  end
+
+  desc "Same as archive (kept for old muscle memory) — AD_TARGET=live|off"
   lane :build_only do
     asc_api_key
     build_ipa
   end
 
-  desc "Full pipeline: create app record, build+sign, upload build, push metadata+screenshots, submit for review"
+  desc "Upload build/Exactly67.ipa to TestFlight (no App Store version, no submit) and record it in the ledger — AD_TARGET=live|off"
+  lane :upload_testflight do
+    want = upload_target!
+    verify_ipa_ad_mode!(want)
+    version, build = ipa_version_and_build!
+    live_upload_preflight!(version, build) if want == "live"
+    with_upload_record(version, build, want) do
+      upload_to_testflight(
+        api_key: asc_api_key,
+        app_identifier: APP_ID,
+        ipa: IPA_PATH,
+        skip_submission: true,
+        skip_waiting_for_build_processing: true,
+      )
+    end
+    if want == "live"
+      UI.important("Uploaded a LIVE-ads build. NOW bump the build number, run `npm run ios:testflight`, then `AD_TARGET=off fastlane archive` and `AD_TARGET=off fastlane upload_testflight`. Do not open TestFlight until that build is up.")
+    end
+  end
+
+  desc "Full pipeline: app record, LIVE archive, upload, metadata + screenshots, submit for review (manual release) — AD_TARGET=live"
   lane :release do
+    if ENV["AD_TARGET"] != "live"
+      UI.user_error!("release submits to the App Store, so it must be AD_TARGET=live. An off/test build submitted for review earns nothing.")
+    end
+    # Before the archive, so a stale privacy page or an unanswered live upload
+    # costs seconds, not fifteen minutes.
+    live_upload_preflight!(*project_version_and_build)
     key = asc_api_key
 
     # 1. Make sure the app exists in App Store Connect (no-op if it already does).
     ensure_app_exists(key)
 
-    # 2. Build a signed, store-ready IPA (Xcode + the API key create the
-    #    provisioning profile automatically via -allowProvisioningUpdates).
+    # 2. Build a signed, store-ready IPA (gated: see build_ipa).
     build_ipa
+    version, build = ipa_version_and_build!
+    refuse_consecutive_live!(version, build)
 
     # 3. Upload the build, all metadata and screenshots, then submit for review.
-    upload_to_app_store(
-      api_key: key,
-      app_identifier: APP_ID,
-      force: true, # skip the HTML metadata preview/confirm
-      run_precheck_before_submit: true,
-      submit_for_review: true,
-      automatic_release: true,
-      submission_information: {
-        # App now shows AdMob ads, which use the IDFA (gated by ATT consent).
-        add_id_info_uses_idfa: true,
-        add_id_info_serves_ads: true,
-        add_id_info_tracks_install: false,
-        add_id_info_tracks_action: false,
-        add_id_info_limits_tracking: true,
-        export_compliance_uses_encryption: false,
-        content_rights_contains_third_party_content: false,
-      },
-      metadata_path: "./fastlane/metadata",
-      screenshots_path: "./fastlane/screenshots",
-    )
+    with_upload_record(version, build, "live") do
+      upload_to_app_store(
+        api_key: key,
+        app_identifier: APP_ID,
+        ipa: IPA_PATH,
+        force: true, # skip the HTML metadata preview/confirm
+        run_precheck_before_submit: true,
+        submit_for_review: true,
+        # Manual release: the build sits "Pending Developer Release" after
+        # approval, so the owner presses Release when they want it live.
+        automatic_release: false,
+        submission_information: SUBMISSION_INFORMATION.dup,
+        metadata_path: "./fastlane/metadata",
+        screenshots_path: "./fastlane/screenshots",
+      )
+    end
+    UI.important("Uploaded a LIVE-ads build. NOW upload the ads-off build N+1: bump the build number, `npm run ios:testflight`, `AD_TARGET=off fastlane archive`, `AD_TARGET=off fastlane upload_testflight`.")
   end
 
-  desc "Upload the already-built IPA + metadata + screenshots, wait for processing, submit for review"
+  desc "Upload the already-built LIVE IPA + metadata + screenshots, submit for review (manual release) — AD_TARGET=live"
   lane :finish do
+    if ENV["AD_TARGET"] != "live"
+      UI.user_error!("finish submits to the App Store, so it must be AD_TARGET=live.")
+    end
+    verify_ipa_ad_mode!("live")
+    version, build = ipa_version_and_build!
+    live_upload_preflight!(version, build)
     key = asc_api_key
-    upload_to_app_store(
-      api_key: key,
-      app_identifier: APP_ID,
-      ipa: "build/Exactly67.ipa",
-      force: true,
-      run_precheck_before_submit: false,
-      submit_for_review: true,
-      automatic_release: true,
-      submission_information: {
-        # App now shows AdMob ads, which use the IDFA (gated by ATT consent).
-        add_id_info_uses_idfa: true,
-        add_id_info_serves_ads: true,
-        add_id_info_tracks_install: false,
-        add_id_info_tracks_action: false,
-        add_id_info_limits_tracking: true,
-        export_compliance_uses_encryption: false,
-        content_rights_contains_third_party_content: false,
-      },
-      metadata_path: "./fastlane/metadata",
-      screenshots_path: "./fastlane/screenshots",
-    )
+    with_upload_record(version, build, "live") do
+      upload_to_app_store(
+        api_key: key,
+        app_identifier: APP_ID,
+        ipa: IPA_PATH,
+        force: true,
+        run_precheck_before_submit: false,
+        submit_for_review: true,
+        # Manual release: the owner presses Release in App Store Connect.
+        automatic_release: false,
+        submission_information: SUBMISSION_INFORMATION.dup,
+        metadata_path: "./fastlane/metadata",
+        screenshots_path: "./fastlane/screenshots",
+      )
+    end
+    UI.important("Uploaded a LIVE-ads build. NOW upload the ads-off build N+1 (AD_TARGET=off) before anyone opens TestFlight.")
   end
 
-  desc "Create/stage the 1.2.0 version + push metadata only (no build attach, no submit) — safe, reversible"
-  lane :prep_120 do
+  desc "Create/stage the APP_VERSION version + push metadata only (no build attach, no submit, manual release) — safe, reversible"
+  lane :prep_version do
+    app_version = required_env!("APP_VERSION", "the marketing version to stage, e.g. APP_VERSION=1.3.0")
     key = asc_api_key
     upload_to_app_store(
       api_key: key,
       app_identifier: APP_ID,
-      app_version: "1.2.0",
+      app_version: app_version,
       skip_binary_upload: true,
       skip_screenshots: true,
       submit_for_review: false,
+      # Without it deliver leaves the release type alone, and a version staged
+      # here and submitted from the App Store Connect UI (the 1.2.1 path, for its
+      # first-time IAPs) goes on sale the moment it is approved, whatever
+      # expiring build N on TestFlight was timed around.
+      automatic_release: false,
       force: true,
       metadata_path: "./fastlane/metadata",
     )
   end
 
-  desc "Set age rating + attach the processed build + submit for review (text/screenshots already pushed)"
+  desc "Attach processed LIVE build BUILD_NUMBER to version APP_VERSION + submit for review (manual release); the ledger must show it live, then an ads-off N+1"
   lane :submit do
+    app_version = required_env!("APP_VERSION", "the App Store version, e.g. APP_VERSION=1.3.0")
+    # The LIVE build N, never the ads-off follow-up N+1: App Store Connect keeps
+    # no copy of the bundle to check, so the ledger is the guard here. The
+    # ads-off build submitted for review would ship a version that earns nothing.
+    build_number = required_env!("BUILD_NUMBER", "the LIVE-ads build N uploaded with AD_TARGET=live, not the ads-off N+1")
+    problem = submit_problem(read_ad_ledger, app_version, build_number)
+    if problem
+      UI.user_error!("Upload ledger: refusing to submit #{app_version} (#{build_number}): #{problem}. `fastlane ledger` prints the record.")
+    end
+    UI.success("Upload ledger: #{app_version} (#{build_number}) was uploaded LIVE, and an ads-off build of #{app_version} followed it")
+    verify_privacy_page!
     key = asc_api_key
     upload_to_app_store(
       api_key: key,
       app_identifier: APP_ID,
-      app_version: "1.2.0",
-      build_number: "12",
+      app_version: app_version,
+      build_number: build_number,
       skip_binary_upload: true,
       skip_screenshots: true,
       force: true,
       run_precheck_before_submit: true,
       submit_for_review: true,
       # Manual release: the build sits "Pending Developer Release" after approval,
-      # so the user presses Release when they want it live.
+      # so the owner presses Release when they want it live.
       automatic_release: false,
-      submission_information: {
-        # App now shows AdMob ads, which use the IDFA (gated by ATT consent).
-        add_id_info_uses_idfa: true,
-        add_id_info_serves_ads: true,
-        add_id_info_tracks_install: false,
-        add_id_info_tracks_action: false,
-        add_id_info_limits_tracking: true,
-        export_compliance_uses_encryption: false,
-        content_rights_contains_third_party_content: false,
-      },
+      submission_information: SUBMISSION_INFORMATION.dup,
       metadata_path: "./fastlane/metadata",
     )
+  end
+
+  desc "Print the upload ledger (ios/App/build/ad-ledger.json): which build number went up as which ad mode — local, contacts nobody"
+  lane :ledger do
+    entries = read_ad_ledger
+    if entries.empty?
+      UI.important("Upload ledger: #{AD_LEDGER_SHOWN} #{File.exist?(AD_LEDGER) ? 'is empty' : 'does not exist'}: no upload from this machine is recorded.")
+      next
+    end
+    UI.important("=== upload ledger, oldest first (#{AD_LEDGER_SHOWN}) ===")
+    entries.each do |e|
+      UI.important("#{e['at']}  version=#{e['version']}  build=#{e['build']}  mode=#{e['mode'].upcase}#{e['upload'] ? "  upload=#{e['upload']}" : ''}")
+    end
+    last = entries.last
+    if last["mode"] == "live"
+      UI.important("NEWEST UPLOAD IS LIVE (#{last['version']} build #{last['build']}): upload the ads-off build N+1 before anyone opens TestFlight.")
+    else
+      UI.success("Newest upload is ads-off (#{last['version']} build #{last['build']}): TestFlight offers nothing to tap.")
+    end
   end
 
   desc "Upload only the screenshots (metadata/text pushed separately via API)"
@@ -211,7 +876,7 @@ platform :ios do
     )
   end
 
-  desc "Upload only metadata + screenshots (no build, no submit) — safe dry-ish run to validate the listing"
+  desc "Upload only metadata + screenshots (no build, no submit, manual release) — safe dry-ish run to validate the listing"
   lane :metadata do
     upload_to_app_store(
       api_key: asc_api_key,
@@ -219,45 +884,66 @@ platform :ios do
       skip_binary_upload: true,
       force: true,
       submit_for_review: false,
+      # Same reason as prep_version: this edits the editable version, and an
+      # unset release type is left to whatever App Store Connect defaults to.
+      automatic_release: false,
       metadata_path: "./fastlane/metadata",
       screenshots_path: "./fastlane/screenshots",
     )
   end
 
-  desc "Build + upload the binary to TestFlight (no App Store version, no submit)"
+  desc "Archive + upload to TestFlight in one shot (no App Store version, no submit), recorded in the ledger — AD_TARGET=live|off"
   lane :build_and_upload do
+    want = upload_target!
+    # Before the archive, so a stale privacy page or an unanswered live upload
+    # costs seconds, not fifteen minutes.
+    live_upload_preflight!(*project_version_and_build) if want == "live"
     key = asc_api_key
     build_ipa
+    version, build = ipa_version_and_build!
+    refuse_consecutive_live!(version, build) if want == "live"
     # pilot/TestFlight — does NOT create or verify an App Store version, so it
-    # works even when the marketing version (e.g. 1.0.0) already exists on ASC.
-    upload_to_testflight(
-      api_key: key,
-      app_identifier: APP_ID,
-      ipa: "build/Exactly67.ipa",
-      skip_submission: true,
-      skip_waiting_for_build_processing: true,
-    )
+    # works even when the marketing version already exists on ASC.
+    with_upload_record(version, build, want) do
+      upload_to_testflight(
+        api_key: key,
+        app_identifier: APP_ID,
+        ipa: IPA_PATH,
+        skip_submission: true,
+        skip_waiting_for_build_processing: true,
+      )
+    end
+    if want == "live"
+      UI.important("Uploaded a LIVE-ads build. NOW upload the ads-off build N+1 (AD_TARGET=off) before anyone opens TestFlight.")
+    end
   end
 
-  desc "Print the latest TestFlight build number ASC knows about (for 1.1.0)"
+  desc "Print the latest TestFlight build number ASC knows about for APP_VERSION"
   lane :tf_latest do
+    app_version = required_env!("APP_VERSION", "the marketing version to look up, e.g. APP_VERSION=1.2.1")
     n = latest_testflight_build_number(
       api_key: asc_api_key,
       app_identifier: APP_ID,
-      version: "1.1.0",
+      version: app_version,
     )
-    UI.important("LATEST TESTFLIGHT BUILD for 1.1.0 => #{n}")
+    UI.important("LATEST TESTFLIGHT BUILD for #{app_version} => #{n}")
   end
 
-  desc "Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic)"
+  desc "Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic), recorded in the ledger — AD_TARGET=live|off"
   lane :tf_upload_only do
-    upload_to_testflight(
-      api_key: asc_api_key,
-      app_identifier: APP_ID,
-      ipa: "build/Exactly67.ipa",
-      skip_submission: true,
-      skip_waiting_for_build_processing: false,
-    )
+    want = upload_target!
+    verify_ipa_ad_mode!(want)
+    version, build = ipa_version_and_build!
+    live_upload_preflight!(version, build) if want == "live"
+    with_upload_record(version, build, want) do
+      upload_to_testflight(
+        api_key: asc_api_key,
+        app_identifier: APP_ID,
+        ipa: IPA_PATH,
+        skip_submission: true,
+        skip_waiting_for_build_processing: false,
+      )
+    end
   end
 
   desc "Print the App Store version records + their states"

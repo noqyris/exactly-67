@@ -2,9 +2,13 @@
   "name": "exactly-67",
   "private": true,
   "version": "1.0.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "VITE_ADS=mock vite",
     "build": "tsc --noEmit && vitest run && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -12,20 +16,39 @@
     "capture": "vite --port 5199 --strictPort",
     "capture:levels": "vite-node tools/cinematic-levels.ts",
     "capture:render": "node tools/render-clip.mjs",
-    "ios:sync": "npm run build && cap sync ios",
     "ios:open": "cap open ios",
     "levels:generate": "vite-node tools/generate-levels.ts -- --report",
-    "build:tf": "VITE_UNLOCK_ALL=1 npm run build",
-    "ios:sync:tf": "npm run build:tf && cap sync ios"
+    "postinstall": "node scripts/patch-levelplay-spm.mjs && node scripts/patch-levelplay-consent.mjs && node scripts/patch-levelplay-android-sdk.mjs",
+    "capacitor:sync:after": "node node_modules/capacitor-levelplay-ads/scripts/levelplay-manifest.js",
+    "ads:check": "node scripts/check-ad-mode.mjs",
+    "ads:nogoogle": "node scripts/check-no-google.mjs",
+    "ads:config": "node scripts/check-levelplay-config.mjs",
+    "build:test": "npm run build && node scripts/check-ad-mode.mjs test",
+    "build:live": "node scripts/check-levelplay-config.mjs ios && VITE_AD_MODE=live npm run build && node scripts/check-ad-mode.mjs live",
+    "build:adsoff": "VITE_ADS=off npm run build && node scripts/check-ad-mode.mjs off",
+    "build:mock": "VITE_ADS=mock npm run build && node scripts/check-ad-mode.mjs mock",
+    "build:tf": "VITE_ADS=off VITE_UNLOCK_ALL=1 npm run build && node scripts/check-ad-mode.mjs off",
+    "ios:sync": "npm run build:adsoff && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios off",
+    "ios:sync:mock": "npm run build:mock && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios mock",
+    "ios:sync:test": "npm run build:test && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios test",
+    "ios:testflight": "npm run build:tf && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios off",
+    "ios:appstore": "npm run build:live && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios live"
+  },
+  "levelplay": {
+    "networks": [
+      "unityads"
+    ],
+    "userTrackingDescription": "Allow tracking so the ads you see stay relevant. The game plays the same either way.",
+    "consentProvider": "custom"
   },
   "dependencies": {
-    "@capacitor-community/admob": "^8.0.0",
     "@capacitor-community/in-app-review": "^8.0.0",
     "@capacitor/android": "^8.4.1",
     "@capacitor/core": "^8.4.1",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/preferences": "^8.0.1",
     "@fontsource/baloo-2": "^5.2.6",
+    "capacitor-levelplay-ads": "0.1.42",
     "cordova-plugin-purchase": "^13.17.2",
     "phaser": "^3.90.0"
   },

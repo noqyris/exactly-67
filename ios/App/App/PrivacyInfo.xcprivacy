@@ -2,7 +2,54 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Exactly 67 is fully offline: it collects no data and does not track. -->
+	<!--
+	  App-level privacy manifest for Exactly 67. It covers the app's own binary
+	  and the Capacitor plugins, which are SPM packages compiled INTO the app
+	  target (CapApp-SPM): a package without its own PrivacyInfo resource is
+	  covered by this file, so their required-reason API use is declared here.
+
+	  This file used to say "fully offline: collects no data and does not
+	  track". That stopped being true when the game started showing ads, first
+	  through AdMob and, since Google terminated that account, through Unity
+	  LevelPlay. The ad SDK does collect data and does track, gated by consent
+	  and the ATT prompt. The declarations below are still right, for a
+	  different reason, written out so nobody "fixes" them back:
+
+	  NSPrivacyTracking is FALSE, deliberately, with NO tracking domains.
+	  KVIZKO, the sibling app on the same LevelPlay stack, shipped this file
+	  with <true/> and an empty domain list, and Apple rejected its first App
+	  Store submission (build 62, 2026-09-15) with:
+
+	    ITMS-91064: Invalid tracking information. A PrivacyInfo.xcprivacy file
+	    contains invalid tracking information at the following path:
+	    "PrivacyInfo.xcprivacy". NSPrivacyTracking must be true if
+	    NSPrivacyTrackingDomains isn't empty.
+
+	  The message states the rule one way round; what actually failed is the
+	  other: declaring tracking while listing NO domains is an inconsistent
+	  declaration, and the validator refuses it. The two keys must agree in
+	  BOTH directions.
+
+	  False is the true answer for THIS file. The app's own code and the
+	  plugins compiled into it send nothing anywhere; the tracking is done by
+	  the ad SDK, and the LevelPlay (IronSource) and Unity Ads frameworks ship
+	  their OWN privacy manifests and answer for their own declarations.
+	  Nothing else is softened by this: App Privacy in App Store Connect still
+	  declares the advertising identifier as used for tracking, the ATT prompt
+	  still runs, and NSUserTrackingUsageDescription stays in Info.plist.
+
+	  If tracking is ever declared true here again, the real tracking domains
+	  must be listed with it, taken from a list the network publishes. Guessing
+	  that list is simply a different false statement.
+
+	  TestFlight does not run this validation. A wrong manifest sails through
+	  every TestFlight upload and is rejected only when a build is submitted to
+	  the App Store, so a green TestFlight build proves nothing about this file.
+
+	  NSPrivacyCollectedDataTypes is empty for the same reason: the app's own
+	  code collects nothing. What the ad SDK collects is declared in its own
+	  manifest and in App Privacy.
+	-->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
@@ -11,7 +58,14 @@
 	<array/>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
-		<!-- Capacitor Preferences stores stars/progress in UserDefaults. -->
+		<!--
+		  UserDefaults (CA92.1: read and write data only accessible to the app
+		  itself). @capacitor/preferences keeps every exactly67.* key there
+		  (progress, sound / music / haptics switches, hint inventory, the ad
+		  cadence counters, the purchase entitlements), and capacitor-levelplay-ads
+		  keeps the consent decision and the IABTCF_* strings there. Both access
+		  it from the app's own code, on behalf of the app.
+		-->
 		<dict>
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>

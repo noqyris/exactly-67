@@ -1,9 +1,16 @@
 # Google Play listing — Exactly 67
 
 Copy-paste into **Play Console → Store presence → Main store listing** and **App content**.
-Unlike the App Store copy in `STORE_LISTING.md`, this version is written for the **monetized**
-build: the app now shows ads and offers a one-time "Remove Ads" purchase, so the text and the
-Data safety form below reflect that honestly.
+
+> **⚠️ Android is not being released, and this file predates the current game.** Written for the
+> AdMob-era 1.2.0 Android build. Ads now come from **Unity LevelPlay** (Unity Ads demand), but there
+> is no LevelPlay Android app and no gated Android build chain yet (see
+> [`docs/RELEASE.md`](../docs/RELEASE.md#android-release)). The ad-network facts, the privacy URL,
+> Data safety and pricing below are brought up to date; the **description and release notes are
+> not** (they still say 72 handcrafted levels); only their purchase lines were corrected, since the
+> $0.99 "No ads" keeps the optional hint videos and "remove them forever" was not true of it. Before
+> any Play upload, re-derive them from `ios/App/fastlane/metadata/en-US/description.txt` and check Data
+> safety against Unity's current Google Play guidance.
 
 ---
 
@@ -53,7 +60,7 @@ FREE TO PLAY
 - Free to download and play all 600 levels.
 - A banner and an occasional full-screen ad help keep the game free.
 - Stuck? Watch a short optional video to earn an extra hint — you also get one free hint every day.
-- Prefer no ads? Remove them forever with a single small in-app purchase.
+- Prefer fewer ads? "No ads" removes the banner and the ads between levels (the optional hint videos stay); "Unlimited hints" removes all ads and gives unlimited hints.
 - Play offline anytime — the puzzles never need a connection; ads simply pause when you're off the grid.
 - Your level progress is saved on your device.
 
@@ -62,14 +69,14 @@ If you love number puzzles, math games, logic brain teasers, or just a calm way 
 
 ## Release notes (en-GB)
 ```
-First Android release. Balance the scale to land on exactly 67 across 600 levels that keep getting harder — weights, balloons, locked pieces and three-star ratings. Free to play with optional ads and a one-time Remove Ads purchase.
+First Android release. Balance the scale to land on exactly 67 across 600 levels that keep getting harder — weights, balloons, locked pieces and three-star ratings. Free to play with ads, hint packs, and two one-time purchases: "No ads" and "Unlimited hints".
 ```
 
 ---
 
 ## App content answers
 
-- **Privacy policy URL:** https://dsuboticgreco.github.io/exactly67/privacy.html
+- **Privacy policy URL:** https://noqyris.github.io/exactly-67/privacy.html (published from `docs/privacy.html`)
 - **Ads:** Yes, this app contains ads.
 - **App access:** All functionality is available without special access (no login).
 - **Content rating:** questionnaire → no violence/sexual/etc. → expect Everyone / PEGI 3.
@@ -77,16 +84,21 @@ First Android release. Balance the scale to land on exactly 67 across 600 levels
 - **Data safety:** see below.
 - **Government/financial/health/news:** No to all.
 
-### Data safety (because of AdMob)
-- **Data collected/shared:** Yes (via the Google Mobile Ads SDK).
-  - **Device or other IDs** — collected & shared — purpose: Advertising or marketing; Analytics. Not user-account-linked. Can't be deleted by the user (not tied to an account).
-  - **App activity / app interactions** (optional, if asked) — for Advertising & Analytics.
+### Data safety (because of the ad SDK)
+- **Data collected/shared:** Yes, by the ad SDK (Unity LevelPlay with Unity Ads), and only after the
+  player accepts the consent prompt — a decline means the SDK never starts. What it may collect is
+  what [`docs/privacy.html`](../docs/privacy.html) lists: the advertising ID, IP address, device
+  and system information, and ad interaction data. Map that to Play's categories the way the iOS
+  label does (Identifiers, Location, Usage Data, Diagnostics — see
+  [`STORE_LISTING.md`](STORE_LISTING.md#app-privacy)):
+  - **Device or other IDs** — collected & shared — Advertising or marketing; Analytics; Fraud prevention. Not linked to an account.
+  - **Approximate location** (from the IP address), **App interactions** and **Diagnostics** — for the same purposes.
 - **Data encrypted in transit:** Yes.
-- **Users can request deletion:** No account, so nothing to delete server-side; progress lives on-device.
+- **Users can request deletion:** No account, so nothing to delete server-side; progress lives on-device. Ad data requests go to Unity, as the privacy policy says.
 
 ## Categories
 - **Category:** Games → Puzzle
 - **Tags:** brain games, logic, numbers
 
 ## Pricing
-- **Free**, with ads + one in-app product ("Remove Ads", one-time).
+- **Free**, with ads and five in-app products: three hint packs, **No ads** and **Unlimited hints + no ads** (ids and prices in [`STORE_LISTING.md`](STORE_LISTING.md#in-app-purchases-app-store-connect-ui)). Play Console still needs them created, which is blocked on a Google Payments profile (see [`docs/MONETIZATION.md`](../docs/MONETIZATION.md)).

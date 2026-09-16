@@ -234,7 +234,7 @@ export function drawBackIcon(g: Phaser.GameObjects.Graphics, size: number) {
 export function drawHintIcon(
   g: Phaser.GameObjects.Graphics,
   size: number,
-  state: 'have' | 'empty',
+  state: 'have' | 'empty' | 'spent',
 ) {
   const s = size / 44
   const free = state === 'have'
@@ -268,8 +268,9 @@ export function drawHintIcon(
     g.fillCircle(bx, by, 8 * s)
     g.lineStyle(2 * s, INK, 1)
     g.strokeCircle(bx, by, 8 * s)
-  } else {
-    // Blue rewarded-video chip with a ▶ play triangle.
+  } else if (state === 'empty') {
+    // Blue rewarded-video chip with a ▶ play triangle. Not drawn for 'spent':
+    // no hint video can be offered (ads declined), so the bulb stays plain.
     const cw = 15 * s
     const ch = 11 * s
     g.fillStyle(PAPER, 1)

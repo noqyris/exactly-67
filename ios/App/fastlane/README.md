@@ -23,13 +23,37 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 
 Verify auth + create the App Store Connect app record only
 
+### ios ad_gate
+
+```sh
+[bundle exec] fastlane ios ad_gate
+```
+
+Run the archive's ad-mode gate alone, building nothing and contacting nobody — AD_TARGET=live|off
+
+### ios archive
+
+```sh
+[bundle exec] fastlane ios archive
+```
+
+Archive + export a signed App Store .ipa to build/Exactly67.ipa — AD_TARGET=live|off
+
 ### ios build_only
 
 ```sh
 [bundle exec] fastlane ios build_only
 ```
 
-Build + sign the store IPA only (no app record / upload needed)
+Same as archive (kept for old muscle memory) — AD_TARGET=live|off
+
+### ios upload_testflight
+
+```sh
+[bundle exec] fastlane ios upload_testflight
+```
+
+Upload build/Exactly67.ipa to TestFlight (no App Store version, no submit) and record it in the ledger — AD_TARGET=live|off
 
 ### ios release
 
@@ -37,7 +61,7 @@ Build + sign the store IPA only (no app record / upload needed)
 [bundle exec] fastlane ios release
 ```
 
-Full pipeline: create app record, build+sign, upload build, push metadata+screenshots, submit for review
+Full pipeline: app record, LIVE archive, upload, metadata + screenshots, submit for review (manual release) — AD_TARGET=live
 
 ### ios finish
 
@@ -45,15 +69,15 @@ Full pipeline: create app record, build+sign, upload build, push metadata+screen
 [bundle exec] fastlane ios finish
 ```
 
-Upload the already-built IPA + metadata + screenshots, wait for processing, submit for review
+Upload the already-built LIVE IPA + metadata + screenshots, submit for review (manual release) — AD_TARGET=live
 
-### ios prep_120
+### ios prep_version
 
 ```sh
-[bundle exec] fastlane ios prep_120
+[bundle exec] fastlane ios prep_version
 ```
 
-Create/stage the 1.2.0 version + push metadata only (no build attach, no submit) — safe, reversible
+Create/stage the APP_VERSION version + push metadata only (no build attach, no submit, manual release) — safe, reversible
 
 ### ios submit
 
@@ -61,7 +85,15 @@ Create/stage the 1.2.0 version + push metadata only (no build attach, no submit)
 [bundle exec] fastlane ios submit
 ```
 
-Set age rating + attach the processed build + submit for review (text/screenshots already pushed)
+Attach processed LIVE build BUILD_NUMBER to version APP_VERSION + submit for review (manual release); the ledger must show it live, then an ads-off N+1
+
+### ios ledger
+
+```sh
+[bundle exec] fastlane ios ledger
+```
+
+Print the upload ledger (ios/App/build/ad-ledger.json): which build number went up as which ad mode — local, contacts nobody
 
 ### ios screenshots
 
@@ -77,7 +109,7 @@ Upload only the screenshots (metadata/text pushed separately via API)
 [bundle exec] fastlane ios metadata
 ```
 
-Upload only metadata + screenshots (no build, no submit) — safe dry-ish run to validate the listing
+Upload only metadata + screenshots (no build, no submit, manual release) — safe dry-ish run to validate the listing
 
 ### ios build_and_upload
 
@@ -85,7 +117,7 @@ Upload only metadata + screenshots (no build, no submit) — safe dry-ish run to
 [bundle exec] fastlane ios build_and_upload
 ```
 
-Build + upload the binary to TestFlight (no App Store version, no submit)
+Archive + upload to TestFlight in one shot (no App Store version, no submit), recorded in the ledger — AD_TARGET=live|off
 
 ### ios tf_latest
 
@@ -93,7 +125,7 @@ Build + upload the binary to TestFlight (no App Store version, no submit)
 [bundle exec] fastlane ios tf_latest
 ```
 
-Print the latest TestFlight build number ASC knows about (for 1.1.0)
+Print the latest TestFlight build number ASC knows about for APP_VERSION
 
 ### ios tf_upload_only
 
@@ -101,7 +133,7 @@ Print the latest TestFlight build number ASC knows about (for 1.1.0)
 [bundle exec] fastlane ios tf_upload_only
 ```
 
-Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic)
+Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic), recorded in the ledger — AD_TARGET=live|off
 
 ### ios asc_versions
 

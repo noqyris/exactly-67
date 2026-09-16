@@ -9,11 +9,15 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
-        <!-- AdMob *Android* app ID for Exactly 67 (real). Test ads still serve
-             while ads.ts TESTING=true; live ad units activate when TESTING=false. -->
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3307486877162157~2480617239" />
+        <!-- No AdMob APPLICATION_ID here, deliberately. Google terminated the
+             AdMob publisher account this app used on 2026-08-18, and ads now run
+             through Unity LevelPlay (capacitor-levelplay-ads, networks
+             ["unityads"] in package.json). Unlike iOS, the Google Mobile Ads SDK
+             reads this meta-data at app START, so a dead publisher id here is a
+             live declaration, not dormant config. Do not re-add it:
+             scripts/check-no-google.mjs fails every sync and release chain if it
+             comes back. LevelPlay needs nothing in this file; its adapters are
+             injected into app/build.gradle by the capacitor:sync:after hook. -->
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"

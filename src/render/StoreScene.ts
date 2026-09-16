@@ -202,13 +202,22 @@ export class StoreScene extends Phaser.Scene {
     const rows = packs.length + (noAdsOnlyPrice != null ? 1 : 0) + (unlockPrice != null ? 1 : 0)
     const footerH = u(76)
     const avail = bottom - bodyTop - footerH
-    const gap = u(12)
-    // Fit the whole ladder without scrolling: shrink cards on short screens
-    // rather than push the last (best) offer below the fold.
-    const cardH = Phaser.Math.Clamp((avail - gap * (rows - 1)) / Math.max(rows, 1), u(58), u(84))
-    const heroH = Math.min(cardH * 1.12, u(96))
     const plainRows = packs.length + (noAdsOnlyPrice != null ? 1 : 0)
-    const totalH = cardH * plainRows + (unlockPrice != null ? heroH : 0) + gap * (rows - 1)
+    // Fit the whole ladder without scrolling: shrink cards on short screens
+    // rather than push the last (best) offer below the fold. The hero card is
+    // 12% taller, so it counts as 1.12 rows or the ladder overshoots.
+    const cardH = Phaser.Math.Clamp(
+      (avail - u(12) * (rows - 1)) / Math.max(plainRows + (unlockPrice != null ? 1.12 : 0), 1),
+      u(58),
+      u(84),
+    )
+    const heroH = Math.min(cardH * 1.12, u(96))
+    const cardsH = cardH * plainRows + (unlockPrice != null ? heroH : 0)
+    // A 320×568 iPhone SE with the banner strip reserved can't fit even
+    // minimum-height cards with full gaps: the hero card ran into "Hints never
+    // expire." Tighten the gaps before letting the ladder overlap the footer.
+    const gap = rows > 1 ? Phaser.Math.Clamp((avail - cardsH) / (rows - 1), u(4), u(12)) : u(12)
+    const totalH = cardsH + gap * (rows - 1)
     let y = bodyTop + Math.max(0, (avail - totalH) / 2)
 
     const biggest = packs.reduce((a, b) => (b.hints > a.hints ? b : a), packs[0])
@@ -233,13 +242,18 @@ export class StoreScene extends Phaser.Scene {
     if (noAdsOnlyPrice != null) {
       // Ad removal on its own. No badge: it isn't "better value" than a hint
       // pack, it's a different purchase, and claiming otherwise would be spin.
+      // It removes the banner and the between-level ads, but the rewarded hint
+      // video still plays (ads.ts: only Unlimited skips the ad SDK), so the card
+      // says so. Otherwise a $0.99 buyer who taps "Watch ad: +1 hint" gets a
+      // full-screen ad they believe they paid to remove. Longest wording first;
+      // a 320 pt phone only has room for a shorter one beside the price chip.
       this.offerCard({
         cx: f.cx,
         y: y + cardH / 2,
         w: cardW,
         h: cardH,
         label: 'No ads',
-        sublabel: 'hints not included',
+        sublabel: ['hints not included · hint videos stay', 'without hints · hint videos stay', 'hint videos stay'],
         price: noAdsOnlyPrice,
         hero: false,
         onTap: () => this.purchase(() => buyNoAds()),
@@ -271,7 +285,8 @@ export class StoreScene extends Phaser.Scene {
     w: number
     h: number
     label: string
-    sublabel?: string
+    /** One line, or candidates longest first: the first that clears the price chip wins. */
+    sublabel?: string | string[]
     price: string
     badge?: string
     hero: boolean
@@ -303,20 +318,30 @@ export class StoreScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
     c.add(label)
 
+    // Price chip geometry first: the sublabel has to fit to its left.
+    const chipW = Math.max(u(74), o.price.length * u(9))
+    const chipH = Math.min(u(38), o.h * 0.52)
+    const chipX = o.w / 2 - padX - chipW / 2
+
     const sub = o.sublabel ?? o.badge
     let subText: Phaser.GameObjects.Text | undefined
     if (sub) {
+      const options = typeof sub === 'string' ? [sub] : sub
       subText = this.add
-        .text(-o.w / 2 + padX, o.h * 0.19, sub, TEXT.ink(11, '600'))
+        .text(-o.w / 2 + padX, o.h * 0.19, options[0], TEXT.ink(11, '600'))
         .setOrigin(0, 0.5)
         .setColor(o.hero ? '#4A4160' : INK_SOFT)
+      // Measured, not guessed from character counts: Baloo's widths vary, and a
+      // localized price widens the chip. If nothing fits, the shortest stays.
+      const room = chipX - chipW / 2 - u(8) - (-o.w / 2 + padX)
+      for (const text of options) {
+        subText.setText(text)
+        if (subText.width <= room) break
+      }
       c.add(subText)
     }
 
     // Price chip — cream on the hero so it stays legible against the candy fill.
-    const chipW = Math.max(u(74), o.price.length * u(9))
-    const chipH = Math.min(u(38), o.h * 0.52)
-    const chipX = o.w / 2 - padX - chipW / 2
     const chip = this.add.graphics()
     chip.fillStyle(o.hero ? PAPER : BEAM, 1)
     chip.fillRoundedRect(chipX - chipW / 2, -chipH / 2, chipW, chipH, chipH * 0.4)

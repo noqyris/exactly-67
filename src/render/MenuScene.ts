@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { TOTAL_LEVELS } from '../game/levels'
 import { isCleared, totalStars } from '../game/progress'
-import { hintsUnlimited } from '../services/ads'
+import { adsSupported, hintsUnlimited, openPrivacyOptions } from '../services/ads'
 import { playPlace, setSoundEnabled, soundEnabled } from '../services/audio'
 import { hapticsEnabled, placeTap, setHapticsEnabled } from '../services/haptics'
 import { iapSupported, setIapListener } from '../services/iap'
@@ -75,6 +75,37 @@ export class MenuScene extends Phaser.Scene {
       .text(cx, by + blockH + u(28), 'Balance the scale. Land on exactly 67.', TEXT.ink(16, '600'))
       .setOrigin(0.5)
       .setColor(INK_SOFT)
+
+    // Privacy choices: re-opens the ad-consent decision, so a player who
+    // declined can say yes and one who accepted can withdraw (GDPR wants
+    // withdrawing to be as easy as consenting). Only for players the ad SDK can
+    // ever run for — Unlimited owners never start it, so there is nothing to
+    // choose. A quiet text link in the top corner of the frame, deliberately far
+    // from the bottom banner: a control next to an ad is a mis-tap waiting to be
+    // counted as a click, and at 320x568 the button column already fills the
+    // space between the tagline and the banner strip. Small glyphs, generous
+    // padding, so the touch target is still ~44pt.
+    if (adsSupported() && !hintsUnlimited()) {
+      const padX = u(10)
+      const padY = u(12)
+      const privacy = this.add
+        .text(
+          f.ox + f.ew - Math.max(u(16), safe.right) + padX,
+          topAnchor + u(8) - padY,
+          'Privacy choices',
+          TEXT.ink(12, '700'),
+        )
+        .setOrigin(1, 0)
+        .setColor(INK_SOFT)
+        .setPadding({ x: padX, y: padY })
+        .setInteractive({ useHandCursor: true })
+      privacy.on('pointerdown', () => privacy.setAlpha(0.55))
+      privacy.on('pointerout', () => privacy.setAlpha(1))
+      privacy.on('pointerup', () => {
+        privacy.setAlpha(1)
+        void openPrivacyOptions()
+      })
+    }
 
     // Continue where the player left off.
     const p = progress()

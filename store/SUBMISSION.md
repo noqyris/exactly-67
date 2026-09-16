@@ -1,5 +1,25 @@
 # Shipping Exactly 67 to the App Store
 
+> **⚠️ Historical — the 1.0.0 (build 1) first-submission walkthrough, kept for the record. Do not
+> follow it for a release.** Several statements below are no longer true:
+> - The app shows ads (Unity LevelPlay since 1.2.1, AdMob before that), so App Privacy is **not**
+>   "Data Not Collected" — see [`STORE_LISTING.md`](STORE_LISTING.md#app-privacy).
+> - `PrivacyInfo.xcprivacy` covers only the app's own code; the ad SDKs ship their own manifests.
+> - The published privacy policy is [`docs/privacy.html`](../docs/privacy.html), not
+>   `store/PRIVACY_POLICY.md` (now an internal summary).
+> - `npm run ios:sync` + **Product → Archive** now yields an **ads-off** binary: right for the
+>   TestFlight build N+1, wrong for the App Store (it earns nothing). The App Store build is
+>   `npm run ios:appstore` + `AD_TARGET=live fastlane archive`, always followed at once by the
+>   ads-off build.
+> - Version and build are far past 1.0.0 / 1, and every release is **two uploads**. The numbers live
+>   only in `project.pbxproj`; `Info.plist` reads them as build-setting variables.
+> - **Product → Archive → Distribute App** (step 6) skips the fastlane upload ledger and privacy
+>   gate, so `fastlane submit` can never accept a build uploaded that way. The Xcode Ad-mode guard
+>   still runs: it refuses to archive a live bundle without `AD_TARGET=live`, and any `ADS:on` test
+>   bundle at all. Release uploads go through the lanes in `docs/RELEASE.md`.
+>
+> The current runbook is [`docs/RELEASE.md`](../docs/RELEASE.md).
+
 This is the full path from here to "Waiting for Review". Everything that can be prepared in the
 repo **is already done** (✅). The remaining steps (🔐) need your Apple Developer account and can
 only be done by you — signing in with your credentials is not something the build can do for you.
