@@ -22,6 +22,7 @@ import {
   rewardedBusy,
   setGameLoopHooks,
   showBanner,
+  startAdSession,
 } from './services/ads'
 import { stampBuildFlags } from './services/buildFlags'
 import { initIap } from './services/iap'
@@ -31,7 +32,8 @@ import { setSoundEnabled } from './services/audio'
 import { setHapticsEnabled } from './services/haptics'
 import { initNotifications, noteSessionStart, refreshReminders } from './services/notifications'
 import { today } from './services/metaStore'
-import { dailyDoneToday, initProgression, isFirstRun, refreshDay, syncReminders } from './services/progression'
+import { dailyDoneToday, initProgression, isFirstRun, noteReturnSession, refreshDay, syncReminders } from './services/progression'
+import { returnIsNewSession, type Pause } from './game/sessions'
 import { initProgress } from './services/progressStore'
 import {
   isColdLaunchEcho,
@@ -204,8 +206,26 @@ async function boot() {
   // re-asks for a banner a refused request never delivered. No-op before
   // initAds() has run and in builds without ads.
   let foregroundDay = today()
+  // A return after 30+ minutes away, or into a new day, is a new play session,
+  // not only a cold launch (game/sessions.ts): iOS keeps the game suspended for
+  // days, and the interstitial session cap and warm-up must reset for a player
+  // who never swipes it away. Only the FIRST hidden counts — a second one
+  // without a return in between must not move the start of the pause. Nothing
+  // here starts the ad layer: this fires while the app may still be inactive,
+  // where an ATT request shows nothing.
+  let pause: Pause | null = null
   document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      pause ??= { at: Date.now(), day: today() }
+      return
+    }
     if (document.visibilityState !== 'visible') return
+    const newSession = returnIsNewSession(pause, Date.now(), today())
+    pause = null
+    if (newSession) {
+      startAdSession()
+      noteReturnSession()
+    }
     adsForegrounded()
     // A new local day may have started while the app slept: spend freezes or
     // break the streak now, then re-plan the reminders from the fresh facts.

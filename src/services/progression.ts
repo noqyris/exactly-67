@@ -462,3 +462,8 @@ export function noteNoAdsNudge(): void {
 export function sessions(): number {
   return meta().offers.sessions
 }
+
+/** A return from the background counted as a new session (game/sessions.ts): count it like a launch. */
+export function noteReturnSession(): void {
+  updateMeta((m) => ({ ...m, offers: { ...m.offers, sessions: m.offers.sessions + 1 } }))
+}

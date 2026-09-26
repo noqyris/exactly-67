@@ -314,6 +314,67 @@ describe('interstitial cadence — unchanged by the network move', () => {
     expect(fake.showInterstitial).toHaveBeenCalledTimes(3)
   })
 
+  it('a new session without a cold launch (return after 30 min / new day) resets the cap and re-arms the warm-up', async () => {
+    // iOS keeps the game suspended for days: with cold launches alone a daily
+    // player stayed in session 1 — three ads, then none for as long as the app
+    // lived in memory. main.ts calls startAdSession() on such a return.
+    const ads = await freshAds()
+    await seconds(90)
+    for (let i = 0; i < 3; i++) {
+      clears(ads, 3)
+      await expect(ads.maybeShowInterstitial(LEVEL + i * 3)).resolves.toBe(true)
+      await seconds(180)
+    }
+    clears(ads, 3)
+    expect(ads.interstitialWouldShow(LEVEL + 9), 'cap reached').toBe(false)
+    ads.startAdSession()
+    expect(ads.interstitialWouldShow(LEVEL + 9), 'warm-up after the return').toBe(false)
+    await seconds(89)
+    expect(ads.interstitialWouldShow(LEVEL + 9)).toBe(false)
+    await seconds(1)
+    expect(ads.interstitialWouldShow(LEVEL + 9), 'cap reset').toBe(true)
+    await expect(ads.maybeShowInterstitial(LEVEL + 9)).resolves.toBe(true)
+    expect(fake.showInterstitial).toHaveBeenCalledTimes(4)
+  })
+
+  it('a new session keeps the 180 s floor and the every-3rd-clear counter', async () => {
+    const ads = await freshAds()
+    await seconds(90)
+    clears(ads, 3)
+    await expect(ads.maybeShowInterstitial(LEVEL)).resolves.toBe(true)
+    await seconds(10)
+    ads.startAdSession()
+    clears(ads, 3)
+    await seconds(90) // warm-up over, but only 100 s since the last ad
+    expect(ads.interstitialWouldShow(LEVEL + 3), '180 s floor carries over').toBe(false)
+    await seconds(80)
+    expect(ads.interstitialWouldShow(LEVEL + 3)).toBe(true)
+
+    const again = await freshAds()
+    await seconds(90)
+    clears(again, 3)
+    await expect(again.maybeShowInterstitial(LEVEL)).resolves.toBe(true)
+    await seconds(600)
+    again.startAdSession()
+    await seconds(90)
+    clears(again, 2)
+    expect(again.interstitialWouldShow(LEVEL + 3), 'clear counter is not per session').toBe(false)
+    clears(again, 1)
+    expect(again.interstitialWouldShow(LEVEL + 3)).toBe(true)
+  })
+
+  it('a new session keeps the quiet window after an earned hint video', async () => {
+    const ads = await freshAds()
+    await seconds(90)
+    clears(ads, 3)
+    await expect(ads.showRewardedHint()).resolves.toBe(true)
+    ads.startAdSession()
+    await seconds(90)
+    expect(ads.interstitialWouldShow(LEVEL)).toBe(false)
+    await seconds(210)
+    expect(ads.interstitialWouldShow(LEVEL)).toBe(true)
+  })
+
   it('an earned hint video mutes interstitials for 300 s', async () => {
     const ads = await freshAds()
     await seconds(90)

@@ -139,12 +139,13 @@ let unlimited = false
 let clearsSinceInterstitial = 0
 let hintCount = 0
 
-// Interstitial pacing state (in-memory, per app session). `sessionStart` is set
-// at module load, which is the cold launch under Capacitor.
-const sessionStart = Date.now()
-let lastInterstitialAt = 0 // ms epoch of the last *presented* interstitial; 0 = none this session
+// Interstitial pacing state (in-memory, per play session). `sessionStart` is set
+// at module load — the cold launch under Capacitor — and again by
+// startAdSession() when a return from the background counts as a new session.
+let sessionStart = Date.now()
+let lastInterstitialAt = 0 // ms epoch of the last *presented* interstitial; 0 = none since launch
 let adsThisSession = 0
-let lastRewardedAt = 0 // ms epoch of the last *earned* rewarded hint; 0 = none this session
+let lastRewardedAt = 0 // ms epoch of the last *earned* rewarded hint; 0 = none since launch
 
 /** Full-screen ads currently up (or being shown) — never stack a second one. */
 let fullScreenDepth = 0
@@ -512,6 +513,23 @@ export async function removeBanner(): Promise<void> {
 }
 
 // --- interstitial --------------------------------------------------------------
+
+/**
+ * A new play session began without a cold launch: a return from the background
+ * after 30+ minutes or into a new day (game/sessions.ts decides; main.ts calls
+ * this). iOS keeps a suspended game alive for days, so with cold launches alone a
+ * daily player never left their first session: three interstitials, then none
+ * for as long as the app stayed in memory.
+ *
+ * Resets only what is per SESSION — the cap and the warm-up, so the first clear
+ * after coming back is never an ad. The 180 s spacing floor, the every-3rd-clear
+ * counter, the quiet window after a rewarded video and the daily rewarded caps
+ * are not per session and carry over.
+ */
+export function startAdSession(now: number = Date.now()): void {
+  sessionStart = now
+  adsThisSession = 0
+}
 
 /** Count one level clear toward the interstitial cadence (call once per win). */
 export function noteCleared(): void {

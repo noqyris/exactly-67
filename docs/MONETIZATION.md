@@ -354,8 +354,9 @@ is no ad surface:
 | `PACK_FINALES` | 24, 48, …, 600 | Never on the last level of any pack; the L600 "The End!" never gets an ad chaser. **Derived from `PACKS`**, not written down (the old `24/48/72` stopped covering anything once packs 4–25 arrived). |
 | `CLEARS_PER_INTERSTITIAL` | `3` | ≥ 3 clears since the last *presented* ad (a learnable "every 3rd win" rhythm). |
 | `MIN_SECONDS_BETWEEN_ADS` | `180` | Hard spacing floor — never two ads closer than 3 min. |
-| `FIRST_AD_MIN_SESSION_SECONDS` | `90` | Per-session warm-up — no ad in the first 90 s after launch. |
+| `FIRST_AD_MIN_SESSION_SECONDS` | `90` | Per-session warm-up — no ad in the first 90 s of a session. |
 | `MAX_ADS_PER_SESSION` | `3` | Session cap (the 4th impression is lowest-value, highest-annoyance). |
+| `SESSION_GAP_MS` (`game/sessions.ts`) | 30 min | What a **session** is: a cold launch, **or** a return from the background after ≥ 30 min, **or** a return into a new local day. |
 | `REWARDED_SUPPRESS_SECONDS` | `300` | No interstitial for 5 min after an earned rewarded hint — don't double-tax volunteered attention. |
 
 **The flow.** `maybeShowInterstitial` asks the provider for a loaded ad, and on
@@ -383,9 +384,25 @@ leaves the cadence armed for the next clear.
 Net effect: zero interstitials until genuinely hooked (L9+, past the 90 s warm-up),
 then at most one every 3rd win, ≥ 3 min apart, ≤ 3 per session, never right after a
 rewarded hint, never on a pack final, never on the review beat. `exactly67.adClears`
-persists across launches; `lastInterstitialAt` / `adsThisSession` /
-`lastRewardedAt` are per session. The values are constants in code — there is no
-remote config.
+persists across launches; `lastInterstitialAt` / `lastRewardedAt` live in memory from
+the cold launch on, and only the cap and the warm-up (`adsThisSession`, the session
+start) are per session. The values are constants in code — there is no remote config.
+
+**What a session is (1.3.0).** Until 1.3.0 a session was a cold launch, and iOS keeps a
+suspended game alive for days: a daily player who never swiped Exactly 67 away stayed in
+session 1 — three interstitials, then none for as long as the app lived in memory, and
+the warm-up never applied again. Now `main.ts` records the **first** `hidden` of a pause
+(time + local day) and, on `visible`, asks the pure `returnIsNewSession()`
+(`game/sessions.ts`): a different day key is always a new session, 30 min or more away
+is one, a clock set back within the day is not, and a `visible` with no `hidden` before it
+is not a return. On a new session it calls `ads.startAdSession()` (cap to 0, warm-up
+re-armed, so the first clear after coming back is never an ad) and bumps
+`meta.offers.sessions`. The 180 s floor, the every-3rd-clear counter, the rewarded quiet
+window and the daily rewarded caps are **not** per session and carry over. Nothing on
+that path starts the ad layer: `visibilitychange` fires on `willEnterForeground`, while the
+app is still inactive, and an ATT request there shows nothing and reads `notDetermined`
+(the LevelPlay provider's foreground `retryInit()` only restarts an SDK whose consent is
+already GRANTED, so it never reaches ATT).
 
 ### The rewarded hint
 
