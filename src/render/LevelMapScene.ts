@@ -59,7 +59,7 @@ export class LevelMapScene extends Phaser.Scene {
     })
     back.setPosition(f.ox + Math.max(u(16), safe.left) + u(23), top + u(23)).setDepth(10)
 
-    this.add
+    const title = this.add
       .text(f.cx, top + u(10), 'Levels', TEXT.ink(26, '800'))
       .setOrigin(0.5, 0)
       .setDepth(10)
@@ -73,22 +73,30 @@ export class LevelMapScene extends Phaser.Scene {
         .setDepth(10)
     }
 
-    // Total-stars chip on the right.
-    const starsChip = this.add
-      .container(f.ox + f.ew - Math.max(u(16), safe.right) - u(54), top + u(23))
-      .setDepth(10)
-    const chipG = this.add.graphics()
-    chipG.fillStyle(PAPER, 1)
-    chipG.fillRoundedRect(-u(52), -u(20), u(104), u(40), u(14))
-    chipG.lineStyle(u(3), INK, 1)
-    chipG.strokeRoundedRect(-u(52), -u(20), u(104), u(40), u(14))
-    const starG = this.add.graphics()
-    drawStar(starG, -u(32), 0, u(11), true)
+    // Total-stars chip on the right, anchored by its right edge and as wide as
+    // its count: a fixed width fit "93/1800" and overflowed from 100 stars on.
     // Left-align the count just right of the star so its point never
     // overlaps the first digit.
     const totals = this.add
-      .text(-u(16), 0, `${totalStars(progress())}/${TOTAL_LEVELS * 3}`, TEXT.ink(16))
+      .text(u(36), 0, `${totalStars(progress())}/${TOTAL_LEVELS * 3}`, TEXT.ink(16))
       .setOrigin(0, 0.5)
+    const chipRight = f.ox + f.ew - Math.max(u(16), safe.right) - u(2)
+    const natural = () => u(36) + totals.width + u(14)
+    // On a narrow phone the chip must stop short of the title: there it
+    // drops the "/1800" and hugs the count.
+    const narrow = chipRight - Math.max(u(104), natural()) < title.x + title.width / 2 + u(8)
+    if (narrow) totals.setText(`${totalStars(progress())}`)
+    const chipW = narrow ? natural() : Math.max(u(104), natural())
+    const starsChip = this.add
+      .container(chipRight - chipW, top + u(23))
+      .setDepth(10)
+    const chipG = this.add.graphics()
+    chipG.fillStyle(PAPER, 1)
+    chipG.fillRoundedRect(0, -u(20), chipW, u(40), u(14))
+    chipG.lineStyle(u(3), INK, 1)
+    chipG.strokeRoundedRect(0, -u(20), chipW, u(40), u(14))
+    const starG = this.add.graphics()
+    drawStar(starG, u(20), 0, u(11), true)
     starsChip.add([chipG, starG, totals])
 
     // Header backdrop so scrolled content slides underneath. It is
