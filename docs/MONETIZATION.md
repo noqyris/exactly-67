@@ -127,13 +127,29 @@ nothing appeals to helping the developer. The consent modal follows the same rul
 coffee money; the one-time unlocks and the rewarded hint typically out-earn
 banner and interstitial at low scale. Don't over-index on impression count.
 
-### The banner-on-gameplay safety note ⚠️
+### The banner — never on a level in play ⚠️
 
 The game is drag-and-drop, and ad networks ban placements where mis-taps are
-likely (Unity's Placement Policy names ads next to buttons). To keep the bottom
-banner on the gameplay screen safely, the layout **reserves a fixed strip** at the
-bottom and shrinks the play area above it, so a dragged weight never overlaps the
-ad:
+likely: Unity's Placement Policy bars ads "close to or underneath buttons" and "in
+areas where End-Users will randomly click or place their fingers". Until 1.3.0 the
+banner sat under the level screen too, with the tray's bottom row 8 pt above it —
+where a dragging finger lands. Accidental taps are invalid traffic, the thing that
+closed this developer's previous ad account, so **since 1.3.0 a level in play
+(`GameScene`: levels and the Daily) carries no banner**. `GameScene.create()` calls
+`setBannerStrip(false)` (layout: the board takes the strip) and
+`ads.setBannerOnScreen(false)` before it lays out, and both go back on at its
+`shutdown`, so the menu, level map, Daily screen and Store keep the banner. Off
+**destroys** the banner instead of hiding it: a level lasts minutes, and a hidden
+banner view may keep refreshing out of sight; the next banner screen creates a new
+one. `showBanner()` is a no-op while it is off — the end of a full-screen ad, a
+return to the foreground or the SDK coming up late never bring it back inside a
+level — and a banner still being created when a level starts is destroyed once it
+lands. A Store launched over a paused level keeps it off. The research behind it
+(2026-09-26): the banner on the play screen earns about 10 % of ad revenue at most;
+the account is the one thing that cannot be replaced.
+
+On the screens that do carry it, the layout **reserves a fixed strip** at the
+bottom and shrinks the content above it, so nothing tappable overlaps the ad:
 
 - LevelPlay's `BANNER` size is a fixed **320×50 pt**, pinned by the plugin to the
   bottom of the **safe area** (above the home indicator). The reserve is
@@ -141,7 +157,8 @@ ad:
   50 pt of ad plus 8 pt of air.
 - `main.ts` applies `bannerReserve() × DPR` through `setAdBannerReserve()` **before
   any scene lays out**, and [`layout.ts`](../src/render/layout.ts) folds it into
-  `safeArea().bottom` on top of the home-indicator inset. The reserve is
+  `safeArea().bottom` on top of the home-indicator inset — on every scene but
+  `GameScene`, which turns the strip off (`setBannerStrip`). The reserve is
   intent-based (58 when a banner will be requested, else 0), so the first frame
   already leaves the gap; there is no reflow when the banner arrives.
 - The menu's "Privacy choices" link sits in the **top** corner, far from the banner.
@@ -177,7 +194,7 @@ $4.99 one. Gameplay gates free hints on `hintsUnlimited()`, never on
 | | Nothing bought | No ads ($0.99) | Unlimited hints ($4.99) |
 |---|---|---|---|
 | ATT + consent prompt, SDK start | yes (the SDK starts only on `GRANTED`) | yes — the hint video is a real rewarded ad | **no SDK at all** |
-| Banner + reserved strip | strip always; banner while consent is `GRANTED` | no | no |
+| Banner + reserved strip | strip on every screen but a level in play; banner there while consent is `GRANTED` | no | no |
 | Interstitials | while consent is `GRANTED` | no | no |
 | Hint video ("Watch ad: +1 hint") | yes, while consent is `GRANTED` | yes, while consent is `GRANTED` | never needed — hints are free |
 | "Privacy choices" link on the menu | yes | yes | hidden (nothing to choose) |
@@ -356,6 +373,7 @@ is no ad surface:
 | `MIN_SECONDS_BETWEEN_ADS` | `180` | Hard spacing floor — never two ads closer than 3 min. |
 | `FIRST_AD_MIN_SESSION_SECONDS` | `90` | Per-session warm-up — no ad in the first 90 s of a session. |
 | `MAX_ADS_PER_SESSION` | `3` | Session cap (the 4th impression is lowest-value, highest-annoyance). |
+| `DAILY_INTERSTITIAL_CAP` (`game/economy.ts`) | `6` | Per local day, all sessions together (`meta.interstitialDay`). Sessions reset on a 30-min return, so the session cap alone would let a player who comes back five times a day see fifteen; the harm of ad load lands on exactly that habit (see *Why this cadence* below). |
 | `SESSION_GAP_MS` (`game/sessions.ts`) | 30 min | What a **session** is: a cold launch, **or** a return from the background after ≥ 30 min, **or** a return into a new local day. |
 | `REWARDED_SUPPRESS_SECONDS` | `300` | No interstitial for 5 min after an earned rewarded hint — don't double-tax volunteered attention. |
 
@@ -403,6 +421,25 @@ that path starts the ad layer: `visibilitychange` fires on `willEnterForeground`
 app is still inactive, and an ATT request there shows nothing and reads `notDetermined`
 (the LevelPlay provider's foreground `retryInit()` only restarts an SDK whose consent is
 already GRANTED, so it never reaches ATT).
+
+**Why this cadence (research, 2026-09-26).** Three parallel reviews — competitor
+teardowns, the ad-load/retention literature, and a revenue model on this game's
+numbers — agreed on keeping the rhythm and changed two things (the daily cap, and no
+banner on a level in play):
+- Ours is on the gentle side of the market. Most top level-based games show an
+  interstitial after every level, while "every 3rd level" was the rarest cadence in a
+  top-100 teardown ([PocketGamer.biz, 2025](https://www.pocketgamer.biz/the-key-to-success-how-top-100-downloaded-games-implement-interstitial-ads-and-related-in-app-purchases/)).
+- The strongest evidence says that is right for a habit game. Pandora's 21-month
+  randomised test on 35M users ([arXiv 2412.05516](https://arxiv.org/abs/2412.05516))
+  found each extra ad per hour cost ~2 % of active days, linearly, with no safe knee.
+  The long-run effect was ~3× the one-month one, and 82 % of it was people coming back
+  less often.
+- More ads raise ad-free purchases only weakly: about 2.4 users lost per convert
+  ([Marketing Science 2025](https://pubsonline.informs.org/doi/10.1287/mksc.2022.0357)).
+- The model put "every 2nd clear, 120 s" at +8–15 % ad revenue: about $1 a day per
+  1,000 DAU in tier-2, erased by a 2-point D7 drop.
+- Re-tune from real LevelPlay reports (impressions per DAU, fill, D1/D7/D30), judged on
+  D30 active days, never on a short test.
 
 ### The rewarded hint
 

@@ -77,13 +77,25 @@ export interface SafeArea {
  * scenes lay out (see main.ts); the banner overlays this reserved gap.
  */
 let adBannerReservePx = 0
+/** Whether the scene now showing keeps the strip — off while a level is in play (GameScene). */
+let bannerStripOn = true
 
 export function setAdBannerReserve(px: number): void {
   adBannerReservePx = Math.max(0, px)
 }
 
+/** The strip reserved on the scene now showing (0 on a scene without a banner). */
 export function adBannerReserve(): number {
-  return adBannerReservePx
+  return bannerStripOn ? adBannerReservePx : 0
+}
+
+/**
+ * Keep (true) or give back (false) the banner strip for the scene now showing.
+ * GameScene turns it off before it lays out and back on when it shuts down; see
+ * ads.setBannerOnScreen for why a level carries no banner.
+ */
+export function setBannerStrip(on: boolean): void {
+  bannerStripOn = on
 }
 
 function cssPx(name: string): number {
@@ -100,7 +112,7 @@ export function safeArea(): SafeArea {
   return {
     top: u(cssPx('--safe-top')),
     // Home-indicator inset plus any reserved ad-banner strip at the bottom.
-    bottom: u(cssPx('--safe-bottom')) + adBannerReservePx,
+    bottom: u(cssPx('--safe-bottom')) + adBannerReserve(),
     left: u(cssPx('--safe-left')),
     right: u(cssPx('--safe-right')),
   }

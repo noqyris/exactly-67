@@ -1,5 +1,5 @@
 import { addDays, daysBetween, isDayKey } from './days'
-import type { AdCaps, Jar, Medal, Offers, RewardPlacement } from './economy'
+import type { AdCaps, DayCount, Jar, Medal, Offers, RewardPlacement } from './economy'
 import { PLACEMENT_CAPS } from './economy'
 import type { Streak } from './streak'
 import { emptyStreak, MAX_FREEZES } from './streak'
@@ -22,6 +22,8 @@ export interface Meta {
   /** Pack indices whose completion reward was already paid. */
   packRewards: number[]
   adCaps: AdCaps
+  /** Interstitials presented on `day` — the daily cap (economy.ts). */
+  interstitialDay: DayCount
   offers: Offers
   /** Day the daily gift was last claimed. */
   giftDay: string | null
@@ -44,6 +46,7 @@ export function emptyMeta(): Meta {
     jar: { stars: 0 },
     packRewards: [],
     adCaps: { day: '', counts: {} },
+    interstitialDay: { day: '', count: 0 },
     offers: { purchased: false, welcomeBought: false, interstitials: 0, noAdsNudges: 0, noAdsLastAt: 0, sessions: 0 },
     giftDay: null,
     giftStreak: 0,
@@ -138,6 +141,8 @@ export function parseMeta(raw: string | null | undefined): Meta {
     ? [...new Set(data.packRewards.filter((v): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 1000))]
     : []
   meta.adCaps = parseCaps(data.adCaps)
+  const shown = obj(data.interstitialDay)
+  meta.interstitialDay = isDayKey(shown.day) ? { day: shown.day, count: int(shown.count, 0, 1000, 0) } : { day: '', count: 0 }
   meta.offers = parseOffers(data.offers)
   meta.giftDay = dayOrNull(data.giftDay)
   // A count with no day to end on is no ladder at all.

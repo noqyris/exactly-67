@@ -337,6 +337,33 @@ describe('interstitial cadence — unchanged by the network move', () => {
     expect(fake.showInterstitial).toHaveBeenCalledTimes(4)
   })
 
+  it('at most 6 interstitials a local day across sessions — a new day starts over', async () => {
+    // Sessions now reset on a 30-min return, so the per-session cap alone would
+    // let a player who comes back five times a day see fifteen.
+    const ads = await freshAds()
+    let level = LEVEL
+    for (let session = 0; session < 2; session++) {
+      if (session) ads.startAdSession()
+      await seconds(90)
+      for (let i = 0; i < 3; i++) {
+        clears(ads, 3)
+        await expect(ads.maybeShowInterstitial(level), `session ${session + 1}, ad ${i + 1}`).resolves.toBe(true)
+        level += 3
+        await seconds(180)
+      }
+    }
+    ads.startAdSession()
+    await seconds(90)
+    clears(ads, 3)
+    expect(ads.interstitialWouldShow(level), 'the 7th of the day').toBe(false)
+    await expect(ads.maybeShowInterstitial(level)).resolves.toBe(false)
+    expect(fake.showInterstitial).toHaveBeenCalledTimes(6)
+    await seconds(24 * 3600) // the next local day
+    ads.startAdSession()
+    await seconds(90)
+    expect(ads.interstitialWouldShow(level), 'a new day').toBe(true)
+  })
+
   it('a new session keeps the 180 s floor and the every-3rd-clear counter', async () => {
     const ads = await freshAds()
     await seconds(90)
@@ -703,5 +730,45 @@ describe('rewarded outcome — what the hint modal can truthfully tell the playe
     // A yes from Privacy choices brings the offer straight back — no restart needed.
     script.consent = true
     expect(ads.rewardedOffered()).toBe(true)
+  })
+})
+
+describe('banner — every screen but a level in play', () => {
+  // The level screen's tray sat 8 pt above the banner, where a dragging finger
+  // lands: accidental taps are invalid traffic (ads.setBannerOnScreen).
+  const shown = () => log.filter((l) => l === 'bannerShow').length
+  const removed = () => log.filter((l) => l === 'bannerRemove').length
+
+  it('entering a level destroys the banner, and leaving it brings one back', async () => {
+    const ads = await freshAds()
+    await ads.showBanner()
+    expect(shown()).toBe(1)
+    ads.setBannerOnScreen(false)
+    await seconds(1)
+    expect(removed(), 'destroyed, not hidden: a level can last minutes').toBe(1)
+    await ads.showBanner() // a return to the foreground, the SDK coming up late…
+    expect(shown(), 'no banner while the level is on screen').toBe(1)
+    ads.setBannerOnScreen(true)
+    await seconds(1)
+    expect(shown(), 're-created on the next screen').toBe(2)
+  })
+
+  it('a full-screen ad ending inside a level brings no banner back', async () => {
+    const ads = await freshAds()
+    ads.setBannerOnScreen(false)
+    await seconds(90)
+    clears(ads, 3)
+    await expect(ads.maybeShowInterstitial(LEVEL)).resolves.toBe(true)
+    await seconds(1)
+    expect(shown()).toBe(0)
+  })
+
+  it('a level entered while a banner request waits never gets that banner', async () => {
+    const ads = await freshAds()
+    const pending = ads.showBanner() // passes the first check, then awaits the SDK gate
+    ads.setBannerOnScreen(false)
+    await pending
+    await seconds(1)
+    expect(shown()).toBe(0)
   })
 })

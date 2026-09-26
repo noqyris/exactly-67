@@ -176,6 +176,33 @@ export function noteRewarded(c: AdCaps, today: string, p: RewardPlacement): AdCa
   return { day: today, counts: { ...now.counts, [p]: (now.counts[p] ?? 0) + 1 } }
 }
 
+// --- Interstitials per day --------------------------------------------------------
+
+/**
+ * Interstitials per local day, all sessions together. A return after 30+ minutes
+ * is a new session (sessions.ts), so the per-session cap alone would let a player
+ * who comes back five times a day see fifteen — and the evidence (Pandora, 35M
+ * users, 21 months) is that the cost of ad load lands on exactly that habit:
+ * fewer active days, not shorter sessions. See docs/MONETIZATION.md.
+ */
+export const DAILY_INTERSTITIAL_CAP = 6
+
+/** Interstitials shown on one local day. */
+export interface DayCount {
+  day: string
+  count: number
+}
+
+/** Interstitials still allowed today (a count from another day is spent). */
+export function interstitialsLeftToday(c: DayCount, today: string): number {
+  return Math.max(0, DAILY_INTERSTITIAL_CAP - (c.day === today ? c.count : 0))
+}
+
+/** Record one interstitial that was actually PRESENTED today. */
+export function noteInterstitialShown(c: DayCount, today: string): DayCount {
+  return { day: today, count: (c.day === today ? c.count : 0) + 1 }
+}
+
 // --- Offers -----------------------------------------------------------------------
 
 /** One-time Welcome pack: 25 hints for the lowest price tier, once per player. */

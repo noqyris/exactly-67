@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DAILY_INTERSTITIAL_CAP,
+  interstitialsLeftToday,
+  noteInterstitialShown,
   clearsPerInterstitial,
   DAILY_REWARDED_CAP,
   fillJar,
@@ -254,5 +257,27 @@ describe('meta persistence', () => {
     expect(solvedToday(ahead.streak, '2026-09-24')).toBe(true)
     // Further ahead is no UTC date at all (the clock moved back): ignored.
     expect(migrateMeta(emptyMeta(), '2026-09-26', '2026-09-23')).toEqual(emptyMeta())
+  })
+})
+
+describe('interstitials per day', () => {
+  it('allows DAILY_INTERSTITIAL_CAP a local day, counting only today', () => {
+    expect(DAILY_INTERSTITIAL_CAP).toBe(6)
+    let c = emptyMeta().interstitialDay
+    expect(interstitialsLeftToday(c, '2026-09-26')).toBe(6)
+    for (let i = 0; i < 6; i++) c = noteInterstitialShown(c, '2026-09-26')
+    expect(c).toEqual({ day: '2026-09-26', count: 6 })
+    expect(interstitialsLeftToday(c, '2026-09-26')).toBe(0)
+    // a new local day starts from zero; yesterday's count is spent, not carried
+    expect(interstitialsLeftToday(c, '2026-09-27')).toBe(6)
+    expect(noteInterstitialShown(c, '2026-09-27')).toEqual({ day: '2026-09-27', count: 1 })
+  })
+
+  it('persists through parseMeta, and a bad record degrades to none shown', () => {
+    const m = { ...emptyMeta(), interstitialDay: { day: '2026-09-26', count: 4 } }
+    expect(parseMeta(JSON.stringify(m)).interstitialDay).toEqual({ day: '2026-09-26', count: 4 })
+    expect(parseMeta(JSON.stringify({ interstitialDay: { day: 'nope', count: 4 } })).interstitialDay).toEqual({ day: '', count: 0 })
+    expect(parseMeta(JSON.stringify({ interstitialDay: { day: '2026-09-26', count: -3 } })).interstitialDay).toEqual({ day: '2026-09-26', count: 0 })
+    expect(parseMeta(JSON.stringify({})).interstitialDay).toEqual({ day: '', count: 0 })
   })
 })

@@ -61,7 +61,7 @@ import {
   rewardedAvailable,
   rewardedBusy,
   rewardedOffered,
-  showBanner,
+  setBannerOnScreen,
   useHint,
   watchRewarded,
   watchRewardedHint,
@@ -90,7 +90,7 @@ import {
 import { signalOnboardingDone, splashFinished } from '../services/session'
 import { welcomePrice } from '../services/iap'
 import { saveDailyDone, saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
-import { contentFrame, MAX_WIDE_W, prefersReducedMotion, safeArea, u } from './layout'
+import { contentFrame, MAX_WIDE_W, prefersReducedMotion, safeArea, setBannerStrip, u } from './layout'
 import { BG, CREAM_CSS, FONT, GOOD, INK, INK_CSS, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
 import type { ScaleGeometry } from './ScaleView'
@@ -338,6 +338,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    // No banner while a level is in play: the tray's bottom row sat 8 pt above
+    // it, right where a dragging finger lands (ads.setBannerOnScreen). Before
+    // anything lays out, so the board takes the strip; the next scene gets it
+    // back. A Store launched over a paused level keeps it off too.
+    setBannerStrip(false)
+    setBannerOnScreen(false)
+    this.events.once('shutdown', () => {
+      setBannerStrip(true)
+      setBannerOnScreen(true)
+    })
     this.reducedMotion = prefersReducedMotion()
     const level = this.ref.def
     this.placed = initialPlacement(level)
@@ -363,12 +373,6 @@ export class GameScene extends Phaser.Scene {
 
     // Snap weights to their homes on the first frame instead of gliding in.
     this.steerWeights(1)
-
-    // Re-ask for the bottom banner on every level start. Idempotent (a live
-    // banner is only resumed), and it heals a first request that found no fill
-    // or an SDK still waiting on consent — otherwise the strip layoutAll() just
-    // reserved could stay empty for the whole session. No-op without ads.
-    void showBanner()
 
     this.input.dragDistanceThreshold = u(10)
     this.scale.on('resize', this.onResize, this)

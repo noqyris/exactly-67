@@ -1,5 +1,12 @@
 import { Capacitor } from '@capacitor/core'
-import { clearsPerInterstitial, noteRewarded, rewardedLeft, type RewardPlacement } from '../game/economy'
+import {
+  clearsPerInterstitial,
+  interstitialsLeftToday,
+  noteInterstitialShown,
+  noteRewarded,
+  rewardedLeft,
+  type RewardPlacement,
+} from '../game/economy'
 import { PACKS } from '../game/levels'
 import { BANNER_RESERVE_DESIGN_PX, adsMock, adsOff, type DismissWatcher } from './adProvider'
 import { levelplayProvider } from './providers/levelplay'
@@ -444,20 +451,44 @@ let bannerCreating: Promise<void> | null = null
 let bannerRequested = false
 
 /**
- * Show (or resume) the anchored bottom banner. No-op for owners and where there
- * is no ad surface. Idempotent and self-healing: main.ts asks after init, every
- * level start asks again, and so do a return to the foreground, the SDK coming
- * up late, and the end of every full-screen ad — so one refused request (SDK
- * not up yet, no fill) never costs the session its banner.
+ * Whether the screen now showing carries the banner at all. Every screen does
+ * except a level in play (GameScene, levels and the Daily): its tray's bottom
+ * row sat 8 pt above the banner, where a dragging finger lands. Unity's
+ * placement policy bars ads "in areas where End-Users will randomly click or
+ * place their fingers", and accidental taps are invalid traffic — what closed
+ * this developer's previous ad account. See docs/MONETIZATION.md.
+ */
+let bannerOnScreen = true
+
+/**
+ * The scene now showing does (true) or does not (false) carry the banner. Off
+ * DESTROYS the banner rather than hiding it: a level can last minutes, and a
+ * hidden banner view may keep refreshing out of sight. On re-creates it.
+ */
+export function setBannerOnScreen(on: boolean): void {
+  if (bannerOnScreen === on) return
+  bannerOnScreen = on
+  if (on) void showBanner()
+  else void removeBanner()
+}
+
+/**
+ * Show (or resume) the anchored bottom banner. No-op for owners, where there is
+ * no ad surface, and on a screen without a banner (setBannerOnScreen).
+ * Idempotent and self-healing: main.ts asks after init, and so do every screen
+ * that carries one, a return to the foreground, the SDK coming up late, and the
+ * end of every full-screen ad — so one refused request (SDK not up yet, no fill)
+ * never costs the session its banner.
  */
 export async function showBanner(): Promise<void> {
-  if (!bannerWanted()) return
+  if (!bannerWanted() || !bannerOnScreen) return
   await sdkReadyGate()
-  // Re-check: a purchase can land while we wait. Consent is only asked here,
-  // after the gate — before it the modal may not have been answered yet, and a
-  // request dropped then would never be re-asked. Without consent the SDK is
-  // not up and the plugin would only refuse the request anyway.
-  if (!bannerWanted() || !consentAllows()) return
+  // Re-check: a purchase can land while we wait, or the player can enter a
+  // level. Consent is only asked here, after the gate — before it the modal may
+  // not have been answered yet, and a request dropped then would never be
+  // re-asked. Without consent the SDK is not up and the plugin would only
+  // refuse the request anyway.
+  if (!bannerWanted() || !bannerOnScreen || !consentAllows()) return
   try {
     // Share one in-flight creation. Several callers can wake in the same tick,
     // and each seeing `bannerCreated === false` would spawn its own native
@@ -469,9 +500,9 @@ export async function showBanner(): Promise<void> {
       await bannerCreating
       bannerCreated = true
       bannerCreating = null
-      // Bought (or consent withdrawn) mid-creation: that removeBanner() ran
-      // before this banner existed.
-      if (!bannerWanted() || !consentAllows()) void removeBanner()
+      // Bought, consent withdrawn or a level entered mid-creation: that
+      // removeBanner() ran before this banner existed.
+      if (!bannerWanted() || !consentAllows() || !bannerOnScreen) void removeBanner()
     } else {
       await provider.bannerResume()
     }
@@ -571,6 +602,8 @@ export function interstitialWouldShow(clearedGlobal: number, opts: InterstitialC
   // Every pack-complete clear — and the final "The End!" — lands ad-free.
   if (PACK_FINALES.has(clearedGlobal)) return false
   if (adsThisSession >= MAX_ADS_PER_SESSION) return false
+  // …and at most DAILY_INTERSTITIAL_CAP a day, however many sessions it holds.
+  if (interstitialsLeftToday(meta().interstitialDay, today()) <= 0) return false
   if (clearsSinceInterstitial < clearsPerInterstitial(meta().offers.purchased)) return false
   const now = Date.now()
   // Warm-up: never interrupt the first minute-and-a-half of a session — early
@@ -617,8 +650,13 @@ export async function maybeShowInterstitial(clearedGlobal: number, opts: Interst
         void saveAdClears(0)
         lastInterstitialAt = Date.now()
         adsThisSession++
-        // Lifetime count, for the quiet "remove ads between levels" nudge.
-        updateMeta((m) => ({ ...m, offers: { ...m.offers, interstitials: m.offers.interstitials + 1 } }))
+        // Today's count (the daily cap) and the lifetime one, for the quiet
+        // "remove ads between levels" nudge.
+        updateMeta((m) => ({
+          ...m,
+          interstitialDay: noteInterstitialShown(m.interstitialDay, today()),
+          offers: { ...m.offers, interstitials: m.offers.interstitials + 1 },
+        }))
       },
     })
   } finally {
