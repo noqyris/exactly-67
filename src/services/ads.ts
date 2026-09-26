@@ -1,19 +1,19 @@
 import { Capacitor } from '@capacitor/core'
+import { clearsPerInterstitial, noteRewarded, rewardedLeft, type RewardPlacement } from '../game/economy'
 import { PACKS } from '../game/levels'
 import { BANNER_RESERVE_DESIGN_PX, adsMock, adsOff, type DismissWatcher } from './adProvider'
 import { levelplayProvider } from './providers/levelplay'
 import { mockProvider } from './providers/mock'
 import { resumeAudio } from './audio'
+import { meta, today, updateMeta } from './metaStore'
 import { startMusic, stopMusic, suppressMusic } from './music'
 import {
   loadAdClears,
   loadConsentMigrated,
-  loadFreeHintDate,
   loadHintCount,
   saveAdClears,
   saveAdsRemoved,
   saveConsentMigrated,
-  saveFreeHintDate,
   saveHintCount,
   saveUnlimitedHints,
 } from './storage'
@@ -33,7 +33,10 @@ import {
  * Formats (see docs/MONETIZATION.md):
  *   - banner       persistent, bottom-anchored in a strip the layout reserves
  *   - interstitial full-screen, at a natural break after a win, cadence-gated
- *   - rewarded     opt-in "Watch ad: +1 hint" in the hint modal, banks one hint
+ *   - rewarded     opt-in, always naming its reward, at eight capped placements
+ *                  (game/economy.ts RewardPlacement): the hint modal, the daily
+ *                  gift, the Star Jar, a finished pack, the Store's free tile,
+ *                  a streak freeze, a streak repair and a streak milestone
  * There is no app-open ad, and there must never be one: LevelPlay has no such
  * format, and its Placement Policy bars placements "launched before an
  * Application has opened".
@@ -67,9 +70,9 @@ const provider = import.meta.env.VITE_ADS === 'mock' ? mockProvider : levelplayP
  * a punishment: no back-to-back ads, no ad at app load, no surprise ad on the
  * first clear of a returning session. See docs/MONETIZATION.md.
  */
-/** Show an interstitial once this many levels have been cleared since the last.
- *  A learnable "every 3rd win" rhythm — predictability is what players tolerate. */
-const CLEARS_PER_INTERSTITIAL = 3
+/* Clears between interstitials: a learnable "every 3rd win" rhythm, every 6th for
+ * a player who has paid for anything — see clearsPerInterstitial() in
+ * game/economy.ts. Predictability is what players tolerate. */
 /** Never interrupt the first levels. The signature balloon mechanic debuts at
  *  L6, so a player hasn't met the hook before ~L8; early sessions also monetize
  *  poorly, so holding ads to L8 costs ~nothing and protects the first impression. */
@@ -134,7 +137,6 @@ let removed = false
 // Unlimited hints (the $4.99 bundle). Distinct from `removed` — see hintsUnlimited().
 let unlimited = false
 let clearsSinceInterstitial = 0
-let lastFreeHintDate = ''
 let hintCount = 0
 
 // Interstitial pacing state (in-memory, per app session). `sessionStart` is set
@@ -318,7 +320,31 @@ function sdkReadyGate(): Promise<void> {
  * The consent-before-init ORDER lives in the provider and is a legal
  * requirement — see providers/levelplay.ts init().
  */
+/**
+ * Settles once initAds() has run its course (consent answered, SDK started or
+ * failed) — or at once when this player gets no SDK at all. Screens that draw a
+ * "Watch ad" button on arrival (the daily gift) wait on it, so a consent modal
+ * still on screen does not decide the offer before the player has answered.
+ */
+let markAdsSettled: () => void = () => {}
+let settledFlag = false
+const settled = new Promise<void>((resolve) => {
+  markAdsSettled = resolve
+})
+export function adsSettled(): Promise<void> {
+  return settled
+}
+
 export async function initAds(): Promise<void> {
+  try {
+    await startAds()
+  } finally {
+    settledFlag = true
+    markAdsSettled()
+  }
+}
+
+async function startAds(): Promise<void> {
   if (!adsSupported() || initialized) return
   // Unlimited-hints owners can never be shown an ad, so they never start the
   // SDK — and never see a consent modal or an ATT alert for ads they won't get.
@@ -350,7 +376,10 @@ export async function initAds(): Promise<void> {
     // (the old ad console is gone), and the reset is free, so every install gets
     // it. Reset first, flag after: a kill between the two only means the modal
     // is asked for once more. See storage.ts.
-    if (!(await loadConsentMigrated())) {
+    // Never from the fake-ads build: the mock provider stores no consent, so its
+    // "reset" clears nothing — and saving the flag from it would let a later
+    // live build on the same phone skip the one reset that matters.
+    if (!adsMock() && !(await loadConsentMigrated())) {
       await provider.resetConsent?.()
       await saveConsentMigrated()
     }
@@ -490,6 +519,19 @@ export function noteCleared(): void {
   void saveAdClears(clearsSinceInterstitial)
 }
 
+/** What else the win card is doing on the clear an interstitial would follow. */
+export interface InterstitialContext {
+  /** The card offers a rewarded upgrade (Star Jar, pack reward): no interstitial. */
+  rewardPrompt?: boolean
+  /**
+   * The card made another ask on the promise that no ad follows (the reminder
+   * offer, the review prompt, the no-ads nudge). That decision is frozen at the
+   * win: re-running the gate at the Next tap could otherwise put a full-screen
+   * ad right after an ask made because none would come. Counter stays armed.
+   */
+  cardAsk?: boolean
+}
+
 /**
  * The whole interstitial gate, as a *non-consuming* predicate: true only when an
  * ad would fire for this just-cleared level. It is the single source of truth —
@@ -498,8 +540,12 @@ export function noteCleared(): void {
  * decides *where* (a natural break); time floor + warm-up + session cap +
  * rewarded-suppression decide *whether*.
  */
-export function interstitialWouldShow(clearedGlobal: number): boolean {
+export function interstitialWouldShow(clearedGlobal: number, opts: InterstitialContext = {}): boolean {
   if (!adsSupported() || removed || unlimited) return false
+  // Never two ad prompts at once: a clear whose win card offers a rewarded
+  // upgrade (a full Star Jar, a finished pack) lands ad-free. The counter is not
+  // spent, so the break simply moves to the next clear.
+  if (opts.rewardPrompt || opts.cardAsk) return false
   // No consent, no interstitial — including one withdrawn mid-session from
   // Privacy choices, after the SDK was already up and still able to serve.
   if (!consentAllows()) return false
@@ -507,7 +553,7 @@ export function interstitialWouldShow(clearedGlobal: number): boolean {
   // Every pack-complete clear — and the final "The End!" — lands ad-free.
   if (PACK_FINALES.has(clearedGlobal)) return false
   if (adsThisSession >= MAX_ADS_PER_SESSION) return false
-  if (clearsSinceInterstitial < CLEARS_PER_INTERSTITIAL) return false
+  if (clearsSinceInterstitial < clearsPerInterstitial(meta().offers.purchased)) return false
   const now = Date.now()
   // Warm-up: never interrupt the first minute-and-a-half of a session — early
   // sessions are low-intent, and a surprise ad on the first clear of a returning
@@ -532,8 +578,8 @@ export function interstitialWouldShow(clearedGlobal: number): boolean {
  * failed present leaves the counter armed and the time floor unmoved, so the
  * next clear retries.
  */
-export async function maybeShowInterstitial(clearedGlobal: number): Promise<boolean> {
-  if (!interstitialWouldShow(clearedGlobal)) return false
+export async function maybeShowInterstitial(clearedGlobal: number, opts: InterstitialContext = {}): Promise<boolean> {
+  if (!interstitialWouldShow(clearedGlobal, opts)) return false
   // Never on top of another full-screen ad (a hint video still closing).
   if (fullScreenDepth > 0) return false
   fullScreenDepth++
@@ -553,6 +599,8 @@ export async function maybeShowInterstitial(clearedGlobal: number): Promise<bool
         void saveAdClears(0)
         lastInterstitialAt = Date.now()
         adsThisSession++
+        // Lifetime count, for the quiet "remove ads between levels" nudge.
+        updateMeta((m) => ({ ...m, offers: { ...m.offers, interstitials: m.offers.interstitials + 1 } }))
       },
     })
   } finally {
@@ -578,17 +626,79 @@ export async function maybeShowInterstitial(clearedGlobal: number): Promise<bool
 export type RewardedOutcome = 'earned' | 'unavailable' | 'not-earned'
 
 /**
- * Show a rewarded video for ONE hint, and say how it went (see RewardedOutcome).
- * The caller grants the hint on 'earned' and nothing otherwise.
+ * Whether a "Watch ad: …" button may be drawn for `placement` right now: the
+ * rewarded offer stands (consent, see rewardedOffered) and today's cap for that
+ * placement — and for all placements together — is not spent. Read at draw time.
+ */
+export function rewardedAvailable(placement: RewardPlacement): boolean {
+  // Unlimited is "no ads, forever": never offer one, even in the session the
+  // unlock was bought, when the SDK is already up and consent is GRANTED.
+  if (unlimited) return false
+  return rewardedOffered() && rewardedLeft(meta().adCaps, today(), placement) > 0
+}
+
+/**
+ * A full-screen ad is loading or on screen, anywhere in the app. A screen that
+ * was rebuilt while a video was in flight (its own busy flag reset with it) must
+ * read this instead, or a second tap pays twice or reports a false "no video".
+ */
+export function rewardedBusy(): boolean {
+  return fullScreenDepth > 0
+}
+
+/**
+ * Whether the ad-consent question has been settled for this session (initAds()
+ * has run its course). Before that — a brand-new install still on Level 1, whose
+ * ads wait for the level to be played — "videos are off because ads were
+ * declined" would be false: nobody has been asked yet.
+ */
+export function adsDecided(): boolean {
+  return settledFlag
+}
+
+/**
+ * Whether a between-level ad can appear for this player at all right now: an ad
+ * surface, no ad-removal entitlement, consent that allows it. The quiet "Remove
+ * ads between levels" nudge is only true while this is.
+ */
+export function interstitialsPossible(): boolean {
+  return adsSupported() && !removed && !unlimited && consentAllows()
+}
+
+/** Rewarded views left today for `placement` (for a true "2 left today"). */
+export function rewardedLeftToday(placement: RewardPlacement): number {
+  return rewardedLeft(meta().adCaps, today(), placement)
+}
+
+/**
+ * Show a rewarded video for `placement`, and say how it went (see
+ * RewardedOutcome). The caller grants the reward it NAMED on 'earned' and
+ * nothing extra otherwise. A reward that paid out spends one of today's views
+ * for that placement.
  *
  * Where there is no ad surface (browser dev, an ADS:off build) it is 'earned'
- * without an ad, so the hint flow stays testable; no player can reach that path
- * in a store build.
+ * without an ad, so every reward flow stays testable; no player can reach that
+ * path in a store build.
  */
+export async function watchRewarded(placement: RewardPlacement): Promise<RewardedOutcome> {
+  if (rewardedLeft(meta().adCaps, today(), placement) <= 0) return 'unavailable'
+  const outcome = await playRewarded()
+  if (outcome === 'earned') {
+    updateMeta((m) => ({ ...m, adCaps: noteRewarded(m.adCaps, today(), placement) }))
+  }
+  return outcome
+}
+
+/** The hint modal's video — one placement among the rest (kept for its callers). */
 export async function watchRewardedHint(): Promise<RewardedOutcome> {
+  return watchRewarded('hint')
+}
+
+async function playRewarded(): Promise<RewardedOutcome> {
   if (!adsSupported()) return 'earned'
-  // The modal does not offer the video without consent; this is the guard for
-  // any path that asks anyway (a consent withdrawn while the modal was open).
+  if (unlimited) return 'unavailable'
+  // Buttons are not drawn without consent; this is the guard for any path that
+  // asks anyway (a consent withdrawn while a card was open).
   if (!rewardedOffered()) return 'unavailable'
   if (fullScreenDepth > 0) return 'unavailable'
   fullScreenDepth++
@@ -732,29 +842,19 @@ async function underFullScreenAd<T>(opts: FullScreenAdOptions<T>): Promise<T> {
 
 // --- hint inventory ------------------------------------------------------------
 //
-// Hints are a persisted, collectable balance: the player earns them (one free
-// per day, plus one per rewarded video) and spends them whenever they like.
-// Watching an ad does not reveal a hint on the spot — it tops up the stash — so a
-// player can bank as many as they want and use them on their terms.
-
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+// Hints are a persisted, collectable balance: the player earns them (the daily
+// gift, the Star Jar, pack and streak rewards, rewarded videos) or buys them, and
+// spends them whenever they like. Watching an ad does not reveal a hint on the
+// spot — it tops up the stash — so a player can bank them and use them on their
+// terms. The daily free hint is no longer granted silently here: it is the
+// visible daily gift on the menu (services/progression.ts).
 
 /**
- * Load the hint inventory and grant the daily free hint. Call once at boot
- * (awaited, so the HUD badge is correct on first render). The free top-up fires
- * the first time we boot on a new UTC day.
+ * Load the hint inventory. Call once at boot (awaited, so the HUD badge is
+ * correct on first render).
  */
 export async function initHintState(): Promise<void> {
-  ;[hintCount, lastFreeHintDate] = await Promise.all([loadHintCount(), loadFreeHintDate()])
-  const today = todayUtc()
-  if (lastFreeHintDate !== today) {
-    lastFreeHintDate = today
-    hintCount += 1
-    void saveFreeHintDate(today)
-    void saveHintCount(hintCount)
-  }
+  hintCount = await loadHintCount()
 }
 
 /** How many hints the player currently has banked. */
@@ -771,6 +871,15 @@ export function hasHint(): boolean {
 export function useHint(): boolean {
   if (hintCount <= 0) return false
   hintCount -= 1
+  void saveHintCount(hintCount)
+  return true
+}
+
+/** Spend `n` hints at once (a streak freeze or repair). False, and no change, when short. */
+export function spendHints(n: number): boolean {
+  const cost = Math.max(0, Math.floor(n))
+  if (hintCount < cost) return false
+  hintCount -= cost
   void saveHintCount(hintCount)
   return true
 }

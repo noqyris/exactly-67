@@ -11,9 +11,11 @@ function* dateKeys(): Generator<string> {
 }
 
 describe('daily challenge', () => {
-  it('todayKey is the UTC calendar day', () => {
-    expect(todayKey(new Date('2026-08-12T23:30:00Z'))).toBe('2026-08-12')
-    expect(todayKey(new Date('2026-01-01T00:00:00Z'))).toBe('2026-01-01')
+  it('todayKey is the LOCAL calendar day, not the UTC one', () => {
+    // Local constructors: whatever zone the suite runs in, 23:30 and 00:05 on
+    // these dates are those dates on the player's own clock.
+    expect(todayKey(new Date(2026, 7, 12, 23, 30))).toBe('2026-08-12')
+    expect(todayKey(new Date(2026, 0, 1, 0, 5))).toBe('2026-01-01')
   })
 
   it('is deterministic — same date yields the same board', () => {

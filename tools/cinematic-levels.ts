@@ -1,5 +1,5 @@
 /**
- * Ranks all 72 levels by how well they film, and writes
+ * Ranks every level by how well it films, and writes
  * `marketing/CINEMATIC_LEVELS.md`.
  *
  *   npm run capture:levels
@@ -19,6 +19,11 @@
  *
  * `beamAngleDeg` saturates at ±13° via `13 * tanh(gap / 18)`, so an overshoot
  * past roughly 45 buys no extra tilt. The drama score is capped accordingly.
+ *
+ * It ranks the PRESENTED tray (`levelByGlobal`, de-ordered by
+ * `src/game/tray.ts`), the one the game shows and the director films: where a
+ * level has several fewest-piece builds, which one `minimalSolution` picks
+ * depends on tray order, and so do the overshoot and the balloon count.
  */
 import { beamAngleDeg } from '../src/game/balance'
 import { levelByGlobal, PACKS, TOTAL_LEVELS } from '../src/game/levels'
@@ -59,6 +64,7 @@ interface Row {
 function analyse(global: number): Row | null {
   const ref = levelByGlobal(global)
   if (!ref) return null
+  // The presented def, not PACKS: the capture director plays the scene's own.
   const def: LevelDef = ref.def
   const solution = minimalSolution(def)
   const min = solveLevel(def).minWeights

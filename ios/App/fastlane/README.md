@@ -29,7 +29,7 @@ Verify auth + create the App Store Connect app record only
 [bundle exec] fastlane ios ad_gate
 ```
 
-Run the archive's ad-mode gate alone, building nothing and contacting nobody — AD_TARGET=live|off
+Run the archive's ad-mode gate alone, building nothing and contacting nobody — AD_TARGET=live|off|mock
 
 ### ios archive
 
@@ -37,7 +37,7 @@ Run the archive's ad-mode gate alone, building nothing and contacting nobody —
 [bundle exec] fastlane ios archive
 ```
 
-Archive + export a signed App Store .ipa to build/Exactly67.ipa — AD_TARGET=live|off
+Archive + export a signed App Store .ipa to build/Exactly67.ipa — AD_TARGET=live|off|mock
 
 ### ios build_only
 
@@ -45,7 +45,7 @@ Archive + export a signed App Store .ipa to build/Exactly67.ipa — AD_TARGET=li
 [bundle exec] fastlane ios build_only
 ```
 
-Same as archive (kept for old muscle memory) — AD_TARGET=live|off
+Same as archive (kept for old muscle memory) — AD_TARGET=live|off|mock
 
 ### ios upload_testflight
 
@@ -53,7 +53,7 @@ Same as archive (kept for old muscle memory) — AD_TARGET=live|off
 [bundle exec] fastlane ios upload_testflight
 ```
 
-Upload build/Exactly67.ipa to TestFlight (no App Store version, no submit) and record it in the ledger — AD_TARGET=live|off
+Upload build/Exactly67.ipa to TestFlight (no App Store version, no submit) and record it in the ledger — AD_TARGET=live|off|mock
 
 ### ios release
 
@@ -117,7 +117,7 @@ Upload only metadata + screenshots (no build, no submit, manual release) — saf
 [bundle exec] fastlane ios build_and_upload
 ```
 
-Archive + upload to TestFlight in one shot (no App Store version, no submit), recorded in the ledger — AD_TARGET=live|off
+Archive + upload to TestFlight in one shot (no App Store version, no submit), recorded in the ledger — AD_TARGET=live|off|mock
 
 ### ios tf_latest
 
@@ -133,7 +133,7 @@ Print the latest TestFlight build number ASC knows about for APP_VERSION
 [bundle exec] fastlane ios tf_upload_only
 ```
 
-Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic), recorded in the ledger — AD_TARGET=live|off
+Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic), recorded in the ledger — AD_TARGET=live|off|mock
 
 ### ios asc_versions
 

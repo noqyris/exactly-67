@@ -1,5 +1,7 @@
 import type { LevelDef } from './types'
+import { dayKey } from './days'
 import { countSolutions, solveLevel } from './solver'
+import { presentTray } from './tray'
 
 /**
  * Daily Challenge — a fresh puzzle every calendar day, the same one for
@@ -9,9 +11,13 @@ import { countSolutions, solveLevel } from './solver'
  * `src/game`, and every generated board is solver-verified before it ships out.
  */
 
-/** UTC calendar day, e.g. "2026-08-12". Callers pass `new Date()` day. */
+/**
+ * The player's LOCAL calendar day, e.g. "2026-08-12" — the Daily Challenge rolls
+ * over at their own midnight (see days.ts for why it is no longer UTC). The same
+ * date still yields the same board for everyone.
+ */
 export function todayKey(now: Date): string {
-  return now.toISOString().slice(0, 10)
+  return dayKey(now)
 }
 
 /** A tiny deterministic PRNG (mulberry32) seeded from the date string. */
@@ -98,8 +104,11 @@ export function dailyLevelFor(dateKey: string): LevelDef {
     if (minWeights >= level.weights.length) continue // no decoys = no real choice
     const ways = countSolutions(level)
     if (ways < 1 || ways > 3) continue // crisp, not mushy
-    return level
+    // The same de-ordering the pack levels get (tray.ts): a board whose answer
+    // is the first or last few weights in a row solves itself by tapping along.
+    // Seeded from the date, so the tray is still identical for every player.
+    return presentTray(level, Number(dateKey.replace(/-/g, '')))
   }
   // Deterministic fallback — a known-good subset puzzle (never expected to hit).
-  return { weights: [45, 30, -8, 25, 14] }
+  return presentTray({ weights: [45, 30, -8, 25, 14] }, Number(dateKey.replace(/-/g, '')))
 }

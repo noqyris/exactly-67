@@ -186,3 +186,42 @@ export function playWinJingle() {
   tone(ac, { freq: 783.99, at: 0.17, dur: 0.38, type: 'square', gain: 0.05 })
   tone(ac, { freq: 1567.98, at: 0.24, dur: 0.3, type: 'sine', gain: 0.07 })
 }
+
+/**
+ * One star popping onto the win card. `index` 0–2 climbs a major triad, so a
+ * 3-star clear sounds like it is going somewhere — the rising pitch is what
+ * makes the third star feel earned rather than merely counted.
+ */
+export function playStarPop(index: number) {
+  const ac = context()
+  if (!ac) return
+  const f = [659.25, 830.61, 987.77][Math.max(0, Math.min(2, index))] // E5 G#5 B5
+  tone(ac, { freq: f, bendTo: f * 1.06, dur: 0.14, type: 'triangle', gain: 0.16 })
+  tone(ac, { freq: f * 2, at: 0.02, dur: 0.1, type: 'sine', gain: 0.05 })
+}
+
+/** Hints paid into the stash (a claimed reward): a bright two-coin clink. */
+export function playReward() {
+  const ac = context()
+  if (!ac) return
+  tone(ac, { freq: 987.77, dur: 0.1, type: 'square', gain: 0.05 })
+  tone(ac, { freq: 987.77, dur: 0.12, type: 'triangle', gain: 0.14 })
+  tone(ac, { freq: 1318.51, at: 0.08, dur: 0.22, type: 'triangle', gain: 0.16 })
+  tone(ac, { freq: 2637.02, at: 0.1, dur: 0.14, type: 'sine', gain: 0.04 })
+}
+
+/** The streak flame catching: an upward whoosh with a warm tail. */
+export function playStreak() {
+  const ac = context()
+  if (!ac) return
+  tone(ac, { freq: 260, bendTo: 780, dur: 0.28, type: 'sine', gain: 0.12 })
+  tone(ac, { freq: 523.25, at: 0.2, dur: 0.3, type: 'triangle', gain: 0.14 })
+  tone(ac, { freq: 783.99, at: 0.27, dur: 0.34, type: 'triangle', gain: 0.12 })
+}
+
+/** The pan is within a few of 67: a quiet tick, so "close" is felt before it is read. */
+export function playNear() {
+  const ac = context()
+  if (!ac) return
+  tone(ac, { freq: 1480, dur: 0.05, type: 'sine', gain: 0.05 })
+}

@@ -25,14 +25,41 @@ export interface ContentFrame {
   /** Effective width/height of the play area, in device pixels. */
   ew: number
   eh: number
-  /** Horizontal screen centre (frame is centered, so this is the frame centre). */
+  /** Horizontal centre of the frame. */
   cx: number
+  /**
+   * The usable area is at least as wide as it is tall: the unfolded iPhone Duo
+   * (~951×669 pt), an iPad in landscape, a Split View half. Scenes that care
+   * (GameScene) switch to a side-by-side layout instead of a squeezed column.
+   */
+  wide: boolean
 }
 
-export function contentFrame(screenW: number, screenH: number): ContentFrame {
-  const ew = Math.min(screenW, u(MAX_CONTENT_W))
+/** Width cap for a wide (side-by-side) layout, in design points. */
+export const MAX_WIDE_W = 1100
+
+/** Whether a screen of this size gets the side-by-side layout. */
+export function isWide(screenW: number, screenH: number): boolean {
+  const safe = safeArea()
+  const usableW = screenW - safe.left - safe.right
+  const usableH = screenH - safe.top - safe.bottom
+  return usableW >= usableH
+}
+
+/**
+ * The centred play area. It is centred between the SIDE safe insets, not on the
+ * raw screen: the folded iPhone Duo puts its status bar in a strip down the
+ * right edge, so centring on the full width would push the right pan under it.
+ * `maxW` lets a wide layout take more width than the phone-shaped column.
+ */
+export function contentFrame(screenW: number, screenH: number, maxW = MAX_CONTENT_W): ContentFrame {
+  const safe = safeArea()
+  const left = safe.left
+  const usableW = Math.max(1, screenW - safe.left - safe.right)
+  const ew = Math.min(usableW, u(maxW))
   const eh = Math.min(screenH, u(MAX_CONTENT_H))
-  return { ox: (screenW - ew) / 2, oy: (screenH - eh) / 2, ew, eh, cx: screenW / 2 }
+  const ox = left + (usableW - ew) / 2
+  return { ox, oy: (screenH - eh) / 2, ew, eh, cx: ox + ew / 2, wide: isWide(screenW, screenH) }
 }
 
 export interface SafeArea {

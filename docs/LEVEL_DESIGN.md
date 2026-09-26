@@ -36,7 +36,7 @@ export interface LevelDef {
 
 Notes:
 
-- **Order matters for the player, not the math.** `weights` order is the tray layout; the sum is order-independent, but `locked` / dev-shortcut indices are positional, so don't reorder a tray without re-checking them.
+- **The authored order is not the order players see.** The game de-orders every tray whose answer sits in tray order (§6), so write `weights` in whatever order the arithmetic came to you. `locked` indices point into the array *as you wrote it*; the shuffle remaps them.
 - **Balance is strict equality.** A pan balances only at exactly 67 (`isBalanced`, `src/game/balance.ts:21`). Because weights are integers there is no tolerance band — 66 and 68 are both losses.
 - The runtime `Evaluation` shape (`total` / `gap` / `balanced` / `won` / `blockedReason`) is what the beam and HUD consume after each change (`src/game/types.ts:31`). You author `LevelDef`; the engine produces `Evaluation`.
 
@@ -200,7 +200,41 @@ Because `npm run build` is `tsc --noEmit && vitest run && vite build`, a non-emp
 
 ---
 
-## 6. Recipe — add a level
+## 6. What the player sees — the presentation shuffle
+
+Authors write the answer first. `[30, 37, 35]` is "30 + 37, plus a decoy", and played as written 20 of the 24 Warm-Up levels were cleared by tapping the first two or three weights left to right: the game looked like it was solving itself. So the game never shows a tray in authored order just because it was authored that way.
+
+**Where.** `levelByGlobal(g)` (`src/game/levels/index.ts`) hands out `presentTray(def, g)` (`src/game/tray.ts`), not the raw pack entry. Everything that plays a level goes through it: `GameScene`, the capture director (which reads the scene's own def), `tools/cinematic-levels.ts`. `PACKS` stays raw, so `validatePacks`, `levels.test.ts` and the pack files are exactly what you wrote.
+
+**What changes.** Only positions. Same weights, same locked pieces (indices remapped), same `maxWeights`, `useAll` and `hint`, so the solver minimum, the stars and the number of ways are identical. A hint must therefore never name a position ("the first weight", "on the left"); name the piece ("the gray weight", "the balloon") instead.
+
+**The rule.** A tray *passes* when, counting only free (non-locked) weights in tray order:
+
+1. tapping them left to right never wins before the last one (through the real `place`/`evaluate`, so locked pieces are aboard and a full budget stops the run),
+2. tapping them right to left never does either, and
+3. no fewest-piece solution sits in two or more adjacent free slots.
+
+A tray that passes is shown as written. One that does not is re-dealt: a mulberry32 PRNG seeded by the global level number yields permutations in a fixed order, and the first that passes wins (up to 500 tries, else the one with the fewest violations). Levels with two free weights or fewer, and `useAll` levels, are left alone: no order can hide their answer. The whole tray aboard is never counted against a tray, since it is the same set in every order.
+
+**Deterministic.** Same level, same tray, on every device and in every session, which keeps "way 2 of 4", shared results and video captures consistent. Changing the rule or the PRNG re-deals trays for every existing player (harmless, since no placement is persisted, but deliberate): `src/game/tray.test.ts` pins a few Warm-Up trays so it cannot happen by accident.
+
+**The gate.** `tray.test.ts` presents every shipped level and fails if the presented puzzle differs in any way but order, or if any presented tray still violates the rule. When it landed, 70 of the 600 authored trays were re-dealt (levels 3–5, 7–21, 23, 24 in Warm-Up) and none violates after presentation; 1, 2 and 6 are exempt.
+
+**Seeing what players see.** In the running game (dev server), `window.__exactly67.level.def` is the presented def of the open level. Offline:
+
+```ts
+// scratch.ts: npx vite-node scratch.ts
+import { levelByGlobal } from './src/game/levels'
+import { trayViolations } from './src/game/tray'
+const def = levelByGlobal(15)!.def
+console.log(def.weights, def.locked, trayViolations(def)) // [42, -8, 26, 9, 15, 18, 31] …
+```
+
+`trayViolations(def)` on a raw pack entry tells you whether your authored order would have been re-dealt; you do not need to fix it by hand.
+
+---
+
+## 7. Recipe — add a level
 
 1. **Pick the pack** by where the difficulty fits, and open its file: `src/game/levels/pack1.ts` (Warm-Up), `pack2.ts` (Prime Time), or `pack3.ts` (Heavy Lifting). **Append to the end** of the pack's `levels` array unless you deliberately want to renumber later levels (see the save-file warning in §2).
 
@@ -224,7 +258,7 @@ Because `npm run build` is `tsc --noEmit && vitest run && vite build`, a non-emp
 
 ---
 
-## 7. Annotated examples (verbatim from the packs)
+## 8. Annotated examples (verbatim from the packs)
 
 All four snippets are copied exactly from the source; the `minWeights` figures are the real solver outputs.
 

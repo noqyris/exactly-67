@@ -506,14 +506,16 @@ async function runLevel(
   opts: CaptureOpts,
   first: boolean,
 ): Promise<void> {
-  const ref = levelByGlobal(level)
-  if (!ref) return
+  if (!levelByGlobal(level)) return
 
   startLevel(game, level)
   const bridge = await waitForScene(level)
   if (!bridge) return
 
-  const def = ref.def
+  // Every placement below is an index into the tray, so it must come from the
+  // def the scene is actually showing — the presented, de-ordered tray
+  // (`game/tray.ts`) — never from the authored pack data.
+  const def = bridge.level.def
   const solution = minimalSolution(def)
   if (!solution) {
     console.warn(`[capture] level ${level} has no solution — nothing to record`)

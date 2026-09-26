@@ -83,3 +83,19 @@ export function parseProgress(raw: string | null | undefined): Progress {
     return emptyProgress()
   }
 }
+
+/** Stars and clears across `count` consecutive levels from `firstGlobal` (a pack). */
+export function rangeStats(
+  progress: Progress,
+  firstGlobal: number,
+  count: number,
+): { stars: number; cleared: number } {
+  let stars = 0
+  let cleared = 0
+  for (let g = firstGlobal; g < firstGlobal + count; g++) {
+    const s = starsFor(progress, g)
+    stars += s
+    if (s > 0) cleared++
+  }
+  return { stars, cleared }
+}

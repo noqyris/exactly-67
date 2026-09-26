@@ -1,3 +1,4 @@
+import { presentTray } from '../tray'
 import type { LevelDef, LevelPack } from '../types'
 import { pack1 } from './pack1'
 import { pack2 } from './pack2'
@@ -35,6 +36,7 @@ export const PACKS: readonly LevelPack[] = [pack1, pack2, pack3, pack4, pack5, p
 export const TOTAL_LEVELS = PACKS.reduce((n, p) => n + p.levels.length, 0)
 
 export interface LevelRef {
+  /** The PRESENTED level: the authored one with its tray de-ordered (`tray.ts`). */
   def: LevelDef
   pack: LevelPack
   packIndex: number
@@ -44,7 +46,20 @@ export interface LevelRef {
   global: number
 }
 
-/** Resolve a 1-based global level number to its pack and definition. */
+/**
+ * Presented defs by global number: one shuffle search per level per session.
+ * `tools/generate-levels.ts` rewrites this file wholesale, so its template has to
+ * carry this presentation step too, or a regeneration silently drops it.
+ */
+const presented = new Map<number, LevelDef>()
+
+/**
+ * Resolve a 1-based global level number to its pack and definition. The def is
+ * the one players see — the authored tray de-ordered by `presentTray`, seeded by
+ * the global number — so everything downstream (the scene, stars, "way N of M",
+ * the capture director) works on one order. `PACKS` itself stays raw: it is
+ * what the build gate validates and what authors edit.
+ */
 export function levelByGlobal(global: number): LevelRef | null {
   let offset = 0
   for (let p = 0; p < PACKS.length; p++) {
@@ -52,7 +67,12 @@ export function levelByGlobal(global: number): LevelRef | null {
     if (global <= offset + pack.levels.length) {
       const levelIndex = global - offset - 1
       if (levelIndex < 0) return null
-      return { def: pack.levels[levelIndex], pack, packIndex: p, levelIndex, global }
+      let def = presented.get(global)
+      if (!def) {
+        def = presentTray(pack.levels[levelIndex], global)
+        presented.set(global, def)
+      }
+      return { def, pack, packIndex: p, levelIndex, global }
     }
     offset += pack.levels.length
   }

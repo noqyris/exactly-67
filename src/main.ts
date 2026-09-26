@@ -5,6 +5,7 @@ import '@fontsource/baloo-2/600.css'
 import '@fontsource/baloo-2/700.css'
 import '@fontsource/baloo-2/800.css'
 import Phaser from 'phaser'
+import { DailyScene } from './render/DailyScene'
 import { GameScene } from './render/GameScene'
 import { DPR, setAdBannerReserve } from './render/layout'
 import { LevelMapScene } from './render/LevelMapScene'
@@ -18,6 +19,7 @@ import {
   initHintState,
   primeAdsRemoved,
   primeUnlimitedHints,
+  rewardedBusy,
   setGameLoopHooks,
   showBanner,
 } from './services/ads'
@@ -27,7 +29,18 @@ import { primeMusicEnabled, startMusic } from './services/music'
 import { initReview } from './services/review'
 import { setSoundEnabled } from './services/audio'
 import { setHapticsEnabled } from './services/haptics'
+import { initNotifications, noteSessionStart, refreshReminders } from './services/notifications'
+import { today } from './services/metaStore'
+import { dailyDoneToday, initProgression, isFirstRun, refreshDay, syncReminders } from './services/progression'
 import { initProgress } from './services/progressStore'
+import {
+  isColdLaunchEcho,
+  onboardingDone,
+  setPendingRoute,
+  signalSplashFinished,
+  takeColdLaunchRoute,
+  type PendingRoute,
+} from './services/session'
 import {
   loadAdsRemoved,
   loadHapticsEnabled,
@@ -48,15 +61,24 @@ async function boot() {
   // below, so the menu is already built by the time it finishes. The promise
   // settles when it is off the screen — ads wait on it (see below).
   const splashGone = initSplash()
+  void splashGone.then(signalSplashFinished)
 
   // The TestFlight "all levels unlocked" marker, when this build has it — the
   // release gate counts it in the bundle (services/buildFlags.ts).
   stampBuildFlags()
 
   // Canvas text uses the bundled font — wait so first paint is correct.
+  // `document.fonts.ready` alone does not load it: it settles once the fonts the
+  // DOM has already asked for are in, and no DOM element uses Baloo — so it
+  // resolved at once and every canvas Text drawn before the face happened to
+  // arrive stayed in the fallback font for good (seen on a fresh install, whose
+  // first scene is Level 1, built earliest of all). Ask for each weight the game
+  // draws with, capped so a font that never loads can't hold the boot.
+  const faces = ['500', '600', '700', '800'].map((w) => document.fonts.load(`${w} 32px "Baloo 2"`))
+  await Promise.race([Promise.all(faces), new Promise((r) => setTimeout(r, 3000))]).catch(() => {})
   await document.fonts.ready.catch(() => {})
 
-  const [, soundOn, hapticsOn, musicOn, adsAlreadyRemoved, storedUnlimited] = await Promise.all([
+  const [, soundOn, hapticsOn, musicOn, adsAlreadyRemoved, storedUnlimited, , coldRoute] = await Promise.all([
     initProgress(),
     loadSoundEnabled(),
     loadHapticsEnabled(),
@@ -66,7 +88,15 @@ async function boot() {
     // Load the hint stash + grant the daily free hint before the HUD first
     // renders, so the 💡 badge shows the right count immediately.
     initHintState(),
+    // A cold launch from a tapped reminder, saved by the native scene delegate.
+    // Read before the scenes exist, so the first menu can act on it.
+    takeColdLaunchRoute(),
   ])
+  // The meta-game (streak, Star Jar, daily gift, offers) reads progress and the
+  // hint stash, so it loads after both. A brand-new install is set up here.
+  await initProgression()
+  if (coldRoute && !(coldRoute === 'daily' && dailyRouteStale(null))) setPendingRoute(coldRoute)
+
   setSoundEnabled(soundOn)
   setHapticsEnabled(hapticsOn)
   // Only reflect the flag — starting needs a user gesture (see below).
@@ -109,12 +139,31 @@ async function boot() {
       mode: Phaser.Scale.NONE,
       zoom: 1 / DPR,
     },
-    scene: [MenuScene, LevelMapScene, GameScene, StoreScene],
+    scene: [MenuScene, LevelMapScene, GameScene, StoreScene, DailyScene],
   })
 
-  window.addEventListener('resize', () => {
-    game.scale.resize(window.innerWidth * DPR, window.innerHeight * DPR)
-  })
+  // Resize: a fold or unfold of the iPhone Duo, a Split View change, a desktop
+  // window. WebKit can report a stale innerWidth on the first event of a fold,
+  // so re-read the size a frame later and twice more while the animation
+  // settles; an unchanged size is skipped, so the scenes rebuild once.
+  let lastSize = ''
+  const applySize = () => {
+    const w = window.innerWidth
+    const h = window.innerHeight
+    const key = `${w}x${h}`
+    if (key === lastSize) return
+    lastSize = key
+    game.scale.resize(w * DPR, h * DPR)
+  }
+  lastSize = `${window.innerWidth}x${window.innerHeight}`
+  const onResize = () => {
+    requestAnimationFrame(applySize)
+    setTimeout(applySize, 150)
+    setTimeout(applySize, 400)
+  }
+  window.addEventListener('resize', onResize)
+  window.visualViewport?.addEventListener('resize', onResize)
+  window.addEventListener('orientationchange', onResize)
 
   // Let the ad layer put the game to sleep under a full-screen ad and wake it
   // after — the services layer never imports Phaser, so it gets callbacks.
@@ -141,14 +190,65 @@ async function boot() {
   // Unconditional on purpose: the ads service decides who gets what. No ad
   // surface (browser, ADS:off) → nothing; Unlimited owners → no SDK at all; No
   // Ads owners → the SDK (the hint video is a real ad) but never a banner.
-  void splashGone.then(initAds).then(showBanner)
+  //
+  // A brand-new install waits one step more: until Level 1 is played through
+  // (session.ts). Two native prompts (ATT, then "Ads and your data") over the
+  // first frame of the first level is the worst first impression the game can
+  // make; after the first win the player knows what they are consenting for.
+  // Consent still comes BEFORE the SDK starts — only the moment moves.
+  const onboarding = isFirstRun() ? onboardingDone() : Promise.resolve()
+  void splashGone.then(() => onboarding).then(initAds).then(showBanner)
 
   // Coming back to the foreground is the one moment a failed SDK start (no
   // network at boot) has a reason to succeed — the ads service retries there and
   // re-asks for a banner a refused request never delivered. No-op before
   // initAds() has run and in builds without ads.
+  let foregroundDay = today()
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') adsForegrounded()
+    if (document.visibilityState !== 'visible') return
+    adsForegrounded()
+    // A new local day may have started while the app slept: spend freezes or
+    // break the streak now, then re-plan the reminders from the fresh facts.
+    refreshDay()
+    const day = today()
+    if (day !== foregroundDay) {
+      foregroundDay = day
+      // The calendar draws the day it was built on (the "today" cell, the
+      // streak, the freeze and repair offers), so one left open overnight would
+      // offer yesterday. Not under a video in flight: an earned reward rebuilds
+      // the screen itself. The menu is not restarted here: it rolls over on its
+      // own (MenuScene, on the same foreground event) and holds that rebuild
+      // while a card is open — a restart from here would wipe a half-claimed gift.
+      if (!rewardedBusy() && game.scene.isActive('Daily')) game.scene.getScene('Daily')?.scene.restart({})
+    }
+    pushReminderFacts()
+    noteSessionStart()
+    void refreshReminders()
+  })
+
+  // Local reminders (no server). The tap listener is registered first thing, so
+  // a cold launch from a reminder is not lost; the route waits for a screen
+  // that can act on it and never pulls anyone out of a level in progress.
+  pushReminderFacts()
+  void initNotifications((route: PendingRoute) => {
+    // The plugin's copy of the cold-launch tap boot already routed.
+    if (isColdLaunchEcho(route)) return
+    // Nothing left to send anyone to: kept pending, it would pull the player
+    // back onto a solved (or the very same) board the next time the menu shows.
+    if (route === 'daily' && dailyRouteStale(game)) return
+    const active = game.scene.getScenes(true).map((sc) => sc.scene.key)
+    const idle = active.some((k) => k === 'Menu' || k === 'LevelMap' || k === 'Daily')
+    // Never tear a screen down under a video still playing (a gift or freeze ad
+    // left up when the app went to the background): its reward handler still
+    // touches that screen. The route waits for the menu instead.
+    if (idle && !active.includes('Game') && !rewardedBusy()) {
+      for (const key of active) game.scene.stop(key)
+      if (route === 'daily') game.scene.start('Game', { daily: true })
+      else if (route === 'menu') game.scene.start('Menu')
+      else game.scene.start('LevelMap', {})
+    } else {
+      setPendingRoute(route)
+    }
   })
 
   // iOS will not let audio start without a user gesture, so the bed can't come
@@ -166,6 +266,30 @@ async function boot() {
   // decide whether to request the native rating prompt. Own boot line (not tied
   // to initAds, which is skipped for Unlimited owners).
   void initReview()
+}
+
+/** The facts the reminder planner needs: streak, freezes, today's daily, the next level. */
+function pushReminderFacts() {
+  syncReminders()
+}
+
+/**
+ * A 'daily' reminder has nowhere left to go: today's daily is solved, or the
+ * daily board is on screen right now. `daily` is GameScene's private flag, read
+ * defensively — a missing scene or field just means "not showing it".
+ */
+function dailyRouteStale(game: Phaser.Game | null): boolean {
+  if (dailyDoneToday()) return true
+  if (!game) return false
+  try {
+    if (!game.scene.isActive('Game')) return false
+    // Today's board, not a past day replayed from the calendar: a "today's 67 is
+    // ready" tap during a replay must still lead to today's puzzle.
+    const board = game.scene.getScene('Game') as unknown as { daily?: unknown; dailyAsToday?: unknown } | null
+    return board?.daily === true && board?.dailyAsToday === true
+  } catch {
+    return false
+  }
 }
 
 void boot()

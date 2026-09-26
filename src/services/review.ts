@@ -32,15 +32,24 @@ export async function initReview(): Promise<void> {
 }
 
 /**
+ * Whether maybeRequestReview() would ask on this clear — a non-consuming
+ * predicate, so the win card can keep other asks (the reminder offer) off the
+ * same moment. Never pair two asks on one win.
+ */
+export function reviewWouldAsk(global: number, stars: number): boolean {
+  if (!Capacitor.isNativePlatform() || requested) return false
+  const delight = stars === 3 && global >= DELIGHT_MIN_GLOBAL
+  const milestone = global >= MILESTONE_GLOBAL
+  return delight || milestone
+}
+
+/**
  * Ask for a review if this clear is a good delight peak and we've never asked.
  * Call from the win overlay, a beat after the star pop. Native-only; resolves
  * immediately whether or not the OS actually shows the sheet.
  */
 export async function maybeRequestReview(global: number, stars: number): Promise<void> {
-  if (!Capacitor.isNativePlatform() || requested) return
-  const delight = stars === 3 && global >= DELIGHT_MIN_GLOBAL
-  const milestone = global >= MILESTONE_GLOBAL
-  if (!(delight || milestone)) return
+  if (!reviewWouldAsk(global, stars)) return
   // Spend the one-shot up front so a slow/failed native call can't double-ask.
   requested = true
   void saveReviewRequested(true)

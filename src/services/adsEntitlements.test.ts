@@ -109,6 +109,8 @@ vi.mock('./storage', () => ({
   saveHintCount: async () => {},
   saveAdsRemoved: async () => {},
   saveUnlimitedHints: async () => {},
+  loadMetaRaw: async () => null,
+  saveMetaRaw: async () => {},
 }))
 
 type Ads = typeof import('./ads')

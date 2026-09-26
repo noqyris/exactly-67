@@ -33,6 +33,68 @@ first LevelPlay release.
 
 ---
 
+## 1.3.0 — what changed (2026-09-23)
+
+Researched first (see [`RETENTION.md`](RETENTION.md) for the retention side and its
+sources), then built:
+
+- **Eight rewarded placements, not one** — hint modal, daily gift, Star Jar, pack
+  bonus, streak milestone, the Store's free tile, streak freeze, streak repair. Each
+  is an optional upgrade on a free base reward (the gift: "Take 4" / "Watch ad: +2 more";
+  the win card pays its free part at once and offers "Watch ad: +N more"), names
+  the ad and the reward, and is capped per local day in code (`economy.ts`
+  `PLACEMENT_CAPS`, 12 a day in total) because the LevelPlay plugin's
+  `showRewarded()` takes no placement name — the dashboard cannot cap them apart.
+  Apps with 3+ rewarded placements earn materially more ad ARPDAU; Unity's own
+  data puts the end-of-level multiplier first for puzzle games.
+- **No interstitial on a clear that offers a reward** (`InterstitialContext
+  .rewardPrompt`): two ad prompts on one win is the double tax players remember.
+  The clear counter is not spent, so the break moves to the next clear.
+- **Payers see half the interstitials**: every 6th clear instead of every 3rd once
+  anything has been bought (`clearsPerInterstitial`, fed by `meta.offers.purchased`,
+  which 1.3.0 sets on every purchase). Nothing in the UI promises it. **A 1.2.x
+  hint-pack buyer counts as a non-payer** (every 3rd clear) until they buy again: a
+  consumable leaves no local record from before 1.3.0, and StoreKit restores only
+  non-consumables. The unlock owners are unaffected — they see no interstitials.
+- **Welcome pack** — `com.noqyris.exactly67.welcome`, consumable, **25 hints at the
+  lowest tier ($0.99)**, **once per install** for a player who never bought anything
+  and owns no unlock (a consumable cannot be restored, so a reinstall can show it
+  again, and a 1.2.x hint-pack buyer — no record, see above — is offered it too; the
+  copy says "welcome offer" / "for new players", never "one-time").
+  While it shows it **replaces the 10-hint tile**, so nobody is offered more-for-less
+  beside it. Shown in the Store (hero card), as "Welcome pack!" on the menu's Store
+  button and in the out-of-hints modal's link — never as a pop-up. Until the
+  product exists in App Store Connect its price reads null and every surface falls
+  back to the ordinary ladder.
+- **Store** — hero card, free rewarded tile with a true "N left today", the packs
+  as tiles with a per-hint price from StoreKit's micros, **"Best value" computed at
+  runtime** (so it stays true after any reprice), No ads, Unlimited.
+- **The quiet no-ads nudge** — after 8 interstitials seen, a text link "Remove ads
+  between levels" on a win card that is not followed by an interstitial; at most
+  every 7 days, 4 times ever.
+- **The daily free hint is now the visible daily gift, on a five-day ladder**:
+  days in a row pay **1, 2, 4, 6, 8 hints**, day 6 starts over at 1, and a day
+  without a claim drops back to day 1 (`economy.ts` `GIFT_LADDER`). The video adds
+  a **flat +2** on any rung (`GIFT_AD_BONUS`), never a double: a doubled day 5
+  would pay 16 hints for one ad, more than the $0.99 10-pack, and the rewarded
+  faucet must never undercut the packs. A player who comes back every day gets
+  21 free hints per five days (1.2 gave 5); the ladder is the lever if pack
+  revenue drops. Tomorrow's rung is what the next day's reminder may name.
+
+**Recommended, not done (owner's call — it changes what live players pay):**
+the research found the ladder priced well below comparable games (Flow Free sells
+5 hints for £0.99; standalone remove-ads in the top-100 games is $2.50–$10). If
+wanted, reprice in App Store Connect in this order so Unlimited always stays above
+the biggest pack: `removeads` → **$9.99**, then `hints100` → **$4.99**, then `noads`
+→ **$2.99** (optionally a lower custom price in Serbia and other low-income
+storefronts). No code change is needed — every price and the "Best value" badge
+come from StoreKit.
+
+**Not built:** a subscription (no receipt server to verify expiry), paid or random
+rewards, coins, iCloud backup of the hint balance (consumables cannot be restored,
+so a reinstall loses bought hints — worth a small native plugin before raising
+pack prices).
+
 ## Strategy (the decisions)
 
 A calm, no-fail puzzle lives or dies on its rating and retention, so the model
@@ -40,7 +102,7 @@ favours opt-in and light-touch over ad saturation:
 
 | Format | Role | Where |
 |---|---|---|
-| **Rewarded** | The opt-in earner. Hints are a **banked inventory**: **+1 free per UTC day** (topped up at boot) and **+1 per rewarded video watched to the end**. A video banks a hint; it does not reveal one, so the player spends hints on their own terms. Offered only while the player's ad consent is `GRANTED`. | **"Watch ad: +1 hint"** ("Ad: +1 hint" where that does not fit, a 320 pt phone) in the hint modal, which opens when the 💡 is tapped with zero hints |
+| **Rewarded** | The opt-in earner. Hints are a **banked inventory**: the free **daily gift** (1.3.0: a five-day ladder of 1, 2, 4, 6, 8 hints on days in a row — it replaced 1.2's silent +1 per UTC day at boot) and **+1 per rewarded hint video watched to the end**. A video banks a hint; it does not reveal one, so the player spends hints on their own terms. Offered only while the player's ad consent is `GRANTED`. | **"Watch ad: +1 hint"** ("Ad: +1 hint" where that does not fit, a 320 pt phone) in the hint modal, which opens when the 💡 is tapped with zero hints; **"Watch ad: +2 more"** on the menu's daily-gift card (a flat +2 on any rung, once a day). Every placement and cap: [`RETENTION.md`](RETENTION.md#rewarded-placements-all-capped-per-local-day-in-economyts) |
 | **Interstitial** | Occasional full-screen ad at a natural break, under a **hybrid gate**: a clear count decides *where*, time + session + opt-in state decide *whether*. | On the leave-tap after a win (Next / The End! / Map), never on Retry, never mid-level, never in the Daily Challenge. See the cadence table below. |
 | **Banner** | Passive fill. | Bottom-anchored, in a **reserved strip** every scene keeps clear |
 | **Hint packs (IAP)** | Consumables for players who want help without the unlock: **10 / 30 / 100 hints at $0.99 / $1.99 / $2.99**. Bought hints join the same inventory and never expire (a plain persisted counter, no decay). | Store screen |

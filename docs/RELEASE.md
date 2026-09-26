@@ -29,7 +29,7 @@ the LevelPlay dashboard see [`MONETIZATION.md`](MONETIZATION.md).
 |---|---|
 | **Node** | **≥ 22** for the Capacitor CLI (`cap sync`). Declared in `package.json` `engines` (npm only warns); no `.nvmrc`. Use `nvm use 22`, or prefix commands with `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`. |
 | **npm install** | Runs the three `postinstall` patches on `capacitor-levelplay-ads` (pinned exactly `0.1.42`). They **must** apply: without the SPM patch the iOS build links no LevelPlay SDK and silently serves nothing. Each exits 1 on a different plugin version or an unexpected file shape — fix that, never bypass it. iOS resolves Capacitor plugins as SPM packages that `path:`-reference `node_modules/`, so deleting `node_modules` breaks the Xcode build until `npm install` runs again. |
-| **Xcode** | 26.x. The App target's first build phase is the **Ad-mode guard** (below). The App target links with **`OTHER_LDFLAGS = -ObjC`** (Debug and Release) — keep it: without it the linker strips the Unity Ads SDK/adapter classes and categories LevelPlay loads by name, and the SDK crashed at `initialize()` (KVIZKO BUG-9). It also sets **`ENABLE_USER_SCRIPT_SANDBOXING = NO`** (Debug and Release): the guard reads files that are not declared inputs, and with sandboxing on every build fails with "Sandbox: bash deny file-read-data". Decline Xcode's "Update to recommended settings" for it, and never delete the guard phase to get past that error. |
+| **Xcode** | **27.x** (the only toolchain on the release machine since 2026-09-14). iOS 27 refuses to launch an app built with its SDK unless it uses the **UIScene lifecycle** — done in 1.3.0 with Capacitor **8.5.2** (`App/SceneDelegate.swift`, `UIApplicationSceneManifest` in `Info.plist`, `configurationForConnecting` in `AppDelegate`; Capacitor's own 8.5 template, the same as KVIZKO and Quadshot). Never remove the manifest: the **Ad-mode guard refuses every build** without it (or without `SceneDelegate.swift`), because the binary would still build and then never launch. The App target's first build phase is the **Ad-mode guard** (below). The App target links with **`OTHER_LDFLAGS = -ObjC`** (Debug and Release) — keep it: without it the linker strips the Unity Ads SDK/adapter classes and categories LevelPlay loads by name, and the SDK crashed at `initialize()` (KVIZKO BUG-9). It also sets **`ENABLE_USER_SCRIPT_SANDBOXING = NO`** (Debug and Release): the guard reads files that are not declared inputs, and with sandboxing on every build fails with "Sandbox: bash deny file-read-data". Decline Xcode's "Update to recommended settings" for it, and never delete the guard phase to get past that error. |
 | **SPM pins** | `ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` holds LevelPlay **9.6.0**, UnityAds adapter **5.11.0**, Unity Ads **4.20.0** and Unity Ad Quality **9.9.0** (transitive) — KVIZKO's App-Store-proven graph. The patched plugin manifest only says `from:`, so the committed `Package.resolved` is the pin: never "Update to Latest Package Versions" or delete it. `check-native-sync.mjs` refuses any other version, and the archive passes `disable_package_automatic_updates`, so a drifted graph fails instead of shipping. Bumping is a deliberate change that starts in `scripts/lib/levelplay-versions.mjs`, then `npm install`, `xcodebuild -resolvePackageDependencies`, and a check that `Package.resolved` landed on **exactly** the new numbers (because the manifest says `from:`, a re-resolve can pick a newer compatible version, which the gate then refuses), then commit it. |
 | **fastlane** | On `PATH` (`/opt/homebrew/bin/fastlane`). Run lanes from `ios/App/`. **No Gemfile** — call `fastlane <lane>` directly, *not* `bundle exec`. The lanes run Node gates (`check-levelplay-config`, `check-native-sync`) and find Node through `NODE_BINARY`, then `~/.nvm/versions/node/v22.23.2/bin/node`, then `PATH`; a missing Node is a refusal. Live uploads and `submit` fetch the published privacy page, so they need a network. |
 | **JDK** | For the Android Gradle build. Use Android Studio's bundled JBR: `export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`. |
@@ -53,8 +53,9 @@ the LevelPlay dashboard see [`MONETIZATION.md`](MONETIZATION.md).
   comments, and the fix is `git checkout ios/App/App/Info.plist`. While the file held
   literal numbers, that checkout silently threw away an uncommitted bump, so the ads-off
   N+1 archive still said N, bounced as a duplicate, and left the real-ads N newest on
-  TestFlight. With the variables the checkout is always safe, and the sync hook keeps
-  them as they are.
+  TestFlight. With the variables the checkout can never touch a version number, and
+  the sync hook keeps them as they are. It still restores the *committed* file, so
+  commit any other `Info.plist` change (the UIScene manifest, say) before a sync.
 - The fastlane live preflight (`release`, `build_and_upload`) reads the same two
   settings from `project.pbxproj` before archiving. If the Debug and Release values
   disagree it cannot tell a retry of the same build from a new one; the ledger check
@@ -84,7 +85,7 @@ Each target states an exact count for every marker:
 |---|---|---|---|---|---|---|
 | **`live`** | `live` ×1 | `on` ×1 | ×0 | `build:live` → `ios:appstore` | App Store build **N**. **Real ads.** Also needs real LevelPlay ids (`check-levelplay-config ios`, checked before the build). | Yes — as build N only |
 | **`off`** | `test` ×1 | `off` ×1 | ×0 or ×1 | `build:adsoff` → `ios:sync`; `build:tf` → `ios:testflight` | The ad layer never starts: no consent prompt, no ATT, no banner strip, the hint video grants without an ad. The TestFlight follow-up **N+1** (with all levels unlocked) and the everyday dev default. | Yes — TestFlight |
-| **`mock`** | `test` ×1 | `mock` ×1 | ×0 or ×1 | `dev:mock`, `build:mock` → `ios:sync:mock` | Fake ads we draw in the DOM. Tests *our* ad flow; zero network. | **Never** — Run only |
+| **`mock`** | `test` ×1 | `mock` ×1 | ×0 or ×1 | `dev:mock`, `build:mock` → `ios:sync:mock`; `build:tf:mock` → `ios:testflight:mock` | Fake ads we draw in the DOM. Tests *our* ad flow; zero network, nothing billed, safe to tap. | **TestFlight only**, as `AD_TARGET=mock` (recorded `mock` in the ledger). `submit` refuses it, and it never counts as the ads-off N+1 after a live upload. |
 | **`test`** | `test` ×1 | `on` ×1 | ×0 or ×1 | `build:test` → `ios:sync:test` | The real waterfall with `isTesting` (which only unlocks Unity's Test Suite). Dev integration only, as an Xcode Run with `AD_TARGET=test` stated. **Real ads.** | **Never** — not archived either |
 
 Every target also refuses `TESTSUITE:1` / `ADIDCAPTURE:1` (boot-mode markers from the
@@ -151,8 +152,13 @@ There are **no Android sync or release chains yet** — see [Android](#android-r
    `CapApp-SPM/Package.swift`, and runs the `capacitor:sync:after` hook, which writes
    the ATT string, SKAdNetwork ids and `LevelPlayCMPProvider` into `Info.plist` **and
    drops the file's comments**. Run `git checkout ios/App/App/Info.plist` afterwards
-   (safe at any time: the file holds no version numbers) and treat any other diff
-   there — a new SKAdNetwork id, say — as something the hook added.
+   and treat any other diff there — a new SKAdNetwork id, say — as something the
+   hook added. The checkout cannot lose a version bump (the file holds no numbers),
+   but it restores the **committed** file: an `Info.plist` change that is not
+   committed yet — the UIScene manifest while 1.3.0 was in progress — goes with it.
+   Commit such a change before syncing, or copy `Info.plist` aside first and restore
+   that copy instead of checking out. The Ad-mode guard refuses to build an
+   `Info.plist` that lost the manifest, so this fails loudly, never at launch.
 5. **`scripts/check-native-sync.mjs ios <target>`** — after the sync: the markers in
    `ios/App/App/public/assets` match the target; the native JS file names match
    `dist/` exactly (nothing missing, nothing stale); the generated files carry no
@@ -189,6 +195,13 @@ never committed; the fastlane lanes pass it for you): `live`, `off`, `test`, or 
 for an ordinary Run of the ads-off (or mock) dev bundle.
 
 It refuses to build when:
+- `App/Info.plist` does not name `$(PRODUCT_MODULE_NAME).SceneDelegate` as the
+  application role's scene delegate in `UIApplicationSceneManifest` (read with
+  `PlistBuddy`), or `App/SceneDelegate.swift` is missing. Not an ad rule, but this
+  phase is the one check every build runs: iOS 27 does not launch an app built with
+  its SDK without a scene manifest, and the post-sync `git checkout` of `Info.plist`
+  silently drops one that is not committed. Commit the manifest, or restore
+  `Info.plist` from a copy saved before the sync;
 - `App/capacitor.config.json` carries a `server.url` key, even an empty one — the
   leftover of `npx cap run ios -l` when its terminal is closed instead of Ctrl+C'd. The
   app would load that dev server (whose default bundle is `ADS:on`) instead of the
@@ -214,7 +227,10 @@ It refuses to build when:
 
 It does not check the LevelPlay ids (Xcode's build `PATH` has no nvm `node`); the
 fastlane `live` lanes do. Its rules were checked on 2026-09-16 against a 210-case
-truth table of markers × `AD_TARGET` × Run/Archive, with no mismatches.
+truth table of markers × `AD_TARGET` × Run/Archive, with no mismatches. The
+scene-manifest check (2026-09-23) passes the real `Info.plist` on Run and Archive and
+refuses the pre-1.3.0 committed one, a different delegate class, a missing
+`SceneDelegate.swift` and a missing `Info.plist`.
 
 ---
 
@@ -496,12 +512,32 @@ is public and hard to reverse: stop and confirm first).
 
 ---
 
+## A fake-ads TestFlight build (`mock`)
+
+For the owner to walk the whole ad flow on a phone — banner strip, interstitial
+cadence, rewarded rewards granted or withheld — with nothing real on screen:
+
+```sh
+# bump CURRENT_PROJECT_VERSION (pbxproj ×2); MARKETING_VERSION if the train is closed
+npm run ios:testflight:mock        # ADS:mock + UNLOCKALL:1, gate reports mock
+git checkout ios/App/App/Info.plist   # only if the sync hook rewrote it (commit first)
+cd ios/App
+AD_TARGET=mock fastlane archive
+AD_TARGET=mock fastlane upload_testflight
+```
+
+Every ad on it says **FAKE AD — MOCK BUILD**. IAP on a TestFlight build is the
+StoreKit **sandbox** (no real charge). The Xcode guard, the Fastfile gate and the
+ledger all accept `mock` only when it is stated; `submit` refuses a build recorded
+as `mock`.
+
 ## Current release status
 
 | Item | State |
 |---|---|
 | **App Store** | **1.2.0** live (AdMob-era; its ads stopped with the account on 2026-08-18). |
-| **1.2.1** | 600 levels, Daily Challenge, the Store, music, the LevelPlay migration. The migration was done on `feat/monetization`. Project at 1.2.1 / build 27. Not submitted. **Plan:** build **28** live (`npm run ios:appstore` + `AD_TARGET=live`), submitted from the ASC UI for 1.2.1 with **manual release**, together with the four READY_TO_SUBMIT IAPs (`hints10` / `hints30` / `hints100` consumables, `noads` non-consumable); immediately build **29** ads-off (`npm run ios:testflight` + `AD_TARGET=off`) to TestFlight; expire 28 on TestFlight once it is `READY_FOR_SALE`. Build 28 is the first upload the ledger will record. |
+| **1.3.0** | The meta-game update ([`RETENTION.md`](RETENTION.md)): streaks, calendar, Star Jar, pack medals, daily gift, eight rewarded placements, Welcome pack IAP (`com.noqyris.exactly67.welcome`, consumable, 25 hints), local reminders, new Store/menu/win card, new icon (`tools/make-icon.mjs`), wide/foldable layout, Capacitor 8.5 + UIScene for Xcode 27. The 1.3.0 listing (new name "Exactly 67: Math Puzzle Game", subtitle, keywords, description, release notes) is staged in `ios/App/fastlane/metadata-next/` — **swap it into `metadata/` only when submitting 1.3.0** (the submit lanes upload `metadata/`, and 1.2.1 is still in review). Builds 31 and 32 went to TestFlight as `mock` (fake ads, all levels unlocked); 32 carries the fixes from the adversarial audit of 2026-09-23 (26 verified defects + round-two findings, fixed and re-verified). |
+| **1.2.1** | (2026-09-23: `READY_FOR_REVIEW` with build **29** live attached; build 30 ads-off newest on TestFlight.) 600 levels, Daily Challenge, the Store, music, the LevelPlay migration. The migration was done on `feat/monetization`. Project at 1.2.1 / build 27. Not submitted. **Plan:** build **28** live (`npm run ios:appstore` + `AD_TARGET=live`), submitted from the ASC UI for 1.2.1 with **manual release**, together with the four READY_TO_SUBMIT IAPs (`hints10` / `hints30` / `hints100` consumables, `noads` non-consumable); immediately build **29** ads-off (`npm run ios:testflight` + `AD_TARGET=off`) to TestFlight; expire 28 on TestFlight once it is `READY_FOR_SALE`. Build 28 is the first upload the ledger will record. |
 | **LevelPlay (iOS)** | Done 2026-09-16: app key `282af3d55`, three ad units, Unity Ads bidding (Game ID `800374923`) — see [`MONETIZATION.md`](MONETIZATION.md#going-live--what-is-left). SPM held at LevelPlay 9.6.0 / adapter 5.11.0 / Unity Ads 4.20.0 / Ad Quality 9.9.0; `-ObjC` on the App target. |
 | **Still open before review** | Everything in the [pre-release checklist](#0-before-you-start--the-pre-release-checklist): publish `docs/privacy.html` + `docs/index.html` to `main` (the privacy gate refuses every live upload until then), confirm the Unity Ad Controls age setting, rename the `removeads` IAP in ASC, re-capture the screenshots. App Privacy needs no change (network-agnostic: Identifiers, Location and Usage Data used for tracking, plus Diagnostics). |
 | **Consent on upgrade** | The first launch of 1.2.1 resets any stored consent record once (`exactly67.levelplayConsentMigrated`), so **every existing install on an ads-on build** — every player except Unlimited-hints owners — sees ATT (if still undecided) and the "Ads and your data" modal once more, TestFlight testers who already answered it included. Ads-off builds never run the reset. Intended: 1.2.0's Google consent form may have left IAB TCF keys the LevelPlay plugin would read as its own decision. |

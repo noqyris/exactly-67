@@ -9,6 +9,15 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: 'never',
   },
+  plugins: {
+    LocalNotifications: {
+      // iOS: a reminder that comes due while the game is open stays silent —
+      // the player is already here. (Nothing is lost: they are all "come back" nudges.)
+      presentationOptions: [],
+      // Android: the status-bar icon tint (the game's ink colour).
+      iconColor: '#2B2440',
+    },
+  },
 }
 
 export default config

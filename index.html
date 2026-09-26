@@ -7,6 +7,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Exactly 67</title>
+  <!-- The sting is a portrait clip. On a wide screen (the unfolded iPhone Duo,
+       an iPad in landscape) `cover` would show only its middle third: letterbox
+       it on the black instead. Inline so it holds on the first painted frame. -->
+  <style>@media (min-aspect-ratio: 3/4) { #splash-video { object-fit: contain !important } }</style>
 </head>
 <body>
   <!--

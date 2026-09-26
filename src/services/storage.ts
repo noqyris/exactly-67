@@ -246,3 +246,23 @@ export async function saveAdsRemoved(on: boolean): Promise<void> {
     // non-fatal
   }
 }
+
+// The meta-game blob (streak, daily calendar, Star Jar, pack rewards, rewarded
+// caps, offers) — see game/meta.ts. `null` means it was never written: the
+// first launch of 1.3.0 on an old install, or a brand-new install.
+const META_KEY = 'exactly67.meta'
+export async function loadMetaRaw(): Promise<string | null> {
+  try {
+    const { value } = await Preferences.get({ key: META_KEY })
+    return value
+  } catch {
+    return null
+  }
+}
+export async function saveMetaRaw(raw: string): Promise<void> {
+  try {
+    await Preferences.set({ key: META_KEY, value: raw })
+  } catch {
+    // non-fatal: the change lives in memory for this session
+  }
+}

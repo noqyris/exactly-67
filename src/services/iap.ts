@@ -1,6 +1,8 @@
 /// <reference types="cordova-plugin-purchase" />
 import { Capacitor } from '@capacitor/core'
+import { WELCOME_HINTS } from '../game/economy'
 import { adsRemoved, grantHints, hintsUnlimited, setAdsRemoved, setUnlimitedHints } from './ads'
+import { notePurchase, noteWelcomeBought, welcomeOffered } from './progression'
 
 /**
  * In-app purchase service — the one-time "Remove Ads" unlock. Same shape as
@@ -56,6 +58,15 @@ export const HINT_PACKS: readonly HintPack[] = [
 ]
 const HINT_PACK_IDS = new Set(HINT_PACKS.map((p) => p.id))
 
+/**
+ * One-time Welcome pack (Consumable): WELCOME_HINTS hints at the lowest price
+ * tier, once per player (progression.welcomeOffered). While it is on offer it
+ * REPLACES the 10-hint card, so nobody sees more-for-less beside it. Until the
+ * product exists in App Store Connect its price reads null and every surface
+ * that would show it falls back to the ordinary ladder.
+ */
+export const WELCOME_ID = 'com.noqyris.exactly67.welcome'
+
 let initialized = false
 let onChange: (() => void) | null = null
 let onHintsPurchased: ((n: number) => void) | null = null
@@ -106,6 +117,11 @@ export async function initIap(): Promise<void> {
       type: CdvPurchase.ProductType.CONSUMABLE,
       platform: storePlatform,
     })),
+    {
+      id: WELCOME_ID,
+      type: CdvPurchase.ProductType.CONSUMABLE,
+      platform: storePlatform,
+    },
   ])
   store
     .when()
@@ -117,8 +133,15 @@ export async function initIap(): Promise<void> {
       else if (grantsProduct(transaction, NO_ADS_ID)) grant(false)
       const pack = hintPackFor(transaction)
       if (pack) {
+        notePurchase()
         grantHints(pack.hints)
         onHintsPurchased?.(pack.hints)
+      }
+      if (grantsProduct(transaction, WELCOME_ID)) {
+        // Persist "bought" before paying, so a relaunch mid-grant can't offer it again.
+        noteWelcomeBought()
+        grantHints(WELCOME_HINTS)
+        onHintsPurchased?.(WELCOME_HINTS)
       }
       void transaction.finish()
     })
@@ -162,6 +185,7 @@ function hintPackFor(t: CdvPurchase.Transaction): HintPack | null {
  * hints from someone who also owns the bundle.
  */
 function grant(withUnlimitedHints: boolean): void {
+  notePurchase()
   if (!adsRemoved()) setAdsRemoved(true)
   if (withUnlimitedHints && !hintsUnlimited()) setUnlimitedHints(true)
   onChange?.()
@@ -202,6 +226,44 @@ export async function buyHintPack(id: string): Promise<void> {
   if (!iapSupported() || !HINT_PACK_IDS.has(id)) return
   const offer = CdvPurchase.store.get(id)?.getOffer()
   if (offer) await offer.order()
+}
+
+/** Localized price of the Welcome pack, or null (not on offer, or not loaded / not created yet). */
+export function welcomePrice(): string | null {
+  if (!iapSupported() || !welcomeOffered()) return null
+  const offer = CdvPurchase.store.get(WELCOME_ID)?.getOffer()
+  return offer?.pricingPhases?.[0]?.price ?? null
+}
+
+/** Start the purchase flow for the Welcome pack (only while it is on offer). */
+export async function buyWelcomePack(): Promise<void> {
+  if (!iapSupported() || !welcomeOffered()) return
+  const offer = CdvPurchase.store.get(WELCOME_ID)?.getOffer()
+  if (offer) await offer.order()
+}
+
+/**
+ * Price per hint for a pack, formatted in the store's currency ("5.0¢" style is
+ * locale-dependent, so this uses the currency with 2–3 decimals), or null.
+ * Computed from StoreKit's micros so a "Best value" badge stays TRUE after any
+ * reprice in App Store Connect.
+ */
+export function perHintPrice(id: string, hints: number): { value: number; label: string } | null {
+  if (!iapSupported() || hints <= 0) return null
+  const phase = CdvPurchase.store.get(id)?.getOffer()?.pricingPhases?.[0]
+  if (!phase || !phase.priceMicros || !phase.currency) return null
+  const value = phase.priceMicros / 1_000_000 / hints
+  try {
+    const label = new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: phase.currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 3,
+    }).format(value)
+    return { value, label }
+  } catch {
+    return null
+  }
 }
 
 /** Restore a prior purchase — App Store requires a visible Restore action. */

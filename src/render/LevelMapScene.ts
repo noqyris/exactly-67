@@ -1,11 +1,12 @@
 import Phaser from 'phaser'
 import { globalOf, PACKS, TOTAL_LEVELS } from '../game/levels'
 import { isUnlocked, starsFor, totalStars } from '../game/progress'
+import { packInfo } from '../services/progression'
 import { allLevelsUnlocked } from '../services/buildFlags'
 import { progress } from '../services/progressStore'
 import { adBannerReserve, contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BEAM, BG, FONT, INK, INK_CSS, OUTLINE, PAPER } from './palette'
-import { drawBackIcon, drawStar, makeIconButton, TEXT } from './ui'
+import { drawBackIcon, drawMedal, drawStar, makeIconButton, TEXT } from './ui'
 
 const INK_SOFT = '#5D5470'
 
@@ -177,8 +178,19 @@ export class LevelMapScene extends Phaser.Scene {
         .text(margin, y + u(30), pack.tagline, TEXT.ink(14, '600'))
         .setColor(INK_SOFT)
       // Keep the tagline inside the frame; grow the header if it wraps.
-      tagline.setWordWrapWidth(inner)
-      this.content.add([name, tagline])
+      tagline.setWordWrapWidth(inner - u(96))
+      // Pack stars and, once every level is cleared, its medal (bronze, silver
+      // at a 2.5★ average, gold at a perfect pack) — a reason to go back for 3★.
+      const info = packInfo(packIndex)
+      const right = margin + inner
+      const badge = this.add.graphics()
+      drawMedal(badge, right - u(14), y + u(16), u(28), info.medal)
+      drawStar(badge, right - u(84), y + u(16), u(9), info.stars > 0)
+      const count = this.add
+        .text(right - u(34), y + u(16), `${info.stars}/${info.levels * 3}`, TEXT.ink(14, '800'))
+        .setOrigin(1, 0.5)
+      badge.setAlpha(info.cleared > 0 ? 1 : 0.5)
+      this.content.add([name, tagline, badge, count])
       y += u(30) + tagline.height + u(14)
 
       pack.levels.forEach((_, levelIndex) => {

@@ -28,10 +28,12 @@
     "build:adsoff": "VITE_ADS=off npm run build && node scripts/check-ad-mode.mjs off",
     "build:mock": "VITE_ADS=mock npm run build && node scripts/check-ad-mode.mjs mock",
     "build:tf": "VITE_ADS=off VITE_UNLOCK_ALL=1 npm run build && node scripts/check-ad-mode.mjs off",
+    "build:tf:mock": "VITE_ADS=mock VITE_UNLOCK_ALL=1 npm run build && node scripts/check-ad-mode.mjs mock",
     "ios:sync": "npm run build:adsoff && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios off",
     "ios:sync:mock": "npm run build:mock && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios mock",
     "ios:sync:test": "npm run build:test && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios test",
     "ios:testflight": "npm run build:tf && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios off",
+    "ios:testflight:mock": "npm run build:tf:mock && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios mock",
     "ios:appstore": "npm run build:live && node scripts/check-no-google.mjs && cap sync ios && node scripts/check-native-sync.mjs ios live"
   },
   "levelplay": {
@@ -43,9 +45,10 @@
   },
   "dependencies": {
     "@capacitor-community/in-app-review": "^8.0.0",
-    "@capacitor/android": "^8.4.1",
-    "@capacitor/core": "^8.4.1",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "@capacitor/haptics": "^8.0.2",
+    "@capacitor/local-notifications": "8.3.1",
     "@capacitor/preferences": "^8.0.1",
     "@fontsource/baloo-2": "^5.2.6",
     "capacitor-levelplay-ads": "0.1.42",
@@ -53,8 +56,8 @@
     "phaser": "^3.90.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.4.1",
-    "@capacitor/ios": "^8.4.1",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "vitest": "^2.1.9"

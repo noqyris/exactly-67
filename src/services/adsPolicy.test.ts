@@ -164,6 +164,8 @@ vi.mock('./storage', () => ({
   saveHintCount: async () => {},
   saveAdsRemoved: async () => {},
   saveUnlimitedHints: async () => {},
+  loadMetaRaw: async () => null,
+  saveMetaRaw: async () => {},
 }))
 
 type Ads = typeof import('./ads')
@@ -406,6 +408,21 @@ describe('interstitial flow — navigation waits for the player to be done', () 
     expect(fake.showInterstitial).not.toHaveBeenCalled()
     expect(log).not.toContain('loop:pause')
     expect(log).not.toContain('stopMusic')
+    expect(ads.interstitialWouldShow(LEVEL + 1)).toBe(true)
+  })
+
+  it('a win card that made another ask (reminders, review, no-ads nudge) is never followed by an interstitial, and keeps the cadence armed', async () => {
+    const ads = await armed()
+    expect(ads.interstitialWouldShow(LEVEL, { cardAsk: true })).toBe(false)
+    await expect(ads.maybeShowInterstitial(LEVEL, { cardAsk: true })).resolves.toBe(false)
+    expect(fake.showInterstitial).not.toHaveBeenCalled()
+    expect(ads.interstitialWouldShow(LEVEL + 1)).toBe(true) // the break moves to the next clear
+  })
+
+  it('a win card offering a reward is never followed by an interstitial either', async () => {
+    const ads = await armed()
+    await expect(ads.maybeShowInterstitial(LEVEL, { rewardPrompt: true })).resolves.toBe(false)
+    expect(fake.showInterstitial).not.toHaveBeenCalled()
     expect(ads.interstitialWouldShow(LEVEL + 1)).toBe(true)
   })
 

@@ -106,7 +106,15 @@ NATIVE_SYNC_CHECK = File.join(REPO_ROOT, "scripts", "check-native-sync.mjs")
 #         integration is `npm run ios:sync:test` plus an Xcode Run with
 #         AD_TARGET=test.
 #
-# ADS:mock (our own drawn fake ads) passes no target. The same rules run in
+#   mock  ADMODE:test + ADS:mock: our own fake ads, drawn in the DOM by
+#         providers/mock.ts. No ad network is ever called, so nothing on it can
+#         be billed or counted as a click: safe to tap as hard as you like. It
+#         may be archived and uploaded to TESTFLIGHT (npm run ios:testflight:mock)
+#         so the owner can walk the whole ad flow on a phone, and it is recorded
+#         in the ledger as "mock"; `submit` refuses it like an ads-off build (a
+#         store build that shows rectangles we drew earns nothing).
+#
+# The same rules run in
 # Xcode itself (ios/App/ad-mode-guard.sh, the first build phase of the App
 # target), which is what catches Product > Archive and a bare xcodebuild; the
 # archive lane forwards AD_TARGET into that phase as a build setting.
@@ -125,7 +133,7 @@ NATIVE_SYNC_CHECK = File.join(REPO_ROOT, "scripts", "check-native-sync.mjs")
 #   APP_VERSION=x.y.z BUILD_NUMBER=N fastlane submit       # ledger: N live, then N+1 off
 # Once N is READY_FOR_SALE, expire every real-ads build on TestFlight.
 
-AD_TARGETS = %w[live off test].freeze
+AD_TARGETS = %w[live off mock test].freeze
 
 # The literals the bundler folds each build-time env read into. Each must
 # appear exactly once (UNLOCKALL:1 at most once), same contract as
@@ -143,8 +151,8 @@ def ad_target!
   want = ENV["AD_TARGET"].to_s
   unless AD_TARGETS.include?(want)
     UI.user_error!(
-      "AD_TARGET must be 'live' (App Store build N), 'off' (TestFlight build N+1) or " \
-      "'test' (a dev Run, never archived or uploaded); got '#{want}'. Refusing to build or upload " \
+      "AD_TARGET must be 'live' (App Store build N), 'off' (TestFlight build N+1), 'mock' (fake ads, " \
+      "TestFlight only) or 'test' (a dev Run, never archived or uploaded); got '#{want}'. Refusing to build or upload " \
       "a binary whose ad mode nobody stated."
     )
   end
@@ -199,7 +207,12 @@ def ad_mode_problems(js, want)
   if ads_mode == "mock"
     # Carries ADMODE:test like an ordinary test build and would otherwise pass as
     # one, then show players rectangles we drew ourselves while earning nothing.
-    return ["it is the FAKE-ADS build (ADS:mock): our own drawn ads, zero revenue. It is never archived or uploaded"]
+    # Only a stated AD_TARGET=mock (TestFlight, never the store) takes it.
+    return [] if want == "mock" && mode == "test"
+    return ["it is the FAKE-ADS build (ADS:mock): our own drawn ads, zero revenue. Only AD_TARGET=mock (TestFlight) takes it"]
+  end
+  if want == "mock"
+    return ["it is ADS:#{ads_mode}, not the fake-ads build. AD_TARGET=mock takes only a VITE_ADS=mock bundle: npm run ios:testflight:mock"]
   end
   if mode == "live" && ads_mode == "off"
     return ["it carries ADMODE:live with ADS:off: a store build that never loads a real ad is a contradiction"]
@@ -226,7 +239,7 @@ def refuse_ad_mode!(where, want, problems)
   UI.user_error!(
     "Ad-mode gate: #{where} cannot ship as AD_TARGET=#{want}:\n  - " +
     problems.join("\n  - ") +
-    "\nRe-run the matching npm chain (ios:appstore = live, ios:testflight = off), then this lane."
+    "\nRe-run the matching npm chain (ios:appstore = live, ios:testflight = off, ios:testflight:mock = mock), then this lane."
   )
 end
 
@@ -375,6 +388,8 @@ def announce_ad_mode(want, where)
     UI.important("Ad-mode gate: #{where} is a LIVE-ads build, as requested. REAL ads. Two-build rule: upload the ads-off build N+1 (AD_TARGET=off) right after this one, and never open this build from TestFlight.")
   when "off"
     UI.success("Ad-mode gate: #{where} is ADS-OFF, as requested: the ad layer never starts, nothing loads.")
+  when "mock"
+    UI.success("Ad-mode gate: #{where} is the FAKE-ADS build (ADS:mock), as requested: ads drawn in the web view, no ad network, nothing billed. TestFlight only, never submitted.")
   when "test"
     UI.important("Ad-mode gate: #{where} is a TEST bundle: on LevelPlay it serves the REAL waterfall. Dev integration only: never archive or upload it, never tap an ad.")
   end
@@ -477,10 +492,10 @@ def read_ad_ledger(path = AD_LEDGER)
     )
   end
   valid = data.is_a?(Array) && data.all? do |e|
-    e.is_a?(Hash) && %w[version build mode].all? { |k| e[k].is_a?(String) && !e[k].empty? } && %w[live off].include?(e["mode"])
+    e.is_a?(Hash) && %w[version build mode].all? { |k| e[k].is_a?(String) && !e[k].empty? } && %w[live off mock].include?(e["mode"])
   end
   unless valid
-    UI.user_error!("Upload ledger: #{path} is not an array of {version, build, mode: live|off, at} entries. Repair it by hand; never delete it.")
+    UI.user_error!("Upload ledger: #{path} is not an array of {version, build, mode: live|off|mock, at} entries. Repair it by hand; never delete it.")
   end
   data
 end
@@ -540,7 +555,7 @@ def submit_problem(entries, version, build)
   end
   other = mine.map(&:first).map { |e| e["mode"] }.uniq - ["live"]
   unless other.empty?
-    return "#{version} (#{build}) is recorded as #{other.join('/')} in #{AD_LEDGER_SHOWN}: an ads-off build submitted for review ships a version that never shows an ad, with every level unlocked"
+    return "#{version} (#{build}) is recorded as #{other.join('/')} in #{AD_LEDGER_SHOWN}: an ads-off or fake-ads build submitted for review ships a version that never shows a real ad, with every level unlocked"
   end
   n = build_number_value(build)
   return "BUILD_NUMBER #{build.inspect} is not a plain build number" unless n
@@ -681,7 +696,7 @@ platform :ios do
     ensure_app_exists(asc_api_key)
   end
 
-  desc "Run the archive's ad-mode gate alone, building nothing and contacting nobody — AD_TARGET=live|off"
+  desc "Run the archive's ad-mode gate alone, building nothing and contacting nobody — AD_TARGET=live|off|mock"
   lane :ad_gate do
     # The same checks `archive` runs before it builds, on their own: cheap before
     # committing to a fifteen-minute archive, and the only way to exercise the
@@ -694,18 +709,18 @@ platform :ios do
     verify_native_sync!(want)
   end
 
-  desc "Archive + export a signed App Store .ipa to build/Exactly67.ipa — AD_TARGET=live|off"
+  desc "Archive + export a signed App Store .ipa to build/Exactly67.ipa — AD_TARGET=live|off|mock"
   lane :archive do
     build_ipa
   end
 
-  desc "Same as archive (kept for old muscle memory) — AD_TARGET=live|off"
+  desc "Same as archive (kept for old muscle memory) — AD_TARGET=live|off|mock"
   lane :build_only do
     asc_api_key
     build_ipa
   end
 
-  desc "Upload build/Exactly67.ipa to TestFlight (no App Store version, no submit) and record it in the ledger — AD_TARGET=live|off"
+  desc "Upload build/Exactly67.ipa to TestFlight (no App Store version, no submit) and record it in the ledger — AD_TARGET=live|off|mock"
   lane :upload_testflight do
     want = upload_target!
     verify_ipa_ad_mode!(want)
@@ -892,7 +907,7 @@ platform :ios do
     )
   end
 
-  desc "Archive + upload to TestFlight in one shot (no App Store version, no submit), recorded in the ledger — AD_TARGET=live|off"
+  desc "Archive + upload to TestFlight in one shot (no App Store version, no submit), recorded in the ledger — AD_TARGET=live|off|mock"
   lane :build_and_upload do
     want = upload_target!
     # Before the archive, so a stale privacy page or an unanswered live upload
@@ -929,7 +944,7 @@ platform :ios do
     UI.important("LATEST TESTFLIGHT BUILD for #{app_version} => #{n}")
   end
 
-  desc "Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic), recorded in the ledger — AD_TARGET=live|off"
+  desc "Upload the already-built IPA to TestFlight and WAIT for processing (diagnostic), recorded in the ledger — AD_TARGET=live|off|mock"
   lane :tf_upload_only do
     want = upload_target!
     verify_ipa_ad_mode!(want)

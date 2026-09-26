@@ -1,27 +1,42 @@
 import Phaser from 'phaser'
-import { adsRemoved, hintCountValue, hintsUnlimited } from '../services/ads'
+import { WELCOME_HINTS } from '../game/economy'
+import {
+  adsRemoved,
+  grantHint,
+  hintCountValue,
+  hintsUnlimited,
+  rewardedAvailable,
+  rewardedBusy,
+  rewardedLeftToday,
+  watchRewarded,
+} from '../services/ads'
+import { playReward } from '../services/audio'
 import {
   buyHintPack,
   buyNoAds,
   buyRemoveAds,
+  buyWelcomePack,
   hintPackPrice,
   HINT_PACKS,
   iapSupported,
   noAdsPrice,
+  perHintPrice,
   removeAdsPrice,
   restorePurchases,
   setHintPurchaseListener,
   setIapListener,
+  welcomePrice,
 } from '../services/iap'
 import { contentFrame, safeArea, u } from './layout'
 import { BEAM, BG, INK, OUTLINE, PAPER } from './palette'
-import { drawBackIcon, makeIconButton, TEXT } from './ui'
+import { drawBackIcon, drawBulb, drawGift, makeIconButton, onTap, TEXT } from './ui'
 
 const INK_SOFT = '#5D5470'
 
 /**
- * The shop. One screen, one honest ladder: three consumable hint packs, then
- * the permanent unlock as the top tier.
+ * The shop. One screen, one honest ladder: the one-time Welcome pack (while it
+ * is on offer) or the permanent unlock as the hero, a free hint for a rewarded
+ * ad, the hint packs as tiles with their true per-hint price, then No ads.
  *
  * The price architecture is deliberate — the unlock costs MORE than every pack
  * ($4.99 vs $0.99/$1.99/$2.99) precisely so it doesn't dominate them. When the
@@ -112,13 +127,14 @@ export class StoreScene extends Phaser.Scene {
       hintsUnlimited() ? 'unlimited' : adsRemoved() ? 'noads' : 'open',
       removeAdsPrice() ?? '-',
       noAdsPrice() ?? '-',
+      welcomePrice() ?? '-',
       ...HINT_PACKS.map((p) => hintPackPrice(p.id) ?? '-'),
     ].join('|')
   }
 
-  /** Restart preserving the return route, which plain `restart()` would drop. */
+  /** Restart preserving the return route (always a data object: see close()). */
   private rebuild() {
-    this.scene.restart(this.returnTo ? { returnTo: this.returnTo } : undefined)
+    this.scene.restart(this.returnTo ? { returnTo: this.returnTo } : {})
   }
 
   /**
@@ -126,10 +142,15 @@ export class StoreScene extends Phaser.Scene {
    * level), hand control back to it instead of starting the Menu — the player
    * paid to finish THAT board, so tearing it down would discard what they just
    * bought hints for.
+   *
+   * Only a scene actually paused under us is resumed. Phaser hands a start()
+   * with no data the scene's PREVIOUS data, so a stale returnTo once "resumed"
+   * a Game that was not running: a blank screen with no way out. Anything else
+   * goes to the Menu, which is always a way out.
    */
   private close() {
-    if (this.returnTo) {
-      const target = this.returnTo
+    const target = this.returnTo
+    if (target && this.scene.isPaused(target)) {
       this.scene.stop()
       this.scene.resume(target)
       return
@@ -166,19 +187,28 @@ export class StoreScene extends Phaser.Scene {
       .setColor('#4A4160')
   }
 
+  /**
+   * The ladder, top to bottom: a hero card (the one-time Welcome pack while it
+   * is on offer, else the Unlimited unlock), a free hint for an ad, the hint
+   * packs as three tiles, then No ads — and Unlimited again if the Welcome pack
+   * took the hero slot. While the Welcome pack shows it REPLACES the 10-hint
+   * tile, so nobody is offered more-for-less right beside it.
+   */
   private buildOffers(f: ReturnType<typeof contentFrame>, bodyTop: number, bottom: number) {
-    const cardW = Math.min(f.ew - u(48), u(340))
-    const packs = HINT_PACKS.map((p) => ({ ...p, price: hintPackPrice(p.id) })).filter(
-      (p): p is { id: string; hints: number; price: string } => p.price != null,
-    )
+    const cardW = Math.min(f.ew - u(40), u(360))
+    const welcome = welcomePrice()
+    const packs = HINT_PACKS.filter((p) => !(welcome && p.hints === 10))
+      .map((p) => ({ ...p, price: hintPackPrice(p.id) }))
+      .filter((p): p is { id: string; hints: number; price: string } => p.price != null)
     // Someone who already bought ad removal must never be offered it again —
     // neither the cheap one (they own it) nor the bundle (they'd pay a second
     // time for the half they already have). They buy hints by the pack.
     const adsOff = adsRemoved()
     const unlockPrice = adsOff ? null : removeAdsPrice()
     const noAdsOnlyPrice = adsOff ? null : noAdsPrice()
+    const freeLeft = rewardedAvailable('store') ? rewardedLeftToday('store') : 0
 
-    if (packs.length === 0 && unlockPrice == null && noAdsOnlyPrice == null) {
+    if (packs.length === 0 && unlockPrice == null && noAdsOnlyPrice == null && !welcome) {
       this.add
         .text(
           f.cx,
@@ -191,91 +221,202 @@ export class StoreScene extends Phaser.Scene {
         .setOrigin(0.5, 0)
         .setAlign('center')
         .setColor(INK_SOFT)
+      if (freeLeft > 0) this.freeHintCard(f.cx, bodyTop + u(150), cardW, u(64), freeLeft)
       this.addFooter(f, bottom, false)
       return
     }
 
-    // Cheapest first, unlock last: the ladder climbs, so the most expensive tier
-    // is also the best one — no high anchor up top, nothing dominated below.
-    // "No ads" sits between the packs and the bundle: it buys a different thing
-    // (quiet, not hints), so it competes with neither on their own terms.
-    const rows = packs.length + (noAdsOnlyPrice != null ? 1 : 0) + (unlockPrice != null ? 1 : 0)
+    // Row weights: hero 1.15, free 0.8, pack tiles 1.45, plain cards 1.
+    type Row = { kind: 'hero-welcome' | 'hero-unlock' | 'free' | 'packs' | 'noads' | 'unlock'; weight: number }
+    const rows: Row[] = []
+    if (welcome) rows.push({ kind: 'hero-welcome', weight: 1.15 })
+    else if (unlockPrice != null) rows.push({ kind: 'hero-unlock', weight: 1.15 })
+    if (freeLeft > 0) rows.push({ kind: 'free', weight: 0.8 })
+    if (packs.length > 0) rows.push({ kind: 'packs', weight: 1.45 })
+    if (noAdsOnlyPrice != null) rows.push({ kind: 'noads', weight: 1 })
+    if (welcome && unlockPrice != null) rows.push({ kind: 'unlock', weight: 1 })
+
     const footerH = u(76)
     const avail = bottom - bodyTop - footerH
-    const plainRows = packs.length + (noAdsOnlyPrice != null ? 1 : 0)
-    // Fit the whole ladder without scrolling: shrink cards on short screens
-    // rather than push the last (best) offer below the fold. The hero card is
-    // 12% taller, so it counts as 1.12 rows or the ladder overshoots.
-    const cardH = Phaser.Math.Clamp(
-      (avail - u(12) * (rows - 1)) / Math.max(plainRows + (unlockPrice != null ? 1.12 : 0), 1),
-      u(58),
-      u(84),
-    )
-    const heroH = Math.min(cardH * 1.12, u(96))
-    const cardsH = cardH * plainRows + (unlockPrice != null ? heroH : 0)
-    // A 320×568 iPhone SE with the banner strip reserved can't fit even
-    // minimum-height cards with full gaps: the hero card ran into "Hints never
-    // expire." Tighten the gaps before letting the ladder overlap the footer.
-    const gap = rows > 1 ? Phaser.Math.Clamp((avail - cardsH) / (rows - 1), u(4), u(12)) : u(12)
-    const totalH = cardsH + gap * (rows - 1)
-    let y = bodyTop + Math.max(0, (avail - totalH) / 2)
+    const totalWeight = rows.reduce((a, r) => a + r.weight, 0)
+    // Fit the whole ladder without scrolling: shrink on short screens rather
+    // than push the last offer below the fold (a 320×568 SE with the banner).
+    const unit = Phaser.Math.Clamp((avail - u(10) * (rows.length - 1)) / Math.max(totalWeight, 1), u(46), u(74))
+    const used = unit * totalWeight
+    const gap = rows.length > 1 ? Phaser.Math.Clamp((avail - used) / (rows.length - 1), u(4), u(12)) : u(12)
+    // Anchored near the top on a tall phone (the eye starts there), centred only
+    // within a small band so short screens still use every point.
+    let y = bodyTop + Math.min(u(18), Math.max(0, (avail - used - gap * (rows.length - 1)) / 2))
 
-    const biggest = packs.reduce((a, b) => (b.hints > a.hints ? b : a), packs[0])
-    for (const p of packs) {
-      // True by construction from the price ladder (0.99/1.99/2.99 for 10/30/100),
-      // and scoped to packs so it never contradicts the unlimited tier above it.
-      const badge = packs.length > 1 && p.id === biggest.id ? 'Best pack value' : undefined
-      this.offerCard({
-        cx: f.cx,
-        y: y + cardH / 2,
-        w: cardW,
-        h: cardH,
-        label: `${p.hints} hints`,
-        price: p.price,
-        badge,
-        hero: false,
-        onTap: () => this.purchase(() => buyHintPack(p.id)),
-      })
-      y += cardH + gap
-    }
-
-    if (noAdsOnlyPrice != null) {
-      // Ad removal on its own. No badge: it isn't "better value" than a hint
-      // pack, it's a different purchase, and claiming otherwise would be spin.
-      // It removes the banner and the between-level ads, but the rewarded hint
-      // video still plays (ads.ts: only Unlimited skips the ad SDK), so the card
-      // says so. Otherwise a $0.99 buyer who taps "Watch ad: +1 hint" gets a
-      // full-screen ad they believe they paid to remove. Longest wording first;
-      // a 320 pt phone only has room for a shorter one beside the price chip.
-      this.offerCard({
-        cx: f.cx,
-        y: y + cardH / 2,
-        w: cardW,
-        h: cardH,
-        label: 'No ads',
-        sublabel: ['hints not included · hint videos stay', 'without hints · hint videos stay', 'hint videos stay'],
-        price: noAdsOnlyPrice,
-        hero: false,
-        onTap: () => this.purchase(() => buyNoAds()),
-      })
-      y += cardH + gap
-    }
-
-    if (unlockPrice != null) {
-      this.offerCard({
-        cx: f.cx,
-        y: y + heroH / 2,
-        w: cardW,
-        h: heroH,
-        label: 'Unlimited hints',
-        sublabel: 'and no ads, forever',
-        price: unlockPrice,
-        hero: true,
-        onTap: () => this.purchase(() => buyRemoveAds()),
-      })
+    for (const row of rows) {
+      const h = unit * row.weight
+      const cy = y + h / 2
+      switch (row.kind) {
+        case 'hero-welcome':
+          this.offerCard({
+            cx: f.cx, y: cy, w: cardW, h,
+            label: 'Welcome pack',
+            sublabel: [`${WELCOME_HINTS} hints · welcome offer`, `${WELCOME_HINTS} hints`],
+            price: welcome as string,
+            hero: true,
+            onTap: () => this.purchase(() => buyWelcomePack()),
+          })
+          break
+        case 'hero-unlock':
+        case 'unlock':
+          this.offerCard({
+            cx: f.cx, y: cy, w: cardW, h,
+            label: 'Unlimited hints',
+            sublabel: 'and no ads, forever',
+            price: unlockPrice as string,
+            hero: row.kind === 'hero-unlock',
+            onTap: () => this.purchase(() => buyRemoveAds()),
+          })
+          break
+        case 'free':
+          this.freeHintCard(f.cx, cy, cardW, h, freeLeft)
+          break
+        case 'packs':
+          this.packTiles(f.cx, cy, cardW, h, packs)
+          break
+        case 'noads':
+          // Ad removal on its own. It removes the banner and the between-level
+          // ads, but the rewarded hint video still plays (ads.ts: only Unlimited
+          // skips the ad SDK), so the card says so — longest wording that fits.
+          this.offerCard({
+            cx: f.cx, y: cy, w: cardW, h,
+            label: 'No ads',
+            sublabel: ['hints not included · hint videos stay', 'without hints · hint videos stay', 'hint videos stay'],
+            price: noAdsOnlyPrice as string,
+            hero: false,
+            onTap: () => this.purchase(() => buyNoAds()),
+          })
+          break
+      }
+      y += h + gap
     }
 
     this.addFooter(f, bottom, true)
+  }
+
+  /** "Free hint · watch an ad": the Store's own rewarded tile, with a TRUE count left. */
+  private freeHintCard(cx: number, cy: number, w: number, h: number, left: number) {
+    const c = this.add.container(cx, cy)
+    const g = this.add.graphics()
+    g.fillStyle(0xe7f5ff, 1)
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, Math.min(u(18), h * 0.34))
+    g.lineStyle(u(3), INK, 1)
+    g.strokeRoundedRect(-w / 2, -h / 2, w, h, Math.min(u(18), h * 0.34))
+    const icon = this.add.graphics()
+    drawGift(icon, -w / 2 + u(28), 0, Math.min(u(34), h * 0.62))
+    const label = this.add.text(-w / 2 + u(54), -h * 0.14, 'Watch ad: +1 hint', TEXT.ink(15, '800')).setOrigin(0, 0.5)
+    const sub = this.add
+      .text(-w / 2 + u(54), h * 0.2, `${left} left today`, TEXT.ink(11, '700'))
+      .setOrigin(0, 0.5)
+      .setColor(INK_SOFT)
+    const chevron = this.add.text(w / 2 - u(20), 0, '▶', TEXT.ink(16, '800')).setOrigin(0.5)
+    c.add([g, icon, label, sub, chevron])
+    c.setSize(w, h)
+    c.setInteractive({ useHandCursor: true })
+    let armed = false
+    c.on('pointerdown', () => (armed = true))
+    c.on('pointerout', () => (armed = false))
+    c.on('pointerup', () => {
+      // rewardedBusy(): a video is still up from a screen this one was rebuilt
+      // over (a resize or a purchase restarts the scene and resets `buying`).
+      if (!armed || this.buying || rewardedBusy()) return
+      armed = false
+      this.buying = true
+      c.setAlpha(0.6)
+      void watchRewarded('store').then((outcome) => {
+        this.buying = false
+        if (outcome === 'earned') grantHint()
+        if (!this.sys.isActive()) return
+        if (outcome === 'earned') {
+          playReward()
+          this.showToast('+1 hint!')
+          this.time.delayedCall(700, () => this.rebuild())
+        } else {
+          c.setAlpha(1)
+          // A video the player closed early was there: "no video" would contradict it.
+          this.showToast(outcome === 'not-earned' ? "The ad didn't finish — no hint this time" : 'No video right now — try again soon')
+        }
+      })
+    })
+  }
+
+  /** The hint packs as a row of tiles: count, price, and a TRUE per-hint price. */
+  private packTiles(cx: number, cy: number, w: number, h: number, packs: { id: string; hints: number; price: string }[]) {
+    const gap = u(10)
+    const tw = (w - gap * (packs.length - 1)) / packs.length
+    // "Best value" goes on the lowest per-hint price, computed from StoreKit —
+    // never assumed from the ladder, so it stays true after any reprice.
+    const per = packs.map((p) => perHintPrice(p.id, p.hints))
+    let best = -1
+    per.forEach((v, i) => {
+      if (v && (best < 0 || v.value < (per[best]?.value ?? Infinity))) best = i
+    })
+    if (packs.length < 2) best = -1
+    packs.forEach((p, i) => {
+      const x = cx - w / 2 + tw / 2 + i * (tw + gap)
+      const c = this.add.container(x, cy)
+      const g = this.add.graphics()
+      const r = Math.min(u(18), tw * 0.2)
+      const fill = i === best ? 0xfff1c7 : PAPER
+      const draw = (pressed: boolean) => {
+        const dy = pressed ? u(4) : 0
+        g.clear()
+        if (!pressed) {
+          g.fillStyle(INK, 1)
+          g.fillRoundedRect(-tw / 2, -h / 2 + u(4), tw, h, r)
+        }
+        g.fillStyle(fill, 1)
+        g.fillRoundedRect(-tw / 2, -h / 2 + dy, tw, h, r)
+        g.lineStyle(OUTLINE, INK, 1)
+        g.strokeRoundedRect(-tw / 2, -h / 2 + dy, tw, h, r)
+      }
+      draw(false)
+      const bulb = this.add.graphics()
+      drawBulb(bulb, 0, 0, Math.min(u(22), h * 0.2))
+      bulb.setPosition(-tw * 0.2, -h * 0.28)
+      const count = this.add.text(tw * 0.02, -h * 0.28, String(p.hints), TEXT.ink(20, '800')).setOrigin(0, 0.5)
+      const price = this.add.text(0, h * 0.06, p.price, TEXT.ink(15, '800')).setOrigin(0.5)
+      const unit = per[i]
+      const perText = this.add
+        .text(0, h * 0.3, i === best ? 'Best value' : unit ? `${unit.label}/hint` : 'hints', TEXT.ink(10, '800'))
+        .setOrigin(0.5)
+        .setColor(i === best ? '#2B8A3E' : INK_SOFT)
+      if (perText.width > tw - u(8)) perText.setScale((tw - u(8)) / perText.width)
+      const kids = [g, bulb, count, price, perText]
+      c.add(kids)
+      c.setSize(tw, h)
+      c.setInteractive({ useHandCursor: true })
+      let armed = false
+      const move = (pressed: boolean) => {
+        draw(pressed)
+        const dy = pressed ? u(4) : 0
+        bulb.y = -h * 0.28 + dy
+        count.y = -h * 0.28 + dy
+        price.y = h * 0.06 + dy
+        perText.y = h * 0.3 + dy
+      }
+      // Arm on press, commit only on the SAME tile (a slide onto the next tile
+      // must never open a purchase sheet for a pack nobody pressed).
+      c.on('pointerdown', () => {
+        armed = true
+        move(true)
+      })
+      c.on('pointerout', () => {
+        armed = false
+        move(false)
+      })
+      c.on('pointerup', () => {
+        move(false)
+        if (!armed) return
+        armed = false
+        this.purchase(() => buyHintPack(p.id))
+      })
+    })
   }
 
   /** One offer row: quantity on the left, price chip on the right, whole row taps. */
@@ -400,8 +541,9 @@ export class StoreScene extends Phaser.Scene {
       .text(f.cx, bottom - u(22), 'Restore purchases', TEXT.ink(13, '700'))
       .setOrigin(0.5)
       .setColor(INK_SOFT)
+      .setPadding({ x: u(16), y: u(10) })
       .setInteractive({ useHandCursor: true })
-    restore.on('pointerup', () => {
+    onTap(restore, () => {
       if (this.buying) return
       this.buying = true
       this.showToast('Checking your purchases…')
