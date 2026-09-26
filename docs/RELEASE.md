@@ -106,7 +106,7 @@ terminated publisher's ids, so no target may accept one.
 | `test` / `test:watch` | `vitest run` / `vitest` | Logic, the level gate, the ad policy + provider suites. |
 | `build` | `tsc --noEmit && vitest run && vite build` | **Hard content gate** → `dist/`. On its own it produces an `ADMODE:test` + `ADS:on` bundle; the release chains below wrap it. |
 | `build:adsoff` | `VITE_ADS=off npm run build && node scripts/check-ad-mode.mjs off` | Ads-off bundle, gated `off`. |
-| `build:tf` | `VITE_ADS=off VITE_UNLOCK_ALL=1 npm run build && node scripts/check-ad-mode.mjs off` | Ads-off + every level unlocked, gated `off`. |
+| `build:tf` | `VITE_ADS=off npm run build && node scripts/check-ad-mode.mjs off` | Ads-off, levels in order, gated `off`. `VITE_UNLOCK_ALL=1 npm run build:tf` opens every level (`UNLOCKALL:1`). |
 | `build:live` | `node scripts/check-levelplay-config.mjs ios && VITE_AD_MODE=live npm run build && node scripts/check-ad-mode.mjs live` | The ids first, then the live bundle, gated `live`. Because the id check runs *before* anything is built, a failed check leaves no live bundle in `dist/`. A successful run does — see [Leave the tree safe](#5-leave-the-tree-safe). |
 | `build:mock` | `VITE_ADS=mock npm run build && node scripts/check-ad-mode.mjs mock` | Fake-ads bundle, gated `mock`. |
 | `build:test` | `npm run build && node scripts/check-ad-mode.mjs test` | Real-waterfall bundle, gated `test`. |
@@ -273,7 +273,7 @@ an ads-off bundle, and unset (each refused).
 The ad-mode gate proves what **one** binary is. The two-build rule is about the
 **order** of binaries, and App Store Connect keeps no copy of the web bundle to check:
 after both uploads, builds N and N+1 of the same version look alike in the build picker.
-Pick N+1 and the version ships with no ads and every level unlocked; re-run the live
+Pick N+1 and the version ships with no ads (and, on an opt-in build, every level unlocked); re-run the live
 upload from shell history instead of the ads-off one and a second real-ads build sits
 newest on TestFlight.
 
@@ -405,7 +405,7 @@ Do **not** open TestFlight now.
 ### 2. Build N+1 — ads off, immediately
 ```bash
 # bump the build number to N+1 in project.pbxproj (both configs), commit
-npm run ios:testflight                    # gates: off (ADS:off + UNLOCKALL:1)
+npm run ios:testflight                    # gates: off (ADS:off; levels in order)
 git checkout ios/App/App/Info.plist
 cd ios/App
 AD_TARGET=off fastlane archive
@@ -415,8 +415,10 @@ fastlane ledger                           # newest upload: ads-off
 Minutes, not hours: the gap between the two uploads is exactly when the owner opens
 TestFlight to look at the new version. Never end a session between step 1 and step 2.
 N+1 is **ads off**, never the `test` target — `test` serves the real waterfall under a
-reassuring name. N+1 also unlocks every level, which is what testers want and why it
-must never be the build submitted for review.
+reassuring name. Since 2026-09-26 N+1 unlocks levels in order, like the real game (the
+owner's call); `VITE_UNLOCK_ALL=1 npm run ios:testflight` still opens every level when a
+tester needs that. Either way it must never be the build submitted for review: it earns
+nothing.
 
 **Verify both landed** (do not trust a piped exit code):
 ```bash
@@ -535,7 +537,7 @@ cadence, rewarded rewards granted or withheld — with nothing real on screen:
 
 ```sh
 # bump CURRENT_PROJECT_VERSION (pbxproj ×2); MARKETING_VERSION if the train is closed
-npm run ios:testflight:mock        # ADS:mock + UNLOCKALL:1, gate reports mock
+npm run ios:testflight:mock        # ADS:mock, levels in order, gate reports mock (only when the owner asks)
 git checkout ios/App/App/Info.plist   # only if the sync hook rewrote it (commit first)
 cd ios/App
 AD_TARGET=mock fastlane archive

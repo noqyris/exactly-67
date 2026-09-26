@@ -240,7 +240,7 @@ function call it could not tree-shake either.
 | [`src/services/adProvider.ts`](../src/services/adProvider.ts) | **The seam.** `AdProvider` interface; `adsOff()` / `adsMock()`; `ADS_MARKER`; `BANNER_RESERVE_DESIGN_PX`. |
 | [`src/services/providers/levelplay.ts`](../src/services/providers/levelplay.ts) | **Unity LevelPlay**, ported from KVIZKO (same plugin version, in production there since 1.2.1). Consent before init, `adsAllowed` / `onConsentChange` / `resetConsent`, event races, prefetch (interstitial from the cache only), init retry, `APP_KEYS` / `UNITS_BY_PLATFORM`, `CONSENT_COPY`, `AD_MODE_MARKER`. |
 | [`src/services/providers/mock.ts`](../src/services/providers/mock.ts) | **Fake ads** for `npm run dev:mock` / `build:mock`: a banner, an interstitial, a 5-second rewarded video and a privacy sheet drawn in the DOM, each lettered "FAKE AD — MOCK BUILD", no network. |
-| [`src/services/buildFlags.ts`](../src/services/buildFlags.ts) | The TestFlight-only `VITE_UNLOCK_ALL` flag and its `UNLOCKALL:1` marker. |
+| [`src/services/buildFlags.ts`](../src/services/buildFlags.ts) | The opt-in `VITE_UNLOCK_ALL` test-build flag and its `UNLOCKALL:1` marker (off in every build by default since 2026-09-26). |
 | [`src/services/storage.ts`](../src/services/storage.ts) | Keys `exactly67.adClears` (interstitial counter), `exactly67.adsRemoved`, `exactly67.unlimitedHints`, `exactly67.hintFreeDate`, `exactly67.hintCount`, `exactly67.reviewRequested`, `exactly67.levelplayConsentMigrated` (the one-time consent reset has run). The consent decision itself is stored natively by the plugin. |
 | [`src/services/music.ts`](../src/services/music.ts) | `suppressMusic(on)`: the counted hold `ads.ts` takes for the length of every full-screen ad. |
 | [`src/render/layout.ts`](../src/render/layout.ts) | `setAdBannerReserve()` / `adBannerReserve()`; `safeArea().bottom` includes the strip. |
@@ -489,7 +489,7 @@ Summary; the full table and every gate are in [`RELEASE.md`](RELEASE.md).
 |---|---|---|
 | `VITE_AD_MODE=live` / anything else | `ADMODE:live` / `ADMODE:test` | Declared App Store build or not. **Fails safe**: only the literal `live` declares live. |
 | `VITE_ADS=off` / `mock` / anything else | `ADS:off` / `ADS:mock` / `ADS:on` | No ad surface / fake ads / the real network. |
-| `VITE_UNLOCK_ALL=1` | `UNLOCKALL:1` (absent otherwise) | TestFlight "all levels unlocked". A live build must not carry it. |
+| `VITE_UNLOCK_ALL=1` | `UNLOCKALL:1` (absent otherwise) | An opt-in test build with "all levels unlocked" (TestFlight builds unlock in order by default). A live build must not carry it. |
 
 **On LevelPlay, `ADMODE:test` is not test inventory.** The same unit ids ship in
 every build; `isTesting` only unlocks Unity's Test Suite (the plugin maps it to
