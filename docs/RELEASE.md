@@ -44,7 +44,7 @@ the LevelPlay dashboard see [`MONETIZATION.md`](MONETIZATION.md).
 
 | Platform | Marketing version | Build number | Files |
 |---|---|---|---|
-| **iOS** | `1.2.1` | `27` | `ios/App/App.xcodeproj/project.pbxproj` only — `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`, **two occurrences each** (the App target's Debug and Release configs). `ios/App/App/Info.plist` reads them as `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)`; never put literal numbers back there. |
+| **iOS** | `1.3.0` | `36` | `ios/App/App.xcodeproj/project.pbxproj` only — `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`, **two occurrences each** (the App target's Debug and Release configs). `ios/App/App/Info.plist` reads them as `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)`; never put literal numbers back there. |
 | **Android** | `versionName "1.2.0"` | `versionCode 2` | `android/app/build.gradle` |
 
 - **iOS:** every upload needs a **unique build number**, even for the same marketing
@@ -442,6 +442,22 @@ ledger check, so start from the ledger:
 4. On each first-time IAP → **Add for Review** → pick the **existing draft**.
 5. App Review → Drafts → confirm the item count → **Submit for Review**.
 
+**Through the API instead of the UI (how 1.3.0 went in).** A review submission item can
+carry an `inAppPurchaseVersion` (App Store Connect API 4.5), so first-time IAPs join the
+version's submission without the web UI: `GET /v2/inAppPurchases/{id}/versions` for each
+IAP's version id (an approved IAP whose text must change gets a new one from
+`POST /v1/inAppPurchaseVersions`), `POST /v1/reviewSubmissionItems` for the version and
+each IAP version into the draft `reviewSubmission`, then `PATCH` it `submitted: true`. Run
+the checks `submit` would have run first: `fastlane ledger` (N live, a higher ads-off build
+after it), the published privacy page, export compliance on build N, manual release.
+Two traps: deliver only edits a version in `PREPARE_FOR_SUBMISSION`, and a version with a
+build and complete metadata reads `READY_FOR_REVIEW`, so `prep_version` / `metadata` /
+`screenshots` then try to *create* it and fail ("version number has been previously
+used") — push the listing with `node tools/asc/push-listing.mjs text|shots <version>`
+instead. And screenshots cannot change while the version is an item of a draft
+submission: `DELETE /v1/reviewSubmissionItems/{id}` puts it back to
+`PREPARE_FOR_SUBMISSION`; add it again before submitting.
+
 Without first-time IAPs, `APP_VERSION=1.2.1 BUILD_NUMBER=N fastlane submit` does steps
 1, 3 and 5 in one go with manual release set, and pushes `fastlane/metadata`
 (description, release notes) with them — after refusing unless the ledger shows N live
@@ -536,10 +552,10 @@ as `mock`.
 | Item | State |
 |---|---|
 | **App Store** | **1.2.0** live (AdMob-era; its ads stopped with the account on 2026-08-18). |
-| **1.3.0** | The meta-game update ([`RETENTION.md`](RETENTION.md)): streaks, calendar, Star Jar, pack medals, daily gift, eight rewarded placements, Welcome pack IAP (`com.noqyris.exactly67.welcome`, consumable, 25 hints), local reminders, new Store/menu/win card, new icon (`tools/make-icon.mjs`), wide/foldable layout, Capacitor 8.5 + UIScene for Xcode 27. The 1.3.0 listing (new name "Exactly 67: Math Puzzle Game", subtitle, keywords, description, release notes) is staged in `ios/App/fastlane/metadata-next/` — **swap it into `metadata/` only when submitting 1.3.0** (the submit lanes upload `metadata/`, and 1.2.1 is still in review). Builds 31 and 32 went to TestFlight as `mock` (fake ads, all levels unlocked); 32 carries the fixes from the adversarial audit of 2026-09-23 (26 verified defects + round-two findings, fixed and re-verified). |
-| **1.2.1** | (2026-09-23: `READY_FOR_REVIEW` with build **29** live attached; build 30 ads-off newest on TestFlight.) 600 levels, Daily Challenge, the Store, music, the LevelPlay migration. The migration was done on `feat/monetization`. Project at 1.2.1 / build 27. Not submitted. **Plan:** build **28** live (`npm run ios:appstore` + `AD_TARGET=live`), submitted from the ASC UI for 1.2.1 with **manual release**, together with the four READY_TO_SUBMIT IAPs (`hints10` / `hints30` / `hints100` consumables, `noads` non-consumable); immediately build **29** ads-off (`npm run ios:testflight` + `AD_TARGET=off`) to TestFlight; expire 28 on TestFlight once it is `READY_FOR_SALE`. Build 28 is the first upload the ledger will record. |
+| **1.3.0** | **Submitted for review 2026-09-26** (`WAITING_FOR_REVIEW`, **manual release**) with build **35** (live ads; the ledger records 35 live, then 36 ads-off). One submission holds the version plus five IAP versions: `welcome`, `hints10`, `hints30`, `hints100` (first-time consumables) and `removeads` **v2** (renamed *Unlimited Hints + No Ads* / *Unlimited hints and no ads. One-time unlock.*, new review note and Store review screenshot; v1 stays on sale until v2 is approved). `noads` is untouched (approved). The listing went up through `tools/asc/push-listing.mjs` (name *Exactly 67: Math Puzzle Game*, subtitle, description, keywords, What's New, review notes from `metadata/review_information/notes.txt`, 6 + 6 captioned screenshots). The 1.2.1 version record was renamed to 1.3.0 (1.2.1 never shipped). Builds 29 and 33 (live) are expired on TestFlight; 34 and 36 are ads-off. **After approval:** press Release, then expire build **35** on TestFlight. |
+| **1.2.1** | Never submitted; its version record became 1.3.0 on 2026-09-26, and its What's New is folded into 1.3.0's. |
 | **LevelPlay (iOS)** | Done 2026-09-16: app key `282af3d55`, three ad units, Unity Ads bidding (Game ID `800374923`) — see [`MONETIZATION.md`](MONETIZATION.md#going-live--what-is-left). SPM held at LevelPlay 9.6.0 / adapter 5.11.0 / Unity Ads 4.20.0 / Ad Quality 9.9.0; `-ObjC` on the App target. |
-| **Still open before review** | Everything in the [pre-release checklist](#0-before-you-start--the-pre-release-checklist): publish `docs/privacy.html` + `docs/index.html` to `main` (the privacy gate refuses every live upload until then), confirm the Unity Ad Controls age setting, rename the `removeads` IAP in ASC, re-capture the screenshots. App Privacy needs no change (network-agnostic: Identifiers, Location and Usage Data used for tracking, plus Diagnostics). |
+| **Pre-release checklist (1.3.0)** | Done 2026-09-26: `docs/privacy.html` (1.3.0: Welcome pack, reminders, on-device data) published on `main`; Unity Ad Controls "Do not show ads rated 13+" (owner-confirmed); `removeads` renamed; screenshots re-captured. App Privacy unchanged (network-agnostic: Identifiers, Location and Usage Data used for tracking, plus Diagnostics). |
 | **Consent on upgrade** | The first launch of 1.2.1 resets any stored consent record once (`exactly67.levelplayConsentMigrated`), so **every existing install on an ads-on build** — every player except Unlimited-hints owners — sees ATT (if still undecided) and the "Ads and your data" modal once more, TestFlight testers who already answered it included. Ads-off builds never run the reset. Intended: 1.2.0's Google consent form may have left IAB TCF keys the LevelPlay plugin would read as its own decision. |
-| **TestFlight hygiene** | Before 1.2.1 goes out, check which older builds are still installable and expire any that serve ads. |
+| **TestFlight hygiene** | Installable after 2026-09-26: 36 (ads off, newest), 35 (live — the review build; expire once `READY_FOR_SALE`), 34/30/28 (ads off), 31/32 (mock). |
 | **Android** | Last AAB: `versionCode 2` / `1.2.0` (AdMob-era — do not upload). Needs gated Android chains, the LevelPlay Android app, and the Play IAP products (blocked on a Google Payments profile). |

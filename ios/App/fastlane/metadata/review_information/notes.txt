@@ -1,0 +1,25 @@
+No account or login is needed. Puzzles play offline; ads and purchases need a connection.
+
+GETTING AROUND
+- A new install opens straight into Level 1: drag or tap weights onto the right pan until it reads exactly 67. The back arrow in a level goes to the level map, and back again to the main menu (Continue, Daily Challenge, Levels, Store; Settings gear at the top right).
+- Levels unlock one at a time as you clear them (600 levels in 25 packs).
+- The Daily Challenge is open from the start: tap "Daily Challenge" on the menu to play today's board. The flame at the top left opens the streak and month calendar (past days of this month can be replayed).
+- A new install starts with 3 hints; the bulb button in a level spends one to highlight a piece of the answer. They are the install day's gift, so no gift card shows that day; from the next calendar day a daily gift card pops up when the menu opens.
+
+ADS (Unity LevelPlay, Unity Ads network only)
+- Nothing ad-related appears during Level 1. When you leave Level 1's win card, the app shows Apple's App Tracking Transparency prompt, then its own "Ads and your data" alert (Accept / Decline / Privacy policy). The ad SDK is initialized only after Accept. After Decline no ads of any kind are shown and reward videos are off; nothing else changes: every level plays, and hints still come from the daily gift, Star Jar, pack rewards and streak milestones. The ATT answer alone changes nothing in the game. Later launches use the stored choice and ask nothing.
+- The alert is the ad network's consent step, shown after ATT, not instead of it.
+- "Privacy choices" (a small link at the top right of the main menu, under the gear; also in Settings) reopens the alert at any time.
+- After Accept: a banner at the bottom of the screen, and full-screen ads only between levels, when you leave a win card with Next or Map, never during a puzzle. They start after level 8 and come at most every third clear, at least 3 minutes apart and at most 3 per session, so a short session may show none.
+- Rewarded videos are always optional buttons the player taps ("Watch ad: ..."), each naming its reward first: in the out-of-hints window, the Store, win-card rewards, the streak screen and the daily gift (from the second day).
+
+IN-APP PURCHASES
+All are in the Store: the menu's "Store" button, or tap the hint count in the top bar. "Restore purchases" is at the bottom of the Store.
+- com.noqyris.exactly67.welcome (consumable, "Welcome Pack: 25 Hints"): 25 hints, one time. Offered only to a player who has bought nothing yet: the top card of the Store, "Welcome pack!" on the menu's Store button, and the link in the out-of-hints window. While offered it replaces the 10-hint tile, which returns after any purchase.
+- com.noqyris.exactly67.hints10, hints30, hints100 (consumables, "10 Hints" / "30 Hints" / "100 Hints"): 10, 30 or 100 hints, the pack tiles in the Store. Hints never expire.
+- com.noqyris.exactly67.noads (non-consumable, "No Ads"; the "No ads" card): removes the banner and the full-screen ads between levels. Hints are not included; the optional hint videos stay.
+- com.noqyris.exactly67.removeads (non-consumable, "Unlimited Hints + No Ads"; the "Unlimited hints" card): unlimited hints and no ads of any kind. Right after it the Store shows "You're all set", and the menu hides its Store button.
+Order matters: once either ad-removal product is owned, the Store stops offering "Unlimited hints", and after "Unlimited hints" nothing is left to buy. Suggested order: Welcome pack, then the hint packs, then "Unlimited hints". "No ads" can be bought on a fresh install with another sandbox account.
+
+REMINDERS
+Local notifications, opt-in: nothing is asked at launch. A "Remind me daily" button can appear on a win card (after a Daily Challenge clear, or a 3-star clear from level 5 on); iOS asks for permission only after it is tapped (or the Settings switch). Settings > "Daily reminder" turns them on or off.

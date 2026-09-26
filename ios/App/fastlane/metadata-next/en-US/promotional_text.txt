@@ -1,1 +1,0 @@
-Make the scale read exactly 67. Weights push down, balloons pull up, and every level has a perfect answer. 600 levels, a new Daily Challenge each day, and no timer.
