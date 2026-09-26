@@ -544,8 +544,14 @@ AD_TARGET=mock fastlane archive
 AD_TARGET=mock fastlane upload_testflight
 ```
 
-Every ad on it says **FAKE AD — MOCK BUILD**. IAP on a TestFlight build is the
-StoreKit **sandbox** (no real charge). The Xcode guard, the Fastfile gate and the
+Every ad on it says **FAKE AD — MOCK BUILD**, and it buys from the **fake store**
+(`providers/mockIap.ts`): StoreKit is never asked, every purchase shows a DOM sheet
+"FAKE PURCHASE — MOCK BUILD" with Cancel / Confirm and `$x.xx · TEST` prices, and the
+game grants it through its real code path. That is what makes the Store testable on a
+build installed over the cable, which would otherwise ask for a Sandbox Apple Account
+on every purchase. `check-iap-mock-off.mjs` runs in every build chain (the marker
+`IAP:mock` must be absent outside mock builds, present in them) and the Xcode guard
+refuses it in any non-mock bundle. The Xcode guard, the Fastfile gate and the
 ledger all accept `mock` only when it is stated; `submit` refuses a build recorded
 as `mock`.
 

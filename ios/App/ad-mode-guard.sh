@@ -195,6 +195,14 @@ fi
 mode=test; [ "$n_live" -eq 1 ] && mode=live
 ads=on; [ "$n_off" -eq 1 ] && ads=off; [ "$n_mock" -eq 1 ] && ads=mock
 
+# The FAKE store (services/providers/mockIap) hands out every product for free.
+# It belongs to fake-ads bundles only; scripts/check-iap-mock-off.mjs keeps it out
+# of every other npm chain, and this keeps it out of every other binary.
+marker='IAP:mock'; n_iapmock=$(count "$@")
+if [ "$n_iapmock" -gt 0 ] && [ "$ads" != mock ]; then
+  refuse "App/public carries the FAKE store (IAP:mock) in an ADS:$ads bundle: every purchase would be free. Run the npm sync chain for this target."
+fi
+
 # Contradictions baked into the bundle itself, whatever anybody states.
 if [ "$mode" = "live" ] && [ "$ads" != "on" ]; then
   refuse "App/public carries ADMODE:live with ADS:$ads: a store build that never loads a real ad is a contradiction, not a mode. Rebuild without VITE_ADS (npm run ios:appstore)."

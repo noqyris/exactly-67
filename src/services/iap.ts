@@ -77,7 +77,9 @@ export function setHintPurchaseListener(cb: ((n: number) => void) | null): void 
 }
 
 export function iapSupported(): boolean {
-  return Capacitor.isNativePlatform() && typeof CdvPurchase !== 'undefined'
+  // A fake-ads build buys from the fake store (providers/mockIap), in a browser
+  // too; in every other build the env read folds to false and this is unchanged.
+  return (Capacitor.isNativePlatform() || import.meta.env.VITE_ADS === 'mock') && typeof CdvPurchase !== 'undefined'
 }
 
 /** Register a callback fired when ownership/products change, to refresh the UI. */
@@ -94,6 +96,15 @@ export function removeAdsPrice(): string | null {
 
 /** Initialize StoreKit and wire the purchase flow. Safe to call once. */
 export async function initIap(): Promise<void> {
+  // A fake-ads build buys from a FAKE store instead of StoreKit
+  // (providers/mockIap): a build installed over the cable would ask for a Sandbox
+  // Apple Account on every purchase and every receipt refresh. It swaps the
+  // CdvPurchase global before anything below reads it. The env read stays
+  // inline at the import so Vite drops the module from every other bundle.
+  if (import.meta.env.VITE_ADS === 'mock' && !initialized) {
+    const { installMockIap } = await import('./providers/mockIap')
+    await installMockIap()
+  }
   if (!iapSupported() || initialized) return
   initialized = true
   const store = CdvPurchase.store
