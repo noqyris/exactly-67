@@ -47,6 +47,9 @@
 #     missing App/SceneDelegate.swift, never builds: iOS 27 would not launch it;
 #   - App/capacitor.config.json carrying server.url never builds: the app would
 #     load a dev server (a leftover of `cap run -l`), not the bundle proven here;
+#   - a capacitor-levelplay-ads in node_modules without its iOS consent
+#     patches (scripts/patch-levelplay-consent.mjs) never builds: unpatched, a
+#     Decline reads back as consent and every answer says "GDPR does not apply";
 #   - a bundle whose markers are missing or doubled never builds: it cannot be
 #     proven (every AdMob-era bundle of this app is such a bundle);
 #   - ADMODE:live builds only under AD_TARGET=live, never with ADS:off/mock,
@@ -124,6 +127,37 @@ if [ -f "$cfg" ]; then
   elif grep -a -q '"url"' "$cfg"; then
     refuse "App/capacitor.config.json cannot be parsed and mentions a \"url\": it may point the app at a dev server instead of App/public. Run an npm sync chain (npm run ios:sync), which rewrites the file from capacitor.config.ts."
   fi
+fi
+
+# The consent patches (scripts/patch-levelplay-consent.mjs) in the plugin this
+# build compiles. CapApp-SPM points at node_modules, relative to SRCROOT
+# (ios/App), so this reads exactly the files an archive compiles. A targeted
+# `npm install <pkg>` skips postinstall, and an unpatched plugin builds fine:
+# then a Decline reads back as consent, every answer tells each SDK that GDPR
+# does not apply, and Decline is drawn apart from Accept. Every build, Run and
+# Archive, ads-off and mock included: the next live archive compiles these same
+# files. The same rows, at the same counts, as the iOS half of
+# scripts/lib/consent-patch-markers.mjs (scripts/consentGates.test.ts compares
+# them).
+lp="$SRCROOT/../../node_modules/capacitor-levelplay-ads/ios/Sources/LevelPlayAdsPlugin"
+unpatched=''
+need_patch() { # file marker expected-count
+  if [ ! -f "$lp/$1" ]; then
+    unpatched="$unpatched $1 is missing;"
+    return 0
+  fi
+  found=$(grep -a -oF -- "$2" "$lp/$1" | wc -l | tr -d ' ')
+  if [ "$found" != "$3" ]; then
+    unpatched="$unpatched $1 has $2 x$found (expected x$3);"
+  fi
+}
+need_patch TcfPrefs.swift PATCHED-CONSENT-ORDER 1
+need_patch LevelPlayAdsImpl.swift PATCHED-CUSTOM-STATUS 1
+need_patch LevelPlayAdsImpl.swift PATCHED-GDPR-FRESH 1
+need_patch LevelPlayAdsImpl.swift PATCHED-EQUAL-BUTTONS 1
+need_patch LevelPlayAdsImpl.swift PATCHED-NO-TCF-STUB 2
+if [ -n "$unpatched" ]; then
+  refuse "capacitor-levelplay-ads in node_modules is missing its consent patches:$unpatched Run a bare 'npm install' (its postinstall applies them; 'npm install <pkg>' skips it) or 'node scripts/patch-levelplay-consent.mjs', then the npm sync chain again."
 fi
 
 if [ ! -d "$public" ]; then

@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
     // The ad suites re-import the whole module graph (600 levels included) per
     // test; alone they take up to ~4 s, so the 5 s default failed the build gate
     // at random whenever the machine was busy.

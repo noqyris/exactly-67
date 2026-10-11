@@ -28,10 +28,12 @@
 // before an archive: a chain that ended red here still leaves its bundle in
 // App/public, and `AD_TARGET=live fastlane archive` would otherwise build it.
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { consentPatchProblems } from './lib/consent-patch-markers.mjs'
 import { GENERATED, scanGenerated } from './lib/google-surfaces.mjs'
-import { readAppPackage } from './lib/levelplay-plugin.mjs'
+import { PLUGIN_NAME, readAppPackage } from './lib/levelplay-plugin.mjs'
 import { CORE_VERSION, IOS_AD_QUALITY_VERSION, NETWORKS, requireAdapterVersion, wantedNetworks } from './lib/levelplay-versions.mjs'
 
 const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -242,6 +244,32 @@ if (platform === 'ios') {
   }
 }
 
+// 4b ── the plugin the binary compiles must carry the consent patches
+//      (scripts/patch-levelplay-consent.mjs), on every target: the files are
+//      compiled into every binary, ads-off and mock included, and the next live
+//      build is archived from the same node_modules. A targeted
+//      `npm install <pkg>` skips postinstall, and an unpatched plugin builds
+//      fine — then reads a Decline back as consent, tells every SDK that GDPR
+//      does not apply, and dresses Decline apart from Accept. The marker table
+//      is scripts/lib/consent-patch-markers.mjs.
+{
+  const require = createRequire(pathToFileURL(APP_ROOT + '/'))
+  let pluginDir = null
+  try {
+    pluginDir = dirname(require.resolve(`${PLUGIN_NAME}/package.json`))
+  } catch {
+    fail(`${PLUGIN_NAME} cannot be resolved from ${APP_ROOT}`, 'The install is incomplete. Re-run a bare `npm install`, then the chain again.')
+  }
+  const problems = consentPatchProblems(pluginDir, platform)
+  if (problems.length) {
+    fail(
+      `${PLUGIN_NAME} is missing its consent patches: ${problems.join('; ')}`,
+      'Run a bare `npm install` (its postinstall applies them; `npm install <pkg>` skips it) or ' +
+        '`node scripts/patch-levelplay-consent.mjs`, then re-run the whole chain.',
+    )
+  }
+}
+
 // 5 ── and it must be the bundle that was just built, not an older one with the
 //      same mode. Same mode is not the same build: a stale sync of a same-mode
 //      bundle is invisible to the check above. Vite fingerprints every chunk,
@@ -269,5 +297,6 @@ if (existsSync(distDir)) {
 
 console.log(
   `✓ native-sync (${platform}): ${DESCRIBE[expected]}${seen.unlock ? ', all levels unlocked' : ''}, matches dist/, ` +
-    `no Google surface in the synced project${platform === 'ios' ? ', LevelPlay SDK linked + pinned to the tested versions' : ''}, no boot-mode build`,
+    `no Google surface in the synced project${platform === 'ios' ? ', LevelPlay SDK linked + pinned to the tested versions' : ''}, ` +
+    'consent patches in place, no boot-mode build',
 )
