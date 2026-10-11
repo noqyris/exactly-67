@@ -184,6 +184,71 @@ export async function saveConsentMigrated(): Promise<void> {
   }
 }
 
+// When the ad-consent question was last shown (epoch ms). Option A re-asks a
+// refusal only on a tapped ad offer, and at most once per 180 days after it
+// (game/adConsent.ts), so the clock has to outlive the launch. Absent = never
+// recorded: every answer given before option A, which the rules ask once more.
+const CONSENT_ASKED_AT_KEY = 'exactly67.adConsentAskedAt'
+
+export async function loadAdConsentAskedAt(): Promise<number> {
+  try {
+    const { value } = await Preferences.get({ key: CONSENT_ASKED_AT_KEY })
+    const n = value ? Number(value) : 0
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+  } catch {
+    return 0
+  }
+}
+
+export async function saveAdConsentAskedAt(ms: number): Promise<void> {
+  try {
+    await Preferences.set({ key: CONSENT_ASKED_AT_KEY, value: String(Math.max(0, Math.floor(ms))) })
+  } catch {
+    // non-fatal: a refusal is asked once more on the next tapped offer
+  }
+}
+
+/** What opened the question, and how it ended — the tally's two axes. */
+export type ConsentTallyTrigger = 'afterLevel' | 'adTap' | 'settings'
+export type ConsentTallyResult = 'granted' | 'denied' | 'unanswered'
+
+// How the ad-consent question has been answered on this device: counts by what
+// opened it and how it ended, nothing else — no time, no identifier, never sent
+// anywhere (option A rule 9: answers are counted only in aggregate). Exactly 67
+// has no analytics; until it does, the owner's measure is LevelPlay's player
+// count against App Store Connect's active devices, and this tally is the
+// on-device half a future analytics sink can report as is.
+const CONSENT_TALLY_KEY = 'exactly67.adConsentTally'
+
+export async function loadAdConsentTally(): Promise<Record<string, number>> {
+  try {
+    const { value } = await Preferences.get({ key: CONSENT_TALLY_KEY })
+    const parsed: unknown = value ? JSON.parse(value) : {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const out: Record<string, number> = {}
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (/^(afterLevel|adTap|settings):(granted|denied|unanswered)$/.test(k) && Number.isInteger(v) && (v as number) > 0) {
+        out[k] = v as number
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** Count one answer to the question. Never throws. */
+export async function tallyAdConsentAnswer(trigger: ConsentTallyTrigger, result: ConsentTallyResult): Promise<void> {
+  try {
+    const tally = await loadAdConsentTally()
+    const key = `${trigger}:${result}`
+    tally[key] = (tally[key] ?? 0) + 1
+    await Preferences.set({ key: CONSENT_TALLY_KEY, value: JSON.stringify(tally) })
+  } catch {
+    // non-fatal: one answer goes uncounted
+  }
+}
+
 // Last UTC day the player completed the Daily Challenge (YYYY-MM-DD).
 const DAILY_DONE_KEY = 'exactly67.dailyDone'
 export async function loadDailyDone(): Promise<string> {

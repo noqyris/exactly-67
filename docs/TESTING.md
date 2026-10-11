@@ -59,11 +59,17 @@ other services are covered by manual E2E (§4), since they need Phaser or a devi
 | `progress.test.ts` | 9 | `mergeClear` monotonicity, `isUnlocked` one-step-back, `parseProgress` dropping corrupt entries. |
 | `daily.test.ts` | 4 | The Daily Challenge board is deterministic per date and solver-verified across a year of dates. |
 | `share.test.ts` | 14 | The share card: route glyphs, never a weight value. |
-| `services/adsPolicy.test.ts` | 38 | **The ad policy, unchanged by the network move:** every interstitial cadence rule (onboarding, pack finales derived from `PACKS`, 3 clears, 180 s floor, 90 s warm-up, session cap, rewarded suppression) plus no interstitial without consent; the cadence spent only on a presented ad; navigation waits for the dismissal; the loop/music pause and resume, the music **hold** taken for the whole ad and released however it ended (refused, failed, abandoned, skipped); a rewarded hint pays out only on an earned reward, including the close-before-reward race; the three `RewardedOutcome`s the hint modal words its message from, and no network touched without consent. |
-| `services/adsEntitlements.test.ts` | 31 | Who gets what: nothing bought / No ads (SDK, never an interrupting format) / Unlimited (no SDK at all); purchases mid-session, including a banner whose request **failed** (still removed, still hidden under a full-screen ad); the banner requested once and re-asked until it exists; Privacy choices: a mid-session withdrawal removes the banner and stops interstitials and hint videos, a later yes brings them back, a withdrawal during banner creation removes it once it lands; the **one-time consent reset** runs before the first `init()` and never again (No ads owners migrated, Unlimited owners and ads-off builds never reset); an `ADS:off` build makes **not one** provider call. |
+| `services/adsPolicy.test.ts` | 47 | **The ad policy, unchanged by the network move:** every interstitial cadence rule (onboarding, pack finales derived from `PACKS`, 3 clears, 180 s floor, 90 s warm-up, session cap, rewarded suppression) plus no interstitial without consent; the cadence spent only on a presented ad; navigation waits for the dismissal; the loop/music pause and resume, the music **hold** taken for the whole ad and released however it ended (refused, failed, abandoned, skipped); a rewarded hint pays out only on an earned reward, including the close-before-reward race; the `RewardedOutcome`s the hint modal words its message from, and no network touched without consent (against a provider with no consent *question*; option A has its own suite below). |
+| `services/adsEntitlements.test.ts` | 35 | Who gets what: nothing bought / No ads (SDK, never an interrupting format) / Unlimited (no SDK at all, never asked); purchases mid-session, including a banner whose request **failed** (still removed, still hidden under a full-screen ad); the banner requested once and re-asked until it exists; Settings → Privacy & ads: it asks the provider's question, a mid-session withdrawal removes the banner and stops interstitials and hint videos (and hides the offers for the quiet period), a later yes brings them back, a withdrawal during banner creation removes it once it lands; the **one-time consent reset** runs before the first `init()` and never again (No ads owners migrated, Unlimited owners and ads-off builds never reset); an `ADS:off` build makes **not one** provider call. |
 | `services/adsMusicHold.test.ts` | 6 | The real `music.ts` against a stand-in document and window: while held, no visibilitychange / focus / pageshow and no direct call starts the bed; released, it starts at once; the hold is counted, an extra release banks no credit, and a player with music off stays off. |
 | `services/adsMarkers.test.ts` | 20 | The build markers the gates count: `ADS:*` and `ADMODE:*` folded once per build, `UNLOCKALL:1` present exactly when set and stamped by live code; the providers carry the markers on `id`; the inline provider pick; the mock banner matches the strip; **no TEST ADS badge**; no Google plugin, unit id or app-open code in the ad layer; scenes reach ads only through the policy layer. |
-| `services/providers/levelplay.test.ts` | 69 | The LevelPlay provider: formats; empty ids, Android's state (`init()` refuses an empty key before any prompt); **consent before `initialize()`** and only `GRANTED` starts the SDK (a `DENIED` decline never does); late consent; the consent reset (before ATT, the modal and `initialize`; its `UNKNOWN` event never starts the SDK; a running SDK is never reset; a refused reset does not throw); `adsAllowed()` and consent reporting to the policy layer; `onReady`; `testing` is false; the rewarded reward-vs-skip race, including the 10 s display deadline; prefetch, and a tap-time rewarded miss re-arming the backoff; the interstitial answered **from the cache only** (a miss is false at once and fetches for next time, an in-flight load is not joined, a waiting backoff is not pre-empted, a refused `isReady` is a miss); interstitial resolve-on-present; the dismissal watcher; the banner; the CCPA/COPPA flags set before init; init retry with backoff and on foreground. |
+| `services/providers/levelplay.test.ts` | 87 | The LevelPlay provider: formats; empty ids, Android's state (`init()` refuses an empty key before any prompt); **consent → ATT → `initialize()`** and only `GRANTED` starts the SDK (a `DENIED` decline never does); **option A**: `init()` asks nothing (no alert, no ATT, no SDK without a stored answer; a stored one applied with no UI), `askConsent()` after a level / on a tap (one more sentence) / from Settings (always `showPrivacyOptions`), a no never reaches ATT, one alert at a time, ATT asked once, a foreground retry never overtakes an ATT alert, a no during ATT starts nothing; the words (who, what, why, what a no means, where to change it; no "plays the same", "support", "Allow"; equal answers) and the neutral ATT string identical in `package.json` and `Info.plist`; late consent; the consent reset (afterwards `init()` asks nothing and starts nothing; its `UNKNOWN` event never starts the SDK; a running SDK is never reset; a refused reset does not throw); `adsAllowed()` and consent reporting to the policy layer; `onReady`; `testing` is false; the rewarded reward-vs-skip race, including the 10 s display deadline; prefetch, and a tap-time rewarded miss re-arming the backoff; the interstitial answered **from the cache only** (a miss is false at once and fetches for next time, an in-flight load is not joined, a waiting backoff is not pre-empted, a refused `isReady` is a miss); interstitial resolve-on-present; the dismissal watcher; the banner; the CCPA/COPPA flags set before init; init retry with backoff and on foreground. |
+| `game/adConsent.test.ts` | 12 | Option A's pure rules: the after-level question (no answer only, once per session, never an ad-free owner, never after a card that already asked or offered a video), a refusal re-asked only on a tap and not for 180 days (no recorded time = ask once; a clock that went backwards = not yet), offers drawn only with consent or where a tap would ask. |
+| `services/adsConsent.test.ts` | 25 | Option A in the policy layer: nothing asked at launch; the question at the first break (Level 1 included) in place of the interstitial, the next level waiting for the answer, once per session (a new session one more try), never after a card that asked, never for owners, never before the stored answer is read; a tapped offer asks and plays on a yes, a no or no answer plays and loads nothing (`'no-consent'`), a refusal hides every placement's offer for 180 days, then asks again; Settings always asks (never an Unlimited owner); the one-time reset before an early question; answers tallied by trigger and result; ADS:off asks nothing. |
+| `services/providers/mockConsent.test.ts` | 7 | The fake-ads build: nothing asked at init and no fake ad without a yes; the FAKE window with the real words and three identical ≥ 44 px buttons; Accept brings the fake SDK up, Don't accept takes the banner down; the answer kept under the mock's own key, read at the next launch; its presses stay on it (Phaser takes releases from `window`); one window at a time; the policy button opens the policy. |
+| `services/report.test.ts` | 4 | "Report an ad": a `mailto:` to the support address the support page and the privacy policy already give, the build in the subject and footer, the prompts, the encoding, `__APP_VERSION__` read from `project.pbxproj`. |
+| `scripts/patchLevelplayConsent.test.ts` | 20 | The consent patch, run for real in a throwaway copy of the app: the eleven bodies (what each changes), all applied, idempotent, the 1.3.0 tree (CONSENT-ORDER only) upgraded byte-for-byte, ALL-OR-NOTHING on any unknown shape, a missing file, a body found twice, an edited or doubled patched body; the exact 0.1.42 pin and install enforced; and the installed plugin carries all eleven. |
+| `scripts/consentGates.test.ts` | 9 | The gates' marker tables (`scripts/lib/consent-patch-markers.mjs`, `ios/App/ad-mode-guard.sh`) match what the patch writes; `check-native-sync.mjs` applies them; and the real Xcode guard, run against a fixture tree (macOS), passes a patched plugin and refuses an unpatched one on a Run and an Archive. |
 
 ---
 
@@ -78,7 +84,7 @@ npm run dev          # vite dev server → http://localhost:5173
 The browser runs the **exact same Phaser code** as the device — same rendering,
 input, and game logic. Only the native-only services differ: in plain `npm run dev`,
 ads, IAP, haptics and the rating prompt are **web no-ops** (no banner strip, no Store
-button, no "Privacy choices" link). This makes the browser the fastest, most reliable
+button, no "Privacy & ads" row or link, no consent question). This makes the browser the fastest, most reliable
 way to test gameplay.
 
 ### Web with fake ads — testing the ad flow
@@ -87,26 +93,36 @@ way to test gameplay.
 npm run dev:mock     # VITE_ADS=mock: providers/mock.ts draws the ads, no network
 ```
 
-The mock build exercises **our** ad code end to end — the reserved strip, the
-cadence, navigation waiting for a dismissal, a reward granted or withheld, the loop
-and music pausing — with no device, no network and nothing billable. Every surface
-reads "FAKE AD — MOCK BUILD", is safe to tap, and carries
-`data-e67-mock="banner|interstitial|rewarded|privacy"` (close buttons:
-`data-e67-mock-close`) for automation. It proves nothing about whether the real
+The mock build exercises **our** ad code end to end — the consent question's three
+moments (option A), the reserved strip, the cadence, navigation waiting for a
+dismissal, a reward granted or withheld, the loop and music pausing — with no device,
+no network and nothing billable. Every surface reads "FAKE AD — MOCK BUILD" (the
+consent window "FAKE CONSENT WINDOW — MOCK BUILD"), is safe to tap, and carries
+`data-e67-mock="banner|interstitial|rewarded|consent"` (close buttons:
+`data-e67-mock-close`; the consent window's `data-e67-mock-consent="accept|decline|policy"`)
+for automation. Like the real provider it serves nothing without a (fake) yes, kept
+in `CapacitorStorage.exactly67.mockConsent` — delete that key to be asked again. It proves nothing about whether the real
 LevelPlay waterfall fills.
 
 Storage keys on web are `localStorage` `CapacitorStorage.exactly67.*`.
 
-- **Banner:** appears at the bottom once the splash ends, for a player who owns
-  neither unlock.
-- **Privacy sheet:** tap "Privacy choices" on the menu.
+- **Consent question:** a fresh profile asks nothing at launch. Solve Level 1 and tap
+  *Next*: the FAKE consent window opens in place of that break (same text and equal
+  buttons as the real one). It also opens from a tapped "Watch ad" offer (with the
+  extra sentence) and from Settings → "Privacy & ads" (always). After *Don't accept*
+  every "Watch ad" offer disappears (the 180-day quiet period); delete
+  `exactly67.adConsentAskedAt` to see a refusal asked again on the next tap.
+- **Banner:** appears at the bottom after a yes, for a player who owns neither unlock.
+- **Report an ad:** Settings → "Report an ad" opens the mail client on a pre-written
+  message.
 - **Hint video:** set `hintCount` to `'0'` and `hintFreeDate` to today's UTC date,
   reload, Play, tap the 💡, then **"Watch ad: +1 hint"** ("Ad: +1 hint" at 320 px wide).
   The button reads "Loading…" and *Done* stays shut while the fake ad loads and plays.
   Close within 5 s → no hint, and the note under the card reads "No hint this time —
-  the ad didn't play to the end"; wait 5 s and close → +1 and "Hint earned!". The mock
-  always grants consent, so the videos-off state (no watch button, "Hint videos are off
-  because ads were declined…") only appears with consent forced off in the page.
+  the ad didn't play to the end"; wait 5 s and close → +1 and "Hint earned!". With no
+  answer yet, the tap first opens the FAKE consent window; after *Don't accept* the
+  modal shows no watch button and says "No hint videos: you chose no ads. Change it in
+  Settings → Privacy & ads…".
 - **Interstitial:** seed `progress` with levels 1–9 cleared, `adClears` = `'2'`
   (and `reviewRequested` = `'on'` to keep the rating prompt away), reload, wait at
   least 90 s (Playwright's `page.clock` can fast-forward), clear level 10 and tap
@@ -136,7 +152,8 @@ xcrun simctl io booted screenshot menu.png       # observe
 
 The simulator is the only place the **native layer** runs: the IAP products'
 prices load via StoreKit (the Store screen shows the packs, No ads and the unlock),
-and — in a build with ads on — ATT and the LevelPlay consent modal are prompted.
+and — in a build with ads on — the LevelPlay consent question (after Level 1's
+*Next*, on a tapped offer, from Settings → "Privacy & ads"), then ATT after a yes.
 
 The Xcode **Ad-mode guard** runs on these builds too. An ads-off (`ios:sync`) or mock
 (`ios:sync:mock`) bundle builds with `AD_TARGET` unset. An `ios:sync:test` bundle builds
@@ -230,18 +247,32 @@ browser, no device):**
 | **Store (No ads card)** | The sublabel reads "hints not included · hint videos stay" at 375 and 390; "without hints · hint videos stay" at 320 in USD; "hint videos stay" at 320 with a long local price. At 320×568 with the strip reserved, "Hints never expire." no longer collides with the Unlimited card. Prices came from a render-only stub injected in the page (the web build has no StoreKit); confirm once on an ads-off simulator build. |
 | **Tests catch breakage** | Each new guard (consent gate on every surface, the reset order, the failed-banner teardown, the cache-only interstitial, the rewarded display deadline, the music hold) was broken on purpose and a test failed every time. |
 
+**Consent option A on the mock build (desktop browser, 320×568, 11 October 2026; checked
+by eye and through `window.__e67`, no device):**
+
+| Area | What was verified |
+|---|---|
+| **Nothing at launch** | A fresh profile lands in Level 1 with no question and no stored answer. |
+| **After the first level** | Level 1's card carries no other ask; *Next* opened the FAKE consent window in place of the break, Level 1 staying on screen until the answer; *Don't accept* went on to Level 2 and stored the fake no, the ask time and the tally (`afterLevel:denied`); no banner; the real build's migration flag untouched. |
+| **Quiet period** | At zero hints the hint modal drew no watch button, only *Done*, and the new copy in four lines at 320 pt. |
+| **Settings** | Sound / Music / Haptics / Daily reminder, then "Privacy & ads ›" and "Report an ad ›" at the full 48 pt pitch, clear of *Done*, the card on screen with the banner strip reserved. A tap at the far edge of the "Privacy & ads" row (not on its label) opened the question; *Accept* brought the fake SDK and the banner up. |
+| **Click-through, found and fixed** | *Accept* (real pointer input) also closed the Settings card underneath: Phaser takes the release half of a press from `window`. The mock's sheets now keep their presses to themselves (`isolateInput`, as in KVIZKO and Quadshot); re-checked: Settings stays open. |
+| **Tapped offer** | With no answer, the hint modal drew "Ad: +1 hint"; the tap opened the window with "This reward comes with an ad." in front; *Accept* → the fake video → +1 hint, "Hint earned!", tally `adTap:granted`. |
+| **Gates on the real tree** | `build:mock` and `build:adsoff` passed their gates; `cap sync ios` (ads-off) then `check-native-sync ios off` reported "consent patches in place"; with one `PATCHED-EQUAL-BUTTONS` body removed from `node_modules`, both `check-native-sync` and the Xcode guard (run by hand with `SRCROOT`) refused it by name. |
+
 **Native (simulator, observed in the AdMob era — not re-run on LevelPlay):** clean
 launch; `[CdvPurchase.AppleAppStore.objc] Initialized.`; the Store screen's four
 prices + `Restore purchases` render; ATT resolved.
 
-**Not yet verified on LevelPlay, on any device:** the native consent modal showing
-`CONSENT_COPY` and the privacy link, ATT order, banner fill in the strip on a notched
+**Not yet verified on LevelPlay, on any device:** the native consent alert showing
+`CONSENT_COPY` with two equal buttons and the *Privacy policy* link
+(`PATCHED-EQUAL-BUTTONS`), nothing asked at launch, ATT only after Accept (option A), banner fill in the strip on a notched
 iPhone, interstitial and rewarded presentation, the Phaser loop sleep/wake inside
 WKWebView, and that `initialize()` does not crash (the App target's `-ObjC` linker
 flag is there because KVIZKO's SDK crashed at `initialize()` without it, BUG-9 — a
-compile cannot prove it). Also unverified natively: the one-time consent reset showing
-the modal again on an install upgraded from 1.2.0, a withdrawal from Privacy choices
-taking the real banner down mid-session, the `RewardedDisplayed` event arriving within
+compile cannot prove it). Also unverified natively: the IABTCF_* keys cleared after an
+answer (`PATCHED-NO-TCF-STUB`, readable in the app's UserDefaults), a withdrawal in
+Settings → "Privacy & ads" taking the real banner down mid-session, the `RewardedDisplayed` event arriving within
 the 10 s display deadline for real Unity videos, and whether a web view reports
 "visible" while a real ad is still up (the music hold covers it either way; only a real
 ad could show which). The iOS ids exist since 2026-09-16; what is left is an

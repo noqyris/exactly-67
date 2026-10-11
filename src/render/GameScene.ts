@@ -87,7 +87,7 @@ import {
   setReminderContext,
   shouldOfferReminders,
 } from '../services/notifications'
-import { signalOnboardingDone, splashFinished } from '../services/session'
+import { splashFinished } from '../services/session'
 import { welcomePrice } from '../services/iap'
 import { saveDailyDone, saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, MAX_WIDE_W, prefersReducedMotion, safeArea, setBannerStrip, u } from './layout'
@@ -140,17 +140,15 @@ const HINT_COPY = {
       ? 'Out of hints — watch a short ad for 1 hint, or grab a pack.'
       : `You have ${n} hint${n === 1 ? '' : 's'}. Watch a short ad for 1 more.`,
   /**
-   * No consent, no SDK, so no video can ever play — say why, and where the
-   * decision lives (MenuScene's "Privacy choices" link), instead of offering a
-   * button that fails on every tap after a consent modal that promised "no
-   * hint videos".
+   * The player said no to ads, recently (option A keeps a refusal's offers off
+   * the screen for 180 days — game/adConsent): no button that leads nowhere.
+   * Say so plainly, where the answer is changed, and that hints come without
+   * ads — neutral, the same words the consent question uses, no nudge.
    */
-  videosOff:
-    'Hint videos are off because ads were declined. Turn them on under Privacy choices on the menu, or grab a pack.',
+  videosOff: 'No hint videos: you chose no ads. Change it in Settings → Privacy & ads. Hints also come from the Star Jar and the daily gift.',
   /**
-   * The consent question has not been asked yet this session (a first run on
-   * the early levels, whose ads wait for the tutorial to end): nothing was
-   * declined, so videosOff would be untrue.
+   * The stored consent answer is still being read (the first moments after the
+   * splash): nothing was declined, so videosOff would be untrue.
    */
   notReady: "Hint videos aren't ready yet — earn hints from the Star Jar, or grab a pack.",
   /** Today's hint videos are used up (the per-day cap in game/economy.ts). */
@@ -1021,6 +1019,9 @@ export class GameScene extends Phaser.Scene {
     modal.refresh()
     if (this.wonState) return
     if (outcome === 'earned') modal.say(HINT_COPY.earned)
+    // The tap asked for ad consent and got no yes: the player just chose, and a
+    // no already took the button away (refresh() put the reason in the modal).
+    else if (outcome === 'no-consent') return
     // Consent withdrawn meanwhile: refresh() just put the reason in the modal.
     else if (!rewardedOffered()) return
     else modal.say(outcome === 'unavailable' ? HINT_COPY.unavailable : HINT_COPY.notEarned)
@@ -1151,15 +1152,16 @@ export class GameScene extends Phaser.Scene {
     overlay.add([dim, card, title, body, upsell, note])
 
     // Re-reads everything on every call — the stash, the busy flag and whether
-    // the offer stands — so a GRANTED decision made later from Privacy choices
+    // the offer stands — so a yes given later in Settings → "Privacy & ads"
     // brings the watch button back the next time the modal draws.
     const refresh = () => {
       // The modal can already be gone when a video settles (its scene left).
       if (!body.active) return
-      // Offered (consent) AND not capped for today: only then is there a video.
+      // Offered (consent, or a tap that would ask for it) AND not capped for
+      // today: only then is there a video.
       const consent = rewardedOffered()
       const offered = consent && rewardedAvailable('hint')
-      // No consent yet is not a "declined" until the question has been asked.
+      // An answer not read yet is not a "no".
       const off = adsSupported() && !adsDecided() ? HINT_COPY.notReady : HINT_COPY.videosOff
       body.setText(offered ? HINT_COPY.body(hintCountValue()) : consent ? HINT_COPY.capped : off)
       body.setY(top + bodyOff + (bodyBox - body.height) / 2)
@@ -1192,8 +1194,8 @@ export class GameScene extends Phaser.Scene {
       overlay.add(watch ? [watch, done] : [done])
     }
     refresh()
-    // Opened before the consent question was settled: redraw once it is, so a
-    // yes brings the watch button and a no replaces "not ready yet" with why.
+    // Opened before the stored consent answer was read: redraw once it is, so
+    // the watch button appears and "not ready yet" goes.
     if (!adsDecided()) void adsSettled().then(refresh)
 
     if (!this.reducedMotion) {
@@ -1755,7 +1757,6 @@ export class GameScene extends Phaser.Scene {
     const once = (fn: () => void) => () => {
       if (win.acted || win.reward?.busy) return
       win.acted = true
-      signalOnboardingDone()
       fn()
     }
     const inner = cardW - u(32)
@@ -1981,7 +1982,9 @@ export class GameScene extends Phaser.Scene {
     if (!this.sys.isActive()) return
     if (outcome === 'earned') playReward()
     this.redrawWin()
-    if (outcome !== 'earned') {
+    // 'no-consent': the tap asked for ad consent and got no yes — the player
+    // just chose, so nothing is said (a no also took the button away).
+    if (outcome === 'unavailable' || outcome === 'not-earned') {
       this.showWinNote(outcome === 'unavailable' ? 'No video right now — your hints are safe' : "The ad didn't finish — your hints are safe")
     }
   }

@@ -47,7 +47,9 @@ const fake = {
   }),
   onReady: vi.fn(),
   retryInit: vi.fn(),
-  openPrivacyOptions: vi.fn(async () => {}),
+  // A network with no consent QUESTION (no consentState / askConsent): only
+  // yes or no, through adsAllowed. Option A's question — after a level, on a
+  // tapped offer, from Settings — is pinned in adsConsent.test.ts.
   adsAllowed: () => script.consent,
   resetConsent: vi.fn(async () => {
     log.push('resetConsent')
@@ -158,6 +160,9 @@ vi.mock('./storage', () => ({
   saveConsentMigrated: async () => {
     stored.consentMigrated = true
   },
+  loadAdConsentAskedAt: async () => 0,
+  saveAdConsentAskedAt: async () => {},
+  tallyAdConsentAnswer: async () => {},
   loadFreeHintDate: async () => '',
   saveFreeHintDate: async () => {},
   loadHintCount: async () => 0,
@@ -423,8 +428,8 @@ describe('interstitial cadence — unchanged by the network move', () => {
   })
 
   it('no interstitial without ad consent — with every other gate open', async () => {
-    // Also the path for a consent withdrawn from Privacy choices mid-session: the
-    // SDK is still up and could serve, and the consent modal promised it won't.
+    // Also the path for a consent withdrawn in Settings mid-session: the SDK is
+    // still up and could serve, and the consent question promised it won't.
     const ads = await freshAds()
     await seconds(90)
     clears(ads, 3)
@@ -727,7 +732,7 @@ describe('rewarded outcome — what the hint modal can truthfully tell the playe
     await expect(ads.showRewardedHint()).resolves.toBe(false)
     expect(fake.loadRewarded).not.toHaveBeenCalled()
     expect(fake.showRewarded).not.toHaveBeenCalled()
-    // A yes from Privacy choices brings the offer straight back — no restart needed.
+    // A yes from Settings → Privacy & ads brings the offer straight back — no restart needed.
     script.consent = true
     expect(ads.rewardedOffered()).toBe(true)
   })

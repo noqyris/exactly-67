@@ -1,5 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { LevelPlayAds, AdEvent } from 'capacitor-levelplay-ads'
+import type { ConsentState, ConsentTrigger } from '../../game/adConsent'
+import { CONSENT_COPY, PRIVACY_POLICY_URL, consentMessage } from '../adConsentCopy'
 import { ADS_MARKER, type AdFormat, type AdProvider, type DismissWatcher } from '../adProvider'
 
 /**
@@ -117,52 +119,36 @@ let units: AdUnits = UNITS_BY_PLATFORM[PLATFORM] ?? { banner: '', interstitial: 
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The words on the plugin's native consent modal.
+ * The options handed to the plugin's native consent alert, for what opened it.
  *
  * Passing nothing is not "use sensible defaults": the plugin's custom provider
  * falls back to a generic "We value your privacy" and silently drops the
  * privacy-policy button (the native code only adds it when a URL is supplied),
  * leaving the one screen that asks about ad data with no link to the policy
- * that describes it.
- *
- * The message says plainly what Accept means — partners use the advertising
- * identifier to personalise ads — and what Decline costs, which is exactly what
- * the code does: the SDK only ever starts on GRANTED, so a decline means no ads
- * of any kind, including the optional hint videos. Nothing here appeals to
- * supporting the developer; Unity's rewarded policy names "support us" framing
- * as a violation, and consent must not be bought with guilt either.
+ * that describes it. `privacyButtonText` names that button; only the patched
+ * plugin reads it (PATCHED-EQUAL-BUTTONS) — the stock one says "Privacy
+ * policy" whatever it is given. The words themselves, and why each one is
+ * there, live in services/adConsentCopy.ts, shared with the mock's fake window.
  */
-export const CONSENT_COPY = {
-  title: 'Ads and your data',
-  message:
-    'Exactly 67 shows ads through Unity LevelPlay. With your consent, our ad partners use your ' +
-    "device's advertising identifier and information about the ads you see to personalise those ads. " +
-    'If you decline, the ad system does not start: every level still plays, but there are no ads and ' +
-    'no hint videos. You can change this any time under Privacy choices on the main menu.',
-  accept: 'Accept',
-  decline: 'Decline',
-} as const
-
-/** Where the modal's privacy-policy button goes. */
-const PRIVACY_POLICY_URL = 'https://noqyris.github.io/exactly-67/privacy.html'
-
-function consentOptions() {
+function consentOptions(trigger: ConsentTrigger) {
   return {
     title: CONSENT_COPY.title,
-    message: CONSENT_COPY.message,
+    message: consentMessage(trigger),
     acceptButtonText: CONSENT_COPY.accept,
     declineButtonText: CONSENT_COPY.decline,
     privacyPolicyUrl: PRIVACY_POLICY_URL,
+    privacyButtonText: CONSENT_COPY.privacyButton,
   }
 }
 
 /**
- * ATT is a system alert the OS answers in a moment; a stall there is a hang.
- * The consent modal is different: it is READ. KVIZKO first gave both one 20 s
- * ceiling, so a player who took 25 s over the text was treated as a stalled
- * CMP — init() gave up on UNKNOWN and the Accept tapped a moment later reached
- * nobody. The modal gets its own generous ceiling, and its decision is WATCHED
- * (watchConsent), so even a decision after the ceiling starts the SDK.
+ * ATT is a system alert the OS answers in a moment, and reading a stored
+ * answer is instant; a stall in either is a hang. The consent question is
+ * different: it is READ. KVIZKO first gave both one 20 s ceiling, so a player
+ * who took 25 s over the text was treated as a stalled CMP and the Accept
+ * tapped a moment later reached nobody. The question gets its own generous
+ * ceiling, and its answer is WATCHED (watchConsent), so even a yes after the
+ * ceiling starts the SDK.
  */
 const ATT_TIMEOUT_MS = 20_000
 const CONSENT_TIMEOUT_MS = 120_000
@@ -227,11 +213,12 @@ let bannerCreated = false
  * the app, not of the player — hence a constant.
  *
  * CCPA mirrors the consent decision, because the SDK only ever starts on
- * GRANTED. The modal says in as many words that partners use the advertising
- * identifier to personalise ads — the "sale or sharing" CCPA lets a Californian
- * refuse — so a player who tapped Accept has agreed and do_not_sell is false at
- * init. A player who later withdraws from Privacy choices flips it to true: the
- * SDK cannot be stopped once up, but it can be told to stop selling.
+ * GRANTED. The question says in as many words that Unity receives device data,
+ * ad views and taps and (with tracking) the advertising identifier to tailor
+ * ads — the "sale or sharing" CCPA lets a Californian refuse — so a player who
+ * tapped Accept has agreed and do_not_sell is false at init. A player who later
+ * withdraws in Settings → "Privacy & ads" flips it to true: the SDK cannot be
+ * stopped once up, but it can be told to stop selling.
  */
 const CHILD_DIRECTED = false
 
@@ -260,6 +247,8 @@ let sdkUp = false
 
 /** What consent currently says. Every retry reads it: no consent, no init. */
 let consentGranted = false
+/** The same answer with "no answer yet" kept apart from "no" — game/adConsent needs both. */
+let consentState: ConsentState = 'UNKNOWN'
 
 /*
  * A failed initialize() must not be final for the session — a player who opens
@@ -310,11 +299,15 @@ function cancelInitRetry(): void {
   initRetryTimer = null
 }
 
-/** Try again now — if the SDK is down, nothing is in flight, and consent still says yes. */
+/**
+ * Try again now — if the SDK is down, nothing is in flight, and consent still
+ * says yes. Through startAfterConsent(), like every start: an ATT prompt still
+ * on screen is waited for (and one already answered costs nothing).
+ */
 function attemptInit(): void {
   if (sdkUp || sdkStart || !consentGranted) return
   cancelInitRetry()
-  void startSdk().catch((e: unknown) => {
+  void startAfterConsent().catch((e: unknown) => {
     console.warn('[levelplay] initialize retry failed', e)
   })
 }
@@ -325,22 +318,29 @@ const consentListeners = new Set<(granted: boolean) => void>()
 /**
  * Record a consent decision. A yes resets the retry budget — a new decision is
  * a new reason to try. A no cancels any pending retry (no consent, no init)
- * and, if the SDK is already up, tells it to stop selling.
+ * and, if the SDK is already up, tells it to stop selling. UNKNOWN (no answer
+ * yet) counts as a no for everything but the question itself.
  *
  * Either way the policy layer hears about it. A running SDK cannot be shut
- * down, so a withdrawal from Privacy choices is honoured one level up: the
- * banner comes down, and no interstitial or hint video is offered again this
- * session — which is what the modal the player just answered says a decline
- * means ("there are no ads and no hint videos").
+ * down, so a withdrawal from Settings is honoured one level up: the banner
+ * comes down, and no interstitial or rewarded video plays again this session —
+ * which is what the question the player just answered says a no means ("no
+ * ads are shown").
  */
-function noteConsent(granted: boolean): void {
+function noteConsent(state: ConsentState): void {
+  const granted = state === 'GRANTED'
   const wasGranted = consentGranted
+  // Applying a stored answer reads it twice and the plugin echoes it as an
+  // event, so the same answer can arrive three times in a row: the policy
+  // layer hears each CHANGE once.
+  const changed = state !== consentState
+  consentState = state
   consentGranted = granted
   if (granted) {
     initFailures = 0
-    // A yes given again from Privacy choices after a withdrawal, with the SDK
-    // still up from earlier: startSdk() will not run a second time, so this is
-    // the only place do_not_sell goes back to false and the empty cache refills.
+    // A yes given again from Settings after a withdrawal, with the SDK still up
+    // from earlier: startSdk() will not run a second time, so this is the only
+    // place do_not_sell goes back to false and the empty cache refills.
     if (sdkUp && !wasGranted) {
       void applyPrivacyFlags(true)
       prefetch('interstitial')
@@ -357,6 +357,7 @@ function noteConsent(granted: boolean): void {
       slot.timer = null
     }
   }
+  if (!changed) return
   for (const listener of consentListeners) {
     try {
       listener(granted)
@@ -371,10 +372,11 @@ function noteConsent(granted: boolean): void {
  *
  * The plugin fires onConsentStatusChanged from requestConsentInfo() AND from
  * showPrivacyOptions(), so one listener covers both late arrivals: the player
- * who read the modal past init()'s ceiling, and the player who declined at boot
- * and later said yes from the menu's Privacy choices.
+ * who read the question past askConsent()'s ceiling, and the player who said no
+ * and later said yes in Settings → "Privacy & ads". A yes goes through
+ * startAfterConsent(): ATT first, then the SDK.
  *
- * Attached BEFORE the modal is requested — a decision made while nothing is
+ * Attached BEFORE the question is asked — a decision made while nothing is
  * listening is a decision lost. Idempotent.
  */
 let consentWatched = false
@@ -383,15 +385,76 @@ function watchConsent(): void {
   if (consentWatched) return
   consentWatched = true
   void LevelPlayAds.addListener(AdEvent.ConsentStatusChanged, (data: { status?: string } | null) => {
-    noteConsent(data?.status === 'GRANTED')
+    noteConsent(toConsentState(data?.status))
     if (!consentGranted) return
-    void startSdk().catch((e: unknown) => {
+    void startAfterConsent().catch((e: unknown) => {
       console.warn('[levelplay] initialize after a late consent failed', e)
     })
   }).catch(() => {
     // no native bridge (browser dev) — nothing to watch
     consentWatched = false
   })
+}
+
+const toConsentState = (status: unknown): ConsentState =>
+  status === 'GRANTED' || status === 'DENIED' ? status : 'UNKNOWN'
+
+/** The stored answer — a stored-value read, not a screen: the short ceiling. */
+function readConsent(): Promise<ConsentState> {
+  return withDeadline(
+    LevelPlayAds.getConsentData()
+      .then((d) => toConsentState(d.status))
+      .catch((): ConsentState => 'UNKNOWN'),
+    ATT_TIMEOUT_MS,
+    'getConsentData',
+    'UNKNOWN',
+  )
+}
+
+/**
+ * iOS App Tracking Transparency — asked only AFTER a yes to our own question
+ * (option A: consent → ATT → SDK). Apple: the ATT prompt is not shown to
+ * someone who has already declined in the app's own consent screen; and asking
+ * it first, as this file did until 1.3.0, put the system prompt in front of a
+ * player who had not yet been told what the ads are. The OS shows it once per
+ * install and answers at once afterwards, so this is free for every returning
+ * player. One request in flight at a time — the consent watcher, init() and
+ * askConsent() can all arrive here on the same yes — and none at all once iOS
+ * has given a decided answer this process (NOT_DETERMINED, e.g. a request made
+ * while the app was not active, may be asked again).
+ *
+ * iOS 14.5+ needs NSUserTrackingUsageDescription in Info.plist; package.json's
+ * `levelplay.userTrackingDescription` carries the same sentence for the
+ * plugin's manifest hook.
+ */
+let tracking: Promise<void> | null = null
+let trackingDecided = false
+
+function askTracking(): Promise<void> {
+  if (trackingDecided) return Promise.resolve()
+  tracking ??= withDeadline(
+    LevelPlayAds.requestTrackingAuthorization()
+      .then((r: { status?: string } | undefined) => {
+        if (r?.status && r.status !== 'NOT_DETERMINED') trackingDecided = true
+      })
+      .catch(() => {
+        // declined / non-iOS
+      }),
+    ATT_TIMEOUT_MS,
+    'requestTrackingAuthorization',
+  ).finally(() => {
+    tracking = null
+  })
+  return tracking
+}
+
+/** A yes: ATT, then the SDK. Rejects when initialize() fails — the retry schedule takes over. */
+async function startAfterConsent(): Promise<void> {
+  await askTracking()
+  // A no can land while ATT is up (the alert answered twice, or Settings
+  // reached before the yes was processed): consent is read again here.
+  if (!consentGranted) return
+  await startSdk()
 }
 
 // ── Prefetch ─────────────────────────────────────────────────────────────────
@@ -606,6 +669,10 @@ export function __resetForTests(config?: { appKey: string; units: AdUnits }): vo
   consentWatched = false
   spentWatched = false
   consentGranted = false
+  consentState = 'UNKNOWN'
+  tracking = null
+  trackingDecided = false
+  asking = null
   initFailures = 0
   cancelInitRetry()
   bannerCreated = false
@@ -662,12 +729,18 @@ export const levelplayProvider: AdProvider = {
    * LevelPlay.initWith(), which transmits device and app data to configure the
    * waterfall, so doing it first means data leaves the device before the player
    * has been asked. Pinned by providers/levelplay.test.ts. Do not "tidy" it back.
+   *
+   * And since option A (owner, 2026-10-11) the order is consent → ATT → SDK,
+   * with NOTHING asked here: init() only applies a STORED answer. A player with
+   * no answer is asked after their first finished level or when they tap an ad
+   * offer — askConsent(), driven by services/ads — and until then there is no
+   * question, no ATT alert and no SDK.
    */
   async init(): Promise<void> {
     // An unconfigured key would reach the SDK as an opaque init failure some
     // frames later, looking exactly like "no fill" — the one symptom nobody
     // investigates. Fail here instead, where the reason is legible, and before
-    // any consent modal: there is no SDK to consent to.
+    // any consent call: there is no SDK to consent to.
     if (!appKey) {
       throw new Error(
         `levelplay: no app key for platform "${PLATFORM}" — create Exactly 67's ${PLATFORM} app in the ` +
@@ -675,33 +748,43 @@ export const levelplayProvider: AdProvider = {
       )
     }
     watchConsent()
-    // Both consent calls are bounded. They sit in front of everything: a CMP
-    // that renders and never returns would otherwise leave init() pending
-    // forever — no banner, no interstitial, no hint videos for the session.
-    await requestConsent()
-    // requestConsent() swallows every error, so a CMP that failed to render
-    // would otherwise fall through to init. No consent, no init.
-    const status = await withDeadline(
-      LevelPlayAds.getConsentData()
-        .then((d) => d.status)
-        .catch(() => 'UNKNOWN'),
-      ATT_TIMEOUT_MS, // a stored-value read, not a screen: the short ceiling
-      'getConsentData',
-      'UNKNOWN',
+    const stored = await readConsent()
+    if (stored === 'UNKNOWN') {
+      noteConsent(stored)
+      return
+    }
+    // Not recorded yet: a yes counts only once LevelPlay has been handed it, so
+    // no other start path (a foreground retry) can run ahead of it.
+    // A stored answer is APPLIED, with no UI: requestConsentInfo() opens the
+    // alert only while there is no answer, and otherwise hands the answer to
+    // LevelPlay's privacy settings before initialize() — and, with
+    // PATCHED-NO-TCF-STUB, clears the fake TCF record a 1.3.0 answer left
+    // beside it. Bounded: a call that never returns must not leave init()
+    // pending for the whole session.
+    await withDeadline(
+      LevelPlayAds.requestConsentInfo(consentOptions('settings')).catch(() => {
+        // not required / unavailable
+      }),
+      ATT_TIMEOUT_MS, // no screen while an answer is stored: the short ceiling
+      'requestConsentInfo (stored answer)',
     )
-    // DENIED counts as "consent not obtained" exactly as much as UNKNOWN does.
-    // KVIZKO's first guard read `=== 'UNKNOWN'` and so let a player who had
-    // actively tapped Decline straight through to initialize(). UNKNOWN means
-    // the CMP never answered; DENIED means it answered no. Only GRANTED is a yes.
-    noteConsent(status === 'GRANTED')
+    // requestConsentInfo() swallows every error, so the answer is read again:
+    // no consent, no init. DENIED counts as "consent not obtained" exactly as
+    // much as UNKNOWN does — KVIZKO's first guard read `=== 'UNKNOWN'` and let
+    // a Decline straight through to initialize(). Only GRANTED is a yes.
+    noteConsent(await readConsent())
     if (!consentGranted) return
-    // Rejects when initialize() fails. The policy layer swallows that, and the
-    // retry schedule above takes over — see INIT_RETRY_DELAYS_MS.
-    await startSdk()
+    // ATT, then the SDK. Rejects when initialize() fails; the policy layer
+    // swallows that, and the retry schedule above takes over.
+    await startAfterConsent()
   },
 
   /* The foreground retry — see the "Start + retry" section for the schedule. */
   retryInit: () => attemptInit(),
+
+  /* Option A — read without an await by the policy layer; see askConsent(). */
+  consentState: () => consentState,
+  askConsent: (trigger: ConsentTrigger) => askConsent(trigger),
 
   onReady(listener: () => void): void {
     readyListeners.add(listener)
@@ -728,12 +811,12 @@ export const levelplayProvider: AdProvider = {
    * DENIED, and requestConsent() then never shows the modal).
    *
    * The call also emits onConsentStatusChanged (UNKNOWN). That event is
-   * harmless by construction: services/ads runs this before init(), so
-   * watchConsent() has not subscribed yet and Capacitor drops the event; and a
-   * not-GRANTED status can only ever record a "no", never start anything. The
-   * guard below keeps it from ever wiping the decision a running SDK was started
-   * on. Bounded like every other consent call, and never rejects: a failed reset
-   * must not cost the session its consent modal.
+   * harmless by construction: services/ads runs this before init() and before
+   * any question, so watchConsent() has not subscribed yet and Capacitor drops
+   * the event; and a not-GRANTED status can only ever record a "no", never
+   * start anything. The guard below keeps it from ever wiping the decision a
+   * running SDK was started on. Bounded like every other consent call, and
+   * never rejects: a failed reset must not cost the player their question.
    */
   async resetConsent(): Promise<void> {
     if (sdkUp || sdkStart) return
@@ -744,8 +827,6 @@ export const levelplayProvider: AdProvider = {
       undefined,
     )
   },
-
-  openPrivacyOptions: () => openPrivacyOptions(),
 
   async bannerShow(): Promise<void> {
     if (!bannerCreated) {
@@ -828,43 +909,60 @@ export async function advertisingId(): Promise<string> {
   }
 }
 
-async function requestConsent(): Promise<void> {
-  // iOS 14.5+ ATT — needs NSUserTrackingUsageDescription in Info.plist (the
-  // plugin's manifest hook writes package.json's `levelplay.userTrackingDescription`).
-  // Asked first: the advertising id is zeroed until it is granted.
-  await withDeadline(
-    LevelPlayAds.requestTrackingAuthorization().catch(() => {
-      // declined / non-iOS
-    }),
-    ATT_TIMEOUT_MS,
-    'requestTrackingAuthorization',
-  )
-  // Each call gets its own ceiling. Under one shared deadline a slow ATT ate the
-  // modal's time, and a slow reader looked like a stalled CMP.
-  await withDeadline(
-    LevelPlayAds.requestConsentInfo(consentOptions()).catch(() => {
-      // not required / unavailable
-    }),
-    CONSENT_TIMEOUT_MS,
-    'requestConsentInfo',
-  )
-}
+/** The question in flight, if any: two triggers in one moment share one alert. */
+let asking: Promise<ConsentState> | null = null
 
 /**
- * Re-open the consent modal so a decision can be changed.
+ * Show the consent question now, and resolve with the answer that stands once
+ * it is gone ('UNKNOWN' if the alert never answered within its ceiling — the
+ * consent watcher still catches a later tap).
  *
- * Without this the first tap is final: the modal only appears while consent is
- * UNKNOWN, so a player who declined — or accepted and changed their mind — had
- * no way back, in an app that ships worldwide. GDPR treats withdrawal as being
- * as available as the original consent. The consent watcher above turns a new
- * yes into an SDK start and a new no into do_not_sell.
+ * Option A's three moments, all driven from services/ads: after the first
+ * finished level (`afterLevel`), on a tapped ad offer (`adTap`, with one more
+ * sentence of context) and from Settings → "Privacy & ads" (`settings`).
+ * requestConsentInfo() opens the alert only while there is no answer;
+ * showPrivacyOptions() always opens it, which is how a refusal is asked again
+ * and how any answer is changed — GDPR wants withdrawing as easy as giving.
+ * Each call gets its own ceiling; under one shared deadline a slow ATT once
+ * ate the reader's time.
+ *
+ * A yes goes on to ATT and the SDK before this resolves, so a tapped offer can
+ * load its ad straight after; a no starts nothing, and with the SDK already up
+ * (a withdrawal) noteConsent() tells it to stop selling.
  */
-export async function openPrivacyOptions(): Promise<void> {
-  try {
-    await LevelPlayAds.showPrivacyOptions(consentOptions())
-  } catch {
-    // provider without a privacy screen, or not on device
+function askConsent(trigger: ConsentTrigger): Promise<ConsentState> {
+  asking ??= runQuestion(trigger).finally(() => {
+    asking = null
+  })
+  return asking
+}
+
+async function runQuestion(trigger: ConsentTrigger): Promise<ConsentState> {
+  watchConsent()
+  const options = consentOptions(trigger)
+  const reopen = trigger === 'settings' || consentState !== 'UNKNOWN'
+  await withDeadline(
+    (reopen ? LevelPlayAds.showPrivacyOptions(options) : LevelPlayAds.requestConsentInfo(options)).catch(() => {
+      // provider without a privacy screen, or not on device
+    }),
+    CONSENT_TIMEOUT_MS,
+    reopen ? 'showPrivacyOptions' : 'requestConsentInfo',
+  )
+  noteConsent(await readConsent())
+  if (consentGranted) {
+    // Bounded: a tapped offer waits on this with its button busy, and an SDK
+    // start with no network must cost the player a lost ad, never a hang. The
+    // start itself carries on (one shared promise), and the retry schedule
+    // stays in charge of a failure.
+    await withDeadline(
+      startAfterConsent().catch((e: unknown) => {
+        console.warn('[levelplay] initialize after consent failed', e)
+      }),
+      LOAD_EVENT_TIMEOUT_MS,
+      'initialize after consent',
+    )
   }
+  return consentState
 }
 
 /**

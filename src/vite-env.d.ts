@@ -30,3 +30,10 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+/**
+ * "1.3.0 (38)" — the store version and build, read from project.pbxproj at
+ * build time (vite.config.ts `define`), or 'unknown'. Named in the "Report an
+ * ad" mail (services/report.ts).
+ */
+declare const __APP_VERSION__: string

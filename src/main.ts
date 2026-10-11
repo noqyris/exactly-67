@@ -32,17 +32,10 @@ import { setSoundEnabled } from './services/audio'
 import { setHapticsEnabled } from './services/haptics'
 import { initNotifications, noteSessionStart, refreshReminders } from './services/notifications'
 import { today } from './services/metaStore'
-import { dailyDoneToday, initProgression, isFirstRun, noteReturnSession, refreshDay, syncReminders } from './services/progression'
+import { dailyDoneToday, initProgression, noteReturnSession, refreshDay, syncReminders } from './services/progression'
 import { returnIsNewSession, type Pause } from './game/sessions'
 import { initProgress } from './services/progressStore'
-import {
-  isColdLaunchEcho,
-  onboardingDone,
-  setPendingRoute,
-  signalSplashFinished,
-  takeColdLaunchRoute,
-  type PendingRoute,
-} from './services/session'
+import { isColdLaunchEcho, setPendingRoute, signalSplashFinished, takeColdLaunchRoute, type PendingRoute } from './services/session'
 import {
   loadAdsRemoved,
   loadHapticsEnabled,
@@ -184,22 +177,22 @@ async function boot() {
   }
 
   // Ads boot after the game so first paint is never blocked on the network, and
-  // after the splash: everything initAds() puts on screen — the consent modal,
-  // the ATT alert, then the banner — is a NATIVE view stacked above the web
-  // view, so it would draw over the sting rather than be covered by it.
-  // `splashGone` always settles (hard timeout), so ads can't be stranded.
+  // after the splash: what initAds() can put on screen — for a stored yes, the
+  // ATT alert on the rare launch it was never answered, then the banner — is a
+  // NATIVE view stacked above the web view, so it would draw over the sting
+  // rather than be covered by it. `splashGone` always settles (hard timeout),
+  // so ads can't be stranded.
   //
   // Unconditional on purpose: the ads service decides who gets what. No ad
   // surface (browser, ADS:off) → nothing; Unlimited owners → no SDK at all; No
   // Ads owners → the SDK (the hint video is a real ad) but never a banner.
   //
-  // A brand-new install waits one step more: until Level 1 is played through
-  // (session.ts). Two native prompts (ATT, then "Ads and your data") over the
-  // first frame of the first level is the worst first impression the game can
-  // make; after the first win the player knows what they are consenting for.
-  // Consent still comes BEFORE the SDK starts — only the moment moves.
-  const onboarding = isFirstRun() ? onboardingDone() : Promise.resolve()
-  void splashGone.then(() => onboarding).then(initAds).then(showBanner)
+  // It ASKS nothing (option A, 2026-10-11): it reads the stored consent answer
+  // and starts the SDK only on a stored yes. A player with no answer — every
+  // brand-new install — is asked on the way out of their first finished
+  // level's win card, in place of that break's interstitial, or when they tap
+  // an ad offer; ATT comes only after a yes (services/ads.ts).
+  void splashGone.then(initAds).then(showBanner)
 
   // Coming back to the foreground is the one moment a failed SDK start (no
   // network at boot) has a reason to succeed — the ads service retries there and

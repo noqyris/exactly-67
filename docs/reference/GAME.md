@@ -197,6 +197,20 @@ Pack 3 stacks these constraints with no hints. See
 
 ---
 
+## `adConsent.ts` — when the ad-consent question may be asked (option A)
+
+The owner's option A (2026-10-11, `hq/projects/games/ads-consent-option-a.md`), as pure
+rules; `services/ads.ts` owns the SDK and the clock and hands the state in.
+
+| Export | Behavior |
+|---|---|
+| `ConsentState` | `'UNKNOWN' \| 'GRANTED' \| 'DENIED'` — no answer yet, yes, no. |
+| `ConsentTrigger` | `'afterLevel' \| 'adTap' \| 'settings'` — what opened the question. |
+| `CONSENT.reaskAfterDays` | `180` — a refusal is re-asked on a tap at most once per this many days. |
+| `consentDueAfterLevel({ state, adsRemoved, askedThisSession, cardAsked })` | True only for no answer, no ad-free product, not yet asked after a level this session, and a win card that asked nothing else and offered no video. |
+| `consentAskOnTap({ state, lastAskedAt, nowMs })` | Never for a yes; always for no answer; a refusal with no recorded time (`0`) once; otherwise only after the quiet period (a clock that went backwards = not yet). |
+| `adOffersVisible(input)` | `GRANTED` or `consentAskOnTap(input)` — never a button that neither plays nor asks. |
+
 ## Testing this layer
 
 The whole `game/` layer is exercised by the Vitest suite (`*.test.ts` alongside

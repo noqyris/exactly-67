@@ -336,6 +336,11 @@ export class StoreScene extends Phaser.Scene {
           playReward()
           this.showToast('+1 hint!')
           this.time.delayedCall(700, () => this.rebuild())
+        } else if (outcome === 'no-consent') {
+          // The tap asked for ad consent and got no yes: the player just chose,
+          // so nothing is said — and a no takes the tile away (option A).
+          c.setAlpha(1)
+          this.rebuild()
         } else {
           c.setAlpha(1)
           // A video the player closed early was there: "no video" would contradict it.

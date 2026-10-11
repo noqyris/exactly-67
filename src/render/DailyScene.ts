@@ -617,6 +617,9 @@ function showLoading(b: Phaser.GameObjects.Container): void {
 /** What a video that paid nothing was — the same true split as GameScene's win card. */
 function missedVideo(outcome: RewardedOutcome): string | null {
   if (outcome === 'not-earned') return "The ad didn't finish"
+  // The tap asked for ad consent and got no yes: the player just chose, so
+  // nothing is said (a no also drops the button from the rebuilt screen).
+  if (outcome === 'no-consent') return null
   // Consent withdrawn meanwhile: the rebuilt screen drops the button, and
   // "try again soon" would be false.
   return rewardedOffered() ? 'No video right now — try again soon' : null

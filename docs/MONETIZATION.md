@@ -19,7 +19,8 @@ first LevelPlay release.
 >   their ids are in [`providers/levelplay.ts`](../src/services/providers/levelplay.ts):
 >   app key `282af3d55`; banner `bkov9ky03m5q7nb5`, interstitial `037b2c2vtwjlz5bg`,
 >   rewarded `v9y4469brsj85byl`. `npm run ads:config -- ios` passes. **Every iOS
->   build with ads on now asks ATT and consent, and on consent serves real ads.** See
+>   build with ads on now asks for consent (option A: after the first finished level or on a
+>   tapped offer, ATT after a yes), and on consent serves real ads.** See
 >   [Going live](#going-live--what-is-left).
 > - **Android has no LevelPlay app** and is not being released: its entries stay
 >   empty, `init()` refuses the empty key, and `npm run ads:config -- android` fails.
@@ -121,7 +122,7 @@ to receive 10 gems"), withholds payment for inventory that does not, and names
 the modal's body does too ("Out of hints — watch a short ad for 1 hint, or grab a
 pack." / "You have N hints. Watch a short ad for 1 more."). The old "Watch video" said
 neither. All of the modal's copy lives in one `HINT_COPY` constant in `GameScene.ts`;
-nothing appeals to helping the developer. The consent modal follows the same rule.
+nothing appeals to helping the developer. The consent question follows the same rule.
 
 **Revenue reality:** ads monetize *volume*. Without user acquisition, expect
 coffee money; the one-time unlocks and the rewarded hint typically out-earn
@@ -161,7 +162,8 @@ bottom and shrinks the content above it, so nothing tappable overlaps the ad:
   `GameScene`, which turns the strip off (`setBannerStrip`). The reserve is
   intent-based (58 when a banner will be requested, else 0), so the first frame
   already leaves the gap; there is no reflow when the banner arrives.
-- The menu's "Privacy choices" link sits in the **top** corner, far from the banner.
+- The menu's "Privacy & ads" link sits in the **top** corner, far from the banner; the
+  Settings rows "Privacy & ads" and "Report an ad" sit in a modal card, far from it too.
 - The **level map** is the one screen whose tappable things *scroll*: without help a
   tile slides through the strip's 8 pt of air and under the native banner, putting a
   finger right beside the ad. So whenever a strip is reserved, `LevelMapScene` draws
@@ -193,11 +195,11 @@ $4.99 one. Gameplay gates free hints on `hintsUnlimited()`, never on
 
 | | Nothing bought | No ads ($0.99) | Unlimited hints ($4.99) |
 |---|---|---|---|
-| ATT + consent prompt, SDK start | yes (the SDK starts only on `GRANTED`) | yes — the hint video is a real rewarded ad | **no SDK at all** |
+| Consent question, then ATT, SDK start | after the first finished level or on a tapped offer (the SDK starts only on `GRANTED`) | on a tapped offer only — the hint video is a real rewarded ad | **no SDK at all, never asked** |
 | Banner + reserved strip | strip on every screen but a level in play; banner there while consent is `GRANTED` | no | no |
 | Interstitials | while consent is `GRANTED` | no | no |
-| Hint video ("Watch ad: +1 hint") | yes, while consent is `GRANTED` | yes, while consent is `GRANTED` | never needed — hints are free |
-| "Privacy choices" link on the menu | yes | yes | hidden (nothing to choose) |
+| Rewarded offers ("Watch ad: +1 hint" …) | with consent, or where a tap would ask; hidden for 180 days after a no | same | never needed — hints are free |
+| "Privacy & ads" + "Report an ad" (Settings), "Privacy & ads" (menu corner) | yes | yes | hidden (nothing to choose) |
 | Store offers | packs, No ads, Unlimited hints | packs only | "You're all set" |
 
 **Grandfathering.** Before the store split, the single "Remove ads" product
@@ -236,17 +238,20 @@ function call it could not tree-shake either.
 
 | File | Role |
 |---|---|
-| [`src/services/ads.ts`](../src/services/ads.ts) | **The policy layer.** Availability (`adsSupported`), both entitlements, `initAds` (with the one-time consent reset) / `adsForegrounded` / `openPrivacyOptions`, the banner (`bannerReserve`, `showBanner`, `hideBanner`, `removeBanner`), the interstitial gate (`noteCleared`, `interstitialWouldShow`, `maybeShowInterstitial`), the rewarded hint (`rewardedOffered`, `watchRewardedHint` → `RewardedOutcome`, and the boolean `showRewardedHint`), the game-loop hooks (`setGameLoopHooks`), and the hint inventory (`initHintState`, `hintCountValue`, `hasHint`, `useHint`, `grantHint`, `grantHints`). Every surface reads the provider's current consent answer. |
-| [`src/services/adProvider.ts`](../src/services/adProvider.ts) | **The seam.** `AdProvider` interface; `adsOff()` / `adsMock()`; `ADS_MARKER`; `BANNER_RESERVE_DESIGN_PX`. |
-| [`src/services/providers/levelplay.ts`](../src/services/providers/levelplay.ts) | **Unity LevelPlay**, ported from KVIZKO (same plugin version, in production there since 1.2.1). Consent before init, `adsAllowed` / `onConsentChange` / `resetConsent`, event races, prefetch (interstitial from the cache only), init retry, `APP_KEYS` / `UNITS_BY_PLATFORM`, `CONSENT_COPY`, `AD_MODE_MARKER`. |
-| [`src/services/providers/mock.ts`](../src/services/providers/mock.ts) | **Fake ads** for `npm run dev:mock` / `build:mock`: a banner, an interstitial, a 5-second rewarded video and a privacy sheet drawn in the DOM, each lettered "FAKE AD — MOCK BUILD", no network. |
+| [`src/services/ads.ts`](../src/services/ads.ts) | **The policy layer.** Availability (`adsSupported`), both entitlements, `initAds` (with the one-time consent reset; asks nothing) / `adsForegrounded` / `openPrivacyOptions` (Settings → "Privacy & ads"), option A's question (`adConsentState`, the after-level break in `maybeShowInterstitial`, the tapped-offer ask in every rewarded show, offers hidden in a refusal's 180 days), the banner (`bannerReserve`, `showBanner`, `hideBanner`, `removeBanner`), the interstitial gate (`noteCleared`, `interstitialWouldShow`, `maybeShowInterstitial`), the rewarded hint (`rewardedOffered`, `watchRewardedHint` → `RewardedOutcome` incl. `'no-consent'`, and the boolean `showRewardedHint`), the game-loop hooks (`setGameLoopHooks`), and the hint inventory (`initHintState`, `hintCountValue`, `hasHint`, `useHint`, `grantHint`, `grantHints`). Every surface reads the provider's current consent answer. |
+| [`src/services/adProvider.ts`](../src/services/adProvider.ts) | **The seam.** `AdProvider` interface (incl. `consentState` / `askConsent`); `adsOff()` / `adsMock()`; `ADS_MARKER`; `BANNER_RESERVE_DESIGN_PX`. |
+| [`src/game/adConsent.ts`](../src/game/adConsent.ts) | **Option A's rules**, pure: `consentDueAfterLevel`, `consentAskOnTap`, `adOffersVisible`, `CONSENT.reaskAfterDays` (180). |
+| [`src/services/adConsentCopy.ts`](../src/services/adConsentCopy.ts) | The question's words, the policy URL, the one-sentence lead for a tapped offer. |
+| [`src/services/report.ts`](../src/services/report.ts) | "Report an ad" (Apple 2.5.18): a pre-written `mailto:` naming the build. |
+| [`src/services/providers/levelplay.ts`](../src/services/providers/levelplay.ts) | **Unity LevelPlay**, ported from KVIZKO (same plugin version, in production there since 1.2.1). Consent → ATT → init (`init()` applies a stored answer only; `askConsent()` asks), `consentState` / `adsAllowed` / `onConsentChange` / `resetConsent`, event races, prefetch (interstitial from the cache only), init retry, `APP_KEYS` / `UNITS_BY_PLATFORM`, `AD_MODE_MARKER`. |
+| [`src/services/providers/mock.ts`](../src/services/providers/mock.ts) | **Fake ads** for `npm run dev:mock` / `build:mock`: a banner, an interstitial and a 5-second rewarded video drawn in the DOM, each lettered "FAKE AD — MOCK BUILD", and a FAKE consent window (the real words, equal answers) — nothing served without a fake yes, no network. |
 | [`src/services/buildFlags.ts`](../src/services/buildFlags.ts) | The opt-in `VITE_UNLOCK_ALL` test-build flag and its `UNLOCKALL:1` marker (off in every build by default since 2026-09-26). |
-| [`src/services/storage.ts`](../src/services/storage.ts) | Keys `exactly67.adClears` (interstitial counter), `exactly67.adsRemoved`, `exactly67.unlimitedHints`, `exactly67.hintFreeDate`, `exactly67.hintCount`, `exactly67.reviewRequested`, `exactly67.levelplayConsentMigrated` (the one-time consent reset has run). The consent decision itself is stored natively by the plugin. |
+| [`src/services/storage.ts`](../src/services/storage.ts) | Keys `exactly67.adClears` (interstitial counter), `exactly67.adsRemoved`, `exactly67.unlimitedHints`, `exactly67.hintFreeDate`, `exactly67.hintCount`, `exactly67.reviewRequested`, `exactly67.levelplayConsentMigrated` (the one-time consent reset has run), `exactly67.adConsentAskedAt` (when the question was last shown), `exactly67.adConsentTally` (answers counted by trigger and result). The consent decision itself is stored natively by the plugin. |
 | [`src/services/music.ts`](../src/services/music.ts) | `suppressMusic(on)`: the counted hold `ads.ts` takes for the length of every full-screen ad. |
 | [`src/render/layout.ts`](../src/render/layout.ts) | `setAdBannerReserve()` / `adBannerReserve()`; `safeArea().bottom` includes the strip. |
 | [`src/render/GameScene.ts`](../src/render/GameScene.ts) | `showBanner()` on every level start (idempotent, heals a refused first request). 💡 → `doHint()`: Unlimited owners get the ghost demo free; otherwise spend one banked hint (a re-tap on the same board replays free) or, at zero, open the hint modal — see [The rewarded hint](#the-rewarded-hint). `noteCleared()` on every win; `leaveAfterClear()` awaits `maybeShowInterstitial()` before navigating. |
 | [`src/render/LevelMapScene.ts`](../src/render/LevelMapScene.ts) | The opaque footer over the banner strip, only when a strip is reserved (see the banner safety note). |
-| [`src/render/MenuScene.ts`](../src/render/MenuScene.ts) | "Privacy choices" text link → `openPrivacyOptions()`, only when `adsSupported() && !hintsUnlimited()`. "Store" button when `iapSupported() && !hintsUnlimited()`. |
+| [`src/render/MenuScene.ts`](../src/render/MenuScene.ts) | Settings rows "Privacy & ads" → `openPrivacyOptions()` and "Report an ad" → `reportAd()`, and the corner "Privacy & ads" link — only when `adsSupported() && !hintsUnlimited()`. "Store" button when `iapSupported() && !hintsUnlimited()`. |
 | [`src/render/StoreScene.ts`](../src/render/StoreScene.ts) | The price ladder: packs, No ads (sublabel names the hint videos that stay), Unlimited hints, Restore purchases. |
 | [`src/services/iap.ts`](../src/services/iap.ts) | StoreKit via `cordova-plugin-purchase`: `REMOVE_ADS_ID`, `NO_ADS_ID`, `HINT_PACKS`. |
 | [`src/services/review.ts`](../src/services/review.ts) | One-shot rating prompt via `@capacitor-community/in-app-review`. |
@@ -254,7 +259,7 @@ function call it could not tree-shake either.
 | [`ios/App/App/Info.plist`](../ios/App/App/Info.plist) | `NSUserTrackingUsageDescription` (identical to `package.json` → `levelplay.userTrackingDescription`), 76 `SKAdNetworkItems` (Unity's published partner list without Google's id, plus ironSource's `su67r6k2v3`), `LevelPlayCMPProvider = custom`. No AdMob keys. |
 | `package.json` | The `levelplay` block, the three `postinstall` patches, and the `capacitor:sync:after` manifest hook. |
 
-### Consent, then init
+### Consent, then ATT, then init — option A
 
 The order is a **legal requirement**, not style. ironSource: *"You must obtain user
 consent before initializing any third-party SDK, including LevelPlay and ironSource
@@ -263,58 +268,89 @@ ad network. If consent is not obtained, do not initialize the LevelPlay SDK."*
 waterfall. The old Google stack initialised first and asked afterwards; a straight
 port carries that shape over unnoticed. `levelplay.test.ts` pins the order.
 
-1. `main.ts` waits for the splash to be gone (the consent modal and the ATT alert
-   are native views that would draw over it), then calls `initAds()`.
+**When the question is asked** is the owner's **option A** (2026-10-11,
+`hq/projects/games/ads-consent-option-a.md`; the same in every Noqyris game, KVIZKO
+1.3.1 the reference), as pure rules in [`game/adConsent.ts`](../src/game/adConsent.ts):
+
+- **Never at launch.** `initAds()` reads the stored answer and starts the SDK only on a
+  stored yes. A brand-new install meets no prompt before it has played.
+- **After the first finished level** — on the way out of its win card (Next or Map), in
+  place of that break's interstitial (which could not show anyway: no consent, no
+  SDK). Once per session (a cold launch, or a 30-min / new-day return); never for No
+  ads or Unlimited owners; never after a card that already asked something (reminder
+  offer, rating prompt, no-ads nudge) or offered a reward video — the question waits
+  for a plain break. Level 1's card asks nothing else, so a new player is asked there.
+  The Daily Challenge has no break, so it asks nothing.
+- **On a tapped rewarded offer** (any of the eight placements), with one sentence of
+  context in front of the same text: *"This reward comes with an ad."* A yes goes on
+  to ATT and the SDK and then plays the ad; anything else plays nothing
+  (`RewardedOutcome` `'no-consent'`, and the screen says nothing about it).
+- **A refusal is re-asked only on a tap, at most once per 180 days** (ICO, CNIL). Inside
+  that window the offers are **not drawn** (`rewardedOffered()`), so no button leads
+  nowhere; the hint modal says *"No hint videos: you chose no ads. Change it in
+  Settings → Privacy & ads. Hints also come from the Star Jar and the daily gift."* A
+  refusal from 1.3.0 has no recorded ask time and is asked once on the next tap.
+- **Settings → "Privacy & ads"** (also the quiet corner link on the menu) re-opens the
+  question at any time, whatever the answer — withdrawing is as easy as consenting
+  (GDPR Art. 7(3)). Hidden for Unlimited owners, who never start the SDK.
+- One question at a time; while it is up it counts as a full-screen surface (no ad or
+  second question over it). The ask time is kept (`exactly67.adConsentAskedAt`) and
+  answers are tallied on the device by trigger and result (`exactly67.adConsentTally`
+  — no time, no identifier, never sent; until the game has analytics, the measure is
+  LevelPlay's player count against App Store Connect's active devices).
+
+**The flow, in code:**
+
+1. `main.ts` calls `initAds()` once the splash is gone (a stored yes may still bring
+   Apple's ATT alert, a native view, on the rare launch it was never answered).
 2. `initAds()` returns at once where there is no ad surface, and for Unlimited
    owners. Otherwise it registers `onReady → showBanner` and `onConsentChange` (a no
-   removes the banner), then — **once per install, before the first `init()`** —
-   runs the consent reset (below), then calls `provider.init()`.
+   removes the banner), loads the ask time, then — **once per install, before the
+   first `init()` and before any question** — runs the consent reset (below), then
+   calls `provider.init()`.
 3. `levelplay init()`:
-   - **No app key → throws** before any prompt or SDK call (Android's state: it has
-     no LevelPlay app, so its key is empty).
-   - Attaches the consent listener, then asks **ATT** (20 s ceiling), then shows the
-     **consent modal** (`requestConsentInfo`, 120 s ceiling — it is *read*, so it
-     gets a long one).
-   - Reads the stored status. **Only `GRANTED` continues**; `DENIED` and `UNKNOWN`
-     both mean "not obtained".
-   - Sets the regulation flags first — `setCCPAConsent({ doNotSell: false })` and
-     `setChildDirected({ isChildDirected: false })` (a general-audience app) — then
-     `initialize({ appKey, isTesting })`.
+   - **No app key → throws** before any consent call or SDK call (Android's state: it
+     has no LevelPlay app, so its key is empty).
+   - Attaches the consent listener and reads the stored answer. **No answer → returns:
+     no alert, no ATT, no SDK.**
+   - A stored answer is **applied with no UI** (`requestConsentInfo`, which shows the
+     alert only while no answer is stored, 20 s ceiling) and read again. **Only
+     `GRANTED` continues**; `DENIED` and `UNKNOWN` both mean "not obtained".
+   - **ATT** (once per process once iOS has answered), then the regulation flags —
+     `setCCPAConsent({ doNotSell: false })` and `setChildDirected({ isChildDirected:
+     false })` (a general-audience app) — then `initialize({ appKey, isTesting })`.
    - On success it prefetches one interstitial and one rewarded ad, and fires the
      `onReady` listeners (the banner).
-4. **Late decisions still count.** The `ConsentStatusChanged` listener starts the SDK
-   whenever consent becomes `GRANTED`: a player who read the modal past its ceiling,
-   or one who declined at boot and later said yes under Privacy choices. Every
-   decision — at boot, from the modal, from Privacy choices — is recorded and passed
-   to the policy layer (`onConsentChange`), and `adsAllowed()` reads it at any time.
-   A later **withdrawal** cannot stop a running SDK, so the network is told
-   `doNotSell: true` and the **policy layer keeps the promise the modal makes**: the
-   banner comes down at once (also one still being created, once it lands), and every
-   later banner request, interstitial and hint-video offer reads `consentAllows()` and
-   stays away for as long as the answer is no. A later yes in the same session brings
-   them back, because the SDK is still running. From the next launch the stored
+4. **The question** is `provider.askConsent(trigger)`: `requestConsentInfo` for a
+   player with no answer, `showPrivacyOptions` to re-ask a refusal or change any answer
+   (120 s ceiling — it is *read*). A yes → ATT → the SDK, bounded so a tapped offer
+   never hangs; a no → no ATT (Apple: ATT is not shown to someone who declined in the
+   app's own consent screen) and no SDK.
+5. **Late decisions still count.** The `ConsentStatusChanged` listener goes through ATT
+   to the SDK whenever consent becomes `GRANTED`: a player who read the alert past its
+   ceiling, or one who said no and later yes in Settings. Every change of answer is
+   passed to the policy layer once (`onConsentChange`), and `adsAllowed()` /
+   `consentState()` read it at any time. A later **withdrawal** cannot stop a running
+   SDK, so the network is told `doNotSell: true` and the **policy layer keeps the
+   promise the question makes**: the banner comes down at once (also one still being
+   created, once it lands), and every later banner request, interstitial and rewarded
+   show reads `consentAllows()` and stays away for as long as the answer is no. A
+   later yes in the same session brings them back. From the next launch the stored
    `DENIED` keeps the SDK off.
-5. **A failed init is not final.** Retries at 30 s, 60 s and 120 s, then one more on
+6. **A failed init is not final.** Retries at 30 s, 60 s and 120 s, then one more on
    every return to the foreground (`adsForegrounded()` → `retryInit`), always only
-   while consent is `GRANTED`.
-
-**A decline means no ads of any kind**, hint videos included. The hint modal does not
-offer a video it can never play: `rewardedOffered()` is false, so there is **no watch
-button**, only a centred *Done*, and the body says why and where the decision lives —
-*"Hint videos are off because ads were declined. Turn them on under Privacy choices on
-the menu, or grab a pack."* A yes given later from Privacy choices brings the button
-back the next time the modal draws. (Android has no LevelPlay app key, so there
-`adsAllowed()` is false as well and this copy would be wrong; revisit it before any
-Android release with ads.)
+   while consent is `GRANTED` and always behind ATT (a retry never overtakes an ATT
+   alert still on screen).
 
 **The one-time consent reset.** 1.2.0 asked for ad consent through Google's form,
 which, wherever a GDPR message was live, writes IAB TCF keys (`IABTCF_*`) into the same
-`UserDefaults` the LevelPlay plugin reads. Its `custom` provider treats any such key as
-a decision it already has and skips "Ads and your data", so an upgrader could come back
-`GRANTED` (Unity's SDK started on consent given to a different network) or `DENIED`
-(never asked). Whether any Exactly 67 install carries them can no longer be checked —
-the AdMob console is gone — and the reset is free, so `initAds()` runs
-`provider.resetConsent()` once per install before the first `init()`:
+`UserDefaults` the LevelPlay plugin reads. Its `custom` provider used to treat any such
+key as a decision it already had (the native half is now fixed by
+`PATCHED-CUSTOM-STATUS`), so an upgrader could come back `GRANTED` (Unity's SDK started
+on consent given to a different network) or `DENIED` (never asked). Whether any Exactly
+67 install carries them can no longer be checked — the AdMob console is gone — and the
+reset is free, so `initAds()` (and any question asked before it) runs
+`provider.resetConsent()` once per install:
 
 - LevelPlay calls the plugin's `resetConsent()` (removes `levelplay_consent_status` and
   every IAB TCF key), bounded by the 20 s ceiling, and never rejects. It does nothing
@@ -322,32 +358,48 @@ the AdMob console is gone — and the reset is free, so `initAds()` runs
   started on. The `UNKNOWN` status event the reset emits is harmless: nothing has
   subscribed yet, and a non-`GRANTED` status can only record a no.
 - Then `exactly67.levelplayConsentMigrated` is saved as `'on'`. Reset first, flag
-  after: a kill between the two only means the modal is asked once more. A missing or
-  unreadable flag counts as "not yet".
-- Consequence: the first launch of 1.2.1 shows ATT (if still undecided) and the consent
-  modal **once more to every existing install on an ads-on build**, No ads owners and
-  TestFlight testers who already answered included. Unlimited owners and ads-off builds
-  never run it. Pinned by `adsEntitlements.test.ts` and `levelplay.test.ts`.
+  after: a kill between the two only means one more question. A missing or unreadable
+  flag counts as "not yet". Every 1.3.0 install already ran it.
 
-**The consent modal's words** (`CONSENT_COPY`) — title *Ads and your data*,
-buttons *Accept* / *Decline*, and:
+**The question's words** ([`services/adConsentCopy.ts`](../src/services/adConsentCopy.ts),
+shared by the native alert and the mock's fake window) — title *Ads and your data*,
+two buttons of equal weight *Accept* / *Don't accept* (never "Allow": that is the
+system ATT prompt's word), the policy link *Privacy policy* (passed as
+`privacyButtonText`; the game's UI is English only), and:
 
-> Exactly 67 shows ads through Unity LevelPlay. With your consent, our ad partners
-> use your device's advertising identifier and information about the ads you see to
-> personalise those ads. If you decline, the ad system does not start: every level
-> still plays, but there are no ads and no hint videos. You can change this any time
-> under Privacy choices on the main menu.
+> Exactly 67 (Noqyris) shows ads through Unity LevelPlay. If you accept, Unity
+> Technologies (Unity Ads and ironSource Exchange) receives device and app data, which
+> ads you see and tap, and, only if you also agree to tracking, your advertising
+> identifier, to show you ads and tailor them to you. If you don't accept, no ads are
+> shown, so there are no rewards for watching them; hints still come from playing. You
+> can change this any time in Settings → Privacy & ads.
 
-It links to `https://noqyris.github.io/exactly-67/privacy.html`. Passing no copy is
-not "sensible defaults": the plugin then shows a generic text and silently drops
-the privacy-policy button.
+Every ad reward is reachable without ads (GDPR Recital 42): hints come from the daily
+gift, the Star Jar, pack bonuses and streak milestones, and hints buy the streak freezes
+(2) and repairs (3) a video would. Nothing in it says the game plays the same either
+way, and nothing appeals to supporting the developer. It links to
+`https://noqyris.github.io/exactly-67/privacy.html`. Passing no copy is not "sensible
+defaults": the plugin then shows a generic text and silently drops the privacy-policy
+button.
 
-**The plugin's consent bug is patched.** Upstream `capacitor-levelplay-ads` records
-a decline correctly and then reads it back as `GRANTED` from the second launch
-(its `isGranted()` short-circuits on `gdprApplies == 0` before reading the recorded
-decision), which would defeat "only GRANTED starts the SDK" from underneath.
-`scripts/patch-levelplay-consent.mjs` reorders the checks on iOS and Android at
-every `npm install`, and exits 1 if the code no longer has the known shape.
+**The ATT purpose string** (`package.json` → `levelplay.userTrackingDescription` and
+`Info.plist` → `NSUserTrackingUsageDescription`, kept identical): *"Unity Ads and
+ironSource Exchange use your advertising identifier to show you ads based on your
+interests and to measure how those ads perform."* Neutral — what tracking is for,
+nothing that pushes either answer (the 1.3.0 string said the game "plays the same
+either way").
+
+**The plugin's consent defects are patched** — eleven places, five defects
+(`scripts/patch-levelplay-consent.mjs`, the canonical playbook copy): a decline read
+back as `GRANTED` from the second launch (`PATCHED-CONSENT-ORDER`), another CMP's TCF
+record read as the answer (`PATCHED-CUSTOM-STATUS`), the first answer of a process
+sticking in the iOS GDPR map (`PATCHED-GDPR-FRESH`), Decline drawn apart from Accept
+(`.cancel`) with a hardcoded English policy link (`PATCHED-EQUAL-BUTTONS`), and every
+answer mirrored into a fake TCF record saying GDPR does not apply
+(`PATCHED-NO-TCF-STUB`). It runs at every `npm install`, writes nothing unless every
+patch applies, and exits 1 if the code no longer has the known shape.
+`check-native-sync.mjs` (every sync chain, and the fastlane archive and `ad_gate` lanes)
+and the Xcode guard refuse a plugin without the markers.
 
 ### Interstitial cadence — the hybrid gate
 
@@ -445,17 +497,19 @@ banner on a level in play):
 
 **The offer.** The hint modal opens at zero hints. Its watch button exists only while
 `rewardedOffered()` is true — always where there is no ad surface (the hint then takes
-its free-grant path), otherwise only while consent is `GRANTED` (see the decline above).
+its free-grant path), otherwise with consent or where the tap would ask for it (option
+A, above); a refusal's 180-day quiet period draws no button.
 The label is **"Watch ad: +1 hint"**, measured at run time in the button's own font; on
 a 320 pt phone it falls back to **"Ad: +1 hint"**. The body box is sized once for the
 longest thing it can say, so the card never resizes under a thumb.
 
-**The watch.** `watchRewardedHint()` resolves to one of three outcomes:
+**The watch.** `watchRewardedHint()` resolves to one of four outcomes:
 
 | Outcome | When | What the modal says (in a note under the card) |
 |---|---|---|
 | `earned` | The reward event arrived. | "Hint earned!" |
-| `unavailable` | No video was ever shown: no fill, a load that failed or timed out, no consent, or another full-screen ad still up. | "No video available right now — try again soon" |
+| `unavailable` | No video was ever shown: no fill, a load that failed or timed out, no consent and no question to ask, or another full-screen ad still up. | "No video available right now — try again soon" |
+| `no-consent` | The tap asked for ad consent and got no yes ("Don't accept", or no answer). Nothing loaded or shown. | Nothing — the player just chose; a no also takes the button away |
 | `not-earned` | A video was handed to the SDK and did not pay out: closed early, failed to present, or never *displayed* within 10 s. | "No hint this time — the ad didn't play to the end" |
 
 `showRewardedHint()` is the same call folded to a boolean (true only on `earned`).
@@ -550,10 +604,11 @@ screenshots. Beyond those:
    `package.json` → `adSafety.appAdsTxt` so `check-no-google.mjs` validates it.
 3. **Integration check on a device, eyes only:** `npm run ios:sync:test` builds the
    real waterfall (`ADMODE:test` + `ADS:on`), and Xcode builds it only as a Run with
-   `AD_TARGET=test` stated. Confirm the consent modal text and privacy link, the ATT
-   alert, that `initialize()` does not crash, the banner filling the strip, an
-   interstitial after the cadence, a hint video, and that a withdrawal from Privacy
-   choices takes the banner down. **These are real ads: look, never tap**, and never
+   `AD_TARGET=test` stated. Confirm that nothing is asked at launch, the consent
+   question after Level 1's Next (equal buttons, the *Privacy policy* link), the ATT
+   alert only after Accept, that `initialize()` does not crash, the banner filling the
+   strip, an interstitial after the cadence, a hint video, and that a withdrawal in
+   Settings → "Privacy & ads" takes the banner down. **These are real ads: look, never tap**, and never
    upload this build. Afterwards `npm run ios:sync` to leave the tree ads-off.
 4. **App Store Connect → App Privacy** needs no change: the label declares
    Identifiers, Location and Usage Data used for tracking, plus Diagnostics. It was
@@ -561,7 +616,7 @@ screenshots. Beyond those:
    collects did not change with the move to LevelPlay — and it agrees with
    [`privacy.html`](privacy.html). Re-check it only if a network is added.
 5. **Publish** the updated `docs/privacy.html` and `docs/index.html` (GitHub Pages
-   serves `main` `/docs`) before the live upload, so the URL in the consent modal and
+   serves `main` `/docs`) before the live upload, so the URL in the consent question and
    the store listing says what the app does. The Fastfile's privacy gate refuses every
    live upload and `submit` until the published page names LevelPlay and no longer
    mentions AdMob. The page should also be brought up to date with the code on two

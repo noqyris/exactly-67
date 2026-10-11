@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CONSENT_COPY } from '../adConsentCopy'
 
 /**
  * The LevelPlay provider is one long event race, and the expensive ways to get it
@@ -21,12 +22,27 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 type Handler = (info: unknown) => void
 const listeners = new Map<string, Set<Handler>>()
 const calls: string[] = []
-/** Flipped per test: what getConsentData() reports after the CMP ran. */
+/** Flipped per test: the answer the plugin has stored (getConsentData()). */
 let consentStatus = 'GRANTED'
+/**
+ * Flipped per test: what the player taps when the consent alert is on screen.
+ * null = nobody answers (the call just resolves, like an alert the player is
+ * still reading past the ceiling). requestConsentInfo() shows the alert only
+ * while no answer is stored; showPrivacyOptions() always does — as natively.
+ */
+let alertAnswer: 'GRANTED' | 'DENIED' | null = null
+/** How many times the native alert was actually put on screen. */
+let alertsShown = 0
 /** Flipped per test: what the SDK says it holds when asked isReady(). */
 const ready = { interstitial: false, rewarded: false }
 /** Flipped per test: initialize() rejects, the way it does with no network. */
 let initFails = false
+/** Set per test: initialize() stays pending until the test calls it (an SDK still starting). */
+let releaseInit: (() => void) | null = null
+let holdInit = false
+/** Set per test: the ATT alert stays on screen until the test answers it. */
+let answerAtt: (() => void) | null = null
+let holdAtt = false
 /** Flipped per test: resetConsent() rejects (a plugin build without it). */
 let resetFails = false
 /** The last argument each plugin call received, by name. */
@@ -69,28 +85,51 @@ vi.mock('capacitor-levelplay-ads', () => {
       argsOf[name] = args[0]
       return Promise.resolve(undefined)
     }
+  /** The native consent alert: shown, answered (or not), the answer stored and emitted. */
+  const consentCall =
+    (name: string, always: boolean) =>
+    (...args: unknown[]): Promise<unknown> => {
+      calls.push(name)
+      argsOf[name] = args[0]
+      if (always || consentStatus === 'UNKNOWN') {
+        alertsShown++
+        if (alertAnswer) consentStatus = alertAnswer
+      }
+      emit('onConsentStatusChanged', { status: consentStatus })
+      return Promise.resolve({ status: consentStatus })
+    }
   return {
     AdEvent,
     LevelPlayAds: {
       initialize: (...args: unknown[]) => {
         calls.push('initialize')
         argsOf.initialize = args[0]
-        return initFails
-          ? Promise.reject(new Error('init failed: no network'))
-          : Promise.resolve({ status: 'INITIALIZED_SUCCESSFULLY' })
+        if (initFails) return Promise.reject(new Error('init failed: no network'))
+        if (holdInit) {
+          return new Promise((resolve) => {
+            releaseInit = () => resolve({ status: 'INITIALIZED_SUCCESSFULLY' })
+          })
+        }
+        return Promise.resolve({ status: 'INITIALIZED_SUCCESSFULLY' })
       },
       setCCPAConsent: record('setCCPAConsent'),
       setChildDirected: record('setChildDirected'),
-      requestTrackingAuthorization: record('requestTrackingAuthorization'),
-      requestConsentInfo: record('requestConsentInfo'),
+      // iOS answers; the provider remembers a decided answer for the process.
+      requestTrackingAuthorization: () => {
+        calls.push('requestTrackingAuthorization')
+        if (holdAtt) return new Promise((resolve) => (answerAtt = () => resolve({ status: 'AUTHORIZED' })))
+        return Promise.resolve({ status: 'AUTHORIZED' })
+      },
+      requestConsentInfo: consentCall('requestConsentInfo', false),
       // Like the native call: clear, then EMIT the fresh (UNKNOWN) status, then resolve.
       resetConsent: () => {
         calls.push('resetConsent')
         if (resetFails) return Promise.reject(new Error('not implemented on this platform'))
+        consentStatus = 'UNKNOWN'
         emit('onConsentStatusChanged', { status: 'UNKNOWN' })
         return Promise.resolve({ status: 'UNKNOWN' })
       },
-      showPrivacyOptions: record('showPrivacyOptions'),
+      showPrivacyOptions: consentCall('showPrivacyOptions', true),
       createBanner: record('createBanner'),
       showBanner: record('showBanner'),
       hideBanner: record('hideBanner'),
@@ -152,9 +191,15 @@ beforeEach(() => {
   listeners.clear()
   calls.length = 0
   consentStatus = 'GRANTED'
+  alertAnswer = null
+  alertsShown = 0
   ready.interstitial = false
   ready.rewarded = false
   initFails = false
+  holdInit = false
+  releaseInit = null
+  holdAtt = false
+  answerAtt = null
   resetFails = false
   for (const k of Object.keys(argsOf)) delete argsOf[k]
   lp.__resetForTests(CONFIGURED)
@@ -210,64 +255,68 @@ describe('consent ordering — a legal requirement, not style', () => {
    * LevelPlay SDK." initialize() transmits device data to configure the
    * waterfall, so init-before-consent leaks before the player is asked. The old
    * Google stack initialised first — the shape a straight port carries over.
+   * And since option A (owner, 2026-10-11): consent → ATT → SDK, with nothing
+   * asked at launch.
    */
-  it('asks for ATT and consent BEFORE it initializes the SDK', async () => {
+  const order = (names: string[]) => calls.filter((c) => names.includes(c))
+
+  it('a stored yes: the answer is read and applied, then ATT, then the SDK — consent → ATT → SDK', async () => {
     await provider.init()
-    const order = calls.filter((c) =>
-      ['requestTrackingAuthorization', 'requestConsentInfo', 'getConsentData', 'initialize'].includes(c),
-    )
-    expect(order).toEqual(['requestTrackingAuthorization', 'requestConsentInfo', 'getConsentData', 'initialize'])
+    expect(calls.indexOf('getConsentData')).toBeLessThan(calls.indexOf('requestConsentInfo'))
+    expect(order(['requestConsentInfo', 'requestTrackingAuthorization', 'initialize'])).toEqual([
+      'requestConsentInfo',
+      'requestTrackingAuthorization',
+      'initialize',
+    ])
+    // Applied, not asked: the alert only appears while there is no answer.
+    expect(alertsShown).toBe(0)
   })
 
-  it('does not initialize at all when no consent decision exists (UNKNOWN)', async () => {
+  it('no stored answer: init() asks NOTHING at launch — no alert, no ATT, no SDK', async () => {
     consentStatus = 'UNKNOWN'
     await provider.init()
     await settle()
+    expect(calls).not.toContain('requestConsentInfo')
+    expect(calls).not.toContain('showPrivacyOptions')
+    expect(calls).not.toContain('requestTrackingAuthorization')
     expect(calls).not.toContain('initialize')
+    expect(alertsShown).toBe(0)
+    expect(provider.consentState?.()).toBe('UNKNOWN')
   })
 
-  it('does not initialize when the player actively declined (DENIED)', async () => {
+  it('a stored no is applied with no UI, and neither ATT nor the SDK follows', async () => {
     // KVIZKO's first guard read `status === 'UNKNOWN'` and let a Decline through.
     consentStatus = 'DENIED'
     await provider.init()
     await settle()
+    expect(calls).toContain('requestConsentInfo')
+    expect(alertsShown).toBe(0)
+    expect(calls).not.toContain('requestTrackingAuthorization')
     expect(calls).not.toContain('initialize')
+    expect(provider.consentState?.()).toBe('DENIED')
   })
 
-  it('shows the modal in English with the privacy policy link', async () => {
-    await provider.init()
-    expect(argsOf.requestConsentInfo).toEqual({
-      title: lp.CONSENT_COPY.title,
-      message: lp.CONSENT_COPY.message,
-      acceptButtonText: 'Accept',
-      declineButtonText: 'Decline',
-      privacyPolicyUrl: 'https://noqyris.github.io/exactly-67/privacy.html',
-    })
-    // Honest about what Accept means, and no "support us" framing.
-    expect(lp.CONSENT_COPY.message).toMatch(/advertising identifier/)
-    expect(lp.CONSENT_COPY.message).toMatch(/personalise/)
-    expect(lp.CONSENT_COPY.message.toLowerCase()).not.toMatch(/support|help the developer|help us/)
-  })
-
-  it('subscribes to consent changes BEFORE it shows the modal', async () => {
-    await provider.init()
+  it('subscribes to consent changes BEFORE the question is asked', async () => {
+    consentStatus = 'UNKNOWN'
+    alertAnswer = 'GRANTED'
+    await provider.askConsent?.('afterLevel')
     const listen = calls.indexOf('addListener:onConsentStatusChanged')
-    const modal = calls.indexOf('requestConsentInfo')
+    const alert = calls.indexOf('requestConsentInfo')
     expect(listen).toBeGreaterThanOrEqual(0)
-    expect(listen).toBeLessThan(modal)
+    expect(listen).toBeLessThan(alert)
   })
 
-  it('starts the SDK when consent arrives AFTER init() gave up on it', async () => {
+  it('starts the SDK when consent arrives AFTER the question gave up on it — ATT first', async () => {
     consentStatus = 'UNKNOWN'
     await provider.init()
     await settle()
     expect(calls).not.toContain('initialize')
     emit('onConsentStatusChanged', { status: 'GRANTED' })
     await settle()
-    expect(calls).toContain('initialize')
+    expect(order(['requestTrackingAuthorization', 'initialize'])).toEqual(['requestTrackingAuthorization', 'initialize'])
   })
 
-  it('starts the SDK when a boot-time decline is reversed from Privacy choices', async () => {
+  it('starts the SDK when a stored no is reversed in Settings', async () => {
     consentStatus = 'DENIED'
     await provider.init()
     await settle()
@@ -285,46 +334,213 @@ describe('consent ordering — a legal requirement, not style', () => {
     emit('onConsentStatusChanged', { status: 'UNKNOWN' })
     await settle()
     expect(calls).not.toContain('initialize')
+    expect(calls).not.toContain('requestTrackingAuthorization')
   })
 
-  it('starts the SDK once even when init() and the watcher both see the yes', async () => {
+  it('starts the SDK once, and asks ATT once, when init() and the watcher both see the yes', async () => {
     await provider.init()
     await settle()
     emit('onConsentStatusChanged', { status: 'GRANTED' })
     emit('onConsentStatusChanged', { status: 'GRANTED' })
     await settle()
     expect(initializes()).toBe(1)
+    expect(calls.filter((c) => c === 'requestTrackingAuthorization')).toHaveLength(1)
   })
 
-  it('gives ATT and the consent modal separate ceilings', async () => {
+  it('gives ATT and the consent question separate ceilings — the question is read', async () => {
     const src = readFileSync(new URL('./levelplay.ts', import.meta.url), 'utf8')
-    expect(src).toMatch(/withDeadline\(\s*LevelPlayAds\.requestTrackingAuthorization[\s\S]*?ATT_TIMEOUT_MS/)
-    expect(src).toMatch(/withDeadline\(\s*LevelPlayAds\.requestConsentInfo[\s\S]*?CONSENT_TIMEOUT_MS/)
+    expect(src).toMatch(/withDeadline\(\s*LevelPlayAds\.requestTrackingAuthorization\(\)[\s\S]*?ATT_TIMEOUT_MS/)
+    expect(src).toMatch(/LevelPlayAds\.requestConsentInfo\(options\)\)[\s\S]*?CONSENT_TIMEOUT_MS/)
     const att = Number(/const ATT_TIMEOUT_MS = ([\d_]+)/.exec(src)?.[1].replace(/_/g, ''))
     const consent = Number(/const CONSENT_TIMEOUT_MS = ([\d_]+)/.exec(src)?.[1].replace(/_/g, ''))
     expect(consent).toBeGreaterThanOrEqual(att * 3)
   })
+})
 
-  it('re-opens the consent modal from Privacy choices, with the same copy', async () => {
-    await provider.openPrivacyOptions?.()
+describe('the question (option A) — asked by the policy layer, then ATT, then the SDK', () => {
+  it('after a level with no answer: the alert, and on a yes ATT and the SDK — in that order', async () => {
+    consentStatus = 'UNKNOWN'
+    await provider.init()
+    alertAnswer = 'GRANTED'
+    await expect(provider.askConsent?.('afterLevel')).resolves.toBe('GRANTED')
+    expect(alertsShown).toBe(1)
+    const steps = calls.filter((c) => ['requestConsentInfo', 'requestTrackingAuthorization', 'initialize'].includes(c))
+    expect(steps).toEqual(['requestConsentInfo', 'requestTrackingAuthorization', 'initialize'])
+    expect(provider.adsAllowed?.()).toBe(true)
+  })
+
+  it('a no: no ATT alert and no SDK — Apple: ATT is not shown to someone who declined', async () => {
+    consentStatus = 'UNKNOWN'
+    await provider.init()
+    alertAnswer = 'DENIED'
+    await expect(provider.askConsent?.('afterLevel')).resolves.toBe('DENIED')
+    await settle()
+    expect(calls).not.toContain('requestTrackingAuthorization')
+    expect(calls).not.toContain('initialize')
+    expect(provider.adsAllowed?.()).toBe(false)
+  })
+
+  it('no answer within the ceiling resolves UNKNOWN and starts nothing — a later tap still counts', async () => {
+    consentStatus = 'UNKNOWN'
+    alertAnswer = null
+    await expect(provider.askConsent?.('afterLevel')).resolves.toBe('UNKNOWN')
+    expect(calls).not.toContain('initialize')
+    emit('onConsentStatusChanged', { status: 'GRANTED' }) // the player answers late
+    await settle()
+    expect(calls).toContain('initialize')
+  })
+
+  it('a tapped offer puts one sentence of context in front of the same text', async () => {
+    consentStatus = 'UNKNOWN'
+    alertAnswer = 'GRANTED'
+    await provider.askConsent?.('adTap')
+    const message = (argsOf.requestConsentInfo as { message: string }).message
+    expect(message).toBe(`${CONSENT_COPY.adTapLead} ${CONSENT_COPY.message}`)
+  })
+
+  it('Settings always re-opens the alert — showPrivacyOptions — whatever the answer', async () => {
+    for (const stored of ['UNKNOWN', 'DENIED', 'GRANTED'] as const) {
+      calls.length = 0
+      consentStatus = stored
+      alertAnswer = 'DENIED'
+      await provider.askConsent?.('settings')
+      expect(calls, stored).toContain('showPrivacyOptions')
+      expect(calls, stored).not.toContain('requestConsentInfo')
+    }
+    expect(alertsShown).toBe(3)
+  })
+
+  it('a refusal tapped again re-opens the alert too (requestConsentInfo would only apply the no)', async () => {
+    consentStatus = 'DENIED'
+    await provider.init()
+    calls.length = 0
+    alertAnswer = 'GRANTED'
+    await expect(provider.askConsent?.('adTap')).resolves.toBe('GRANTED')
     expect(calls).toContain('showPrivacyOptions')
-    expect(argsOf.showPrivacyOptions).toMatchObject({ privacyPolicyUrl: 'https://noqyris.github.io/exactly-67/privacy.html' })
+    expect(calls).toContain('initialize')
+  })
+
+  it('a withdrawal in Settings after the SDK is up: do_not_sell, and the policy layer hears the no', async () => {
+    const heard: boolean[] = []
+    provider.onConsentChange?.((granted) => heard.push(granted))
+    await provider.init()
+    await settle()
+    alertAnswer = 'DENIED'
+    await provider.askConsent?.('settings')
+    expect(heard.at(-1)).toBe(false)
+    expect(argsOf.setCCPAConsent).toEqual({ doNotSell: true })
+    expect(provider.adsAllowed?.()).toBe(false)
+  })
+
+  it('one question at a time: two triggers in the same moment share one alert', async () => {
+    consentStatus = 'UNKNOWN'
+    alertAnswer = 'GRANTED'
+    const [a, b] = await Promise.all([provider.askConsent?.('afterLevel'), provider.askConsent?.('adTap')])
+    expect(a).toBe('GRANTED')
+    expect(b).toBe('GRANTED')
+    expect(alertsShown).toBe(1)
+  })
+
+  it('hands the plugin the shared copy, the policy URL and the policy button’s name', async () => {
+    consentStatus = 'UNKNOWN'
+    alertAnswer = 'DENIED'
+    await provider.askConsent?.('afterLevel')
+    expect(argsOf.requestConsentInfo).toEqual({
+      title: CONSENT_COPY.title,
+      message: CONSENT_COPY.message,
+      acceptButtonText: 'Accept',
+      declineButtonText: "Don't accept",
+      privacyPolicyUrl: 'https://noqyris.github.io/exactly-67/privacy.html',
+      // Read only by the patched plugin (PATCHED-EQUAL-BUTTONS).
+      privacyButtonText: 'Privacy policy',
+    })
+  })
+
+  it('a foreground retry while the ATT alert is still up waits for it — the SDK never starts ahead of ATT', async () => {
+    holdAtt = true
+    const init = provider.init() // a stored yes: ATT is on screen
+    await settle()
+    expect(calls).toContain('requestTrackingAuthorization')
+    provider.retryInit?.() // the player left and came back with the alert up
+    await settle()
+    expect(calls).not.toContain('initialize')
+    answerAtt?.()
+    await init
+    await settle()
+    expect(initializes()).toBe(1)
+    expect(calls.filter((c) => c === 'requestTrackingAuthorization')).toHaveLength(1)
+  })
+
+  it('a no that lands while ATT is up starts nothing at all', async () => {
+    consentStatus = 'UNKNOWN'
+    await provider.init()
+    await settle()
+    emit('onConsentStatusChanged', { status: 'GRANTED' }) // ATT is asked…
+    emit('onConsentStatusChanged', { status: 'DENIED' }) // …and the answer changes before it returns
+    await settle()
+    expect(calls).toContain('requestTrackingAuthorization')
+    expect(calls).not.toContain('initialize')
+  })
+})
+
+describe('the words — option A, neutral, in the game’s language', () => {
+  const text = `${CONSENT_COPY.title} ${CONSENT_COPY.message} ${CONSENT_COPY.adTapLead}`
+
+  it('says who shows the ads, who receives what, why, what a no means and where to change it', () => {
+    expect(CONSENT_COPY.message).toMatch(/Exactly 67 \(Noqyris\) shows ads through Unity LevelPlay/)
+    expect(CONSENT_COPY.message).toMatch(/Unity Technologies \(Unity Ads and ironSource Exchange\)/)
+    expect(CONSENT_COPY.message).toMatch(/device and app data/)
+    expect(CONSENT_COPY.message).toMatch(/ads you see and tap/)
+    expect(CONSENT_COPY.message).toMatch(/advertising identifier/)
+    expect(CONSENT_COPY.message).toMatch(/to show you ads and tailor them/)
+    expect(CONSENT_COPY.message).toMatch(/no ads are shown, so there are no rewards for watching them/)
+    expect(CONSENT_COPY.message).toMatch(/hints still come from playing/)
+    expect(CONSENT_COPY.message).toMatch(/Settings → Privacy & ads/)
+    expect(CONSENT_COPY.settingsRow).toBe('Privacy & ads')
+  })
+
+  it('never pushes either answer: no "plays the same", no "support us", no "Allow"', () => {
+    for (const banned of [/plays the same/i, /either way/i, /works (exactly )?the same/i, /support/i, /help (us|the developer)/i, /\ballow\b/i]) {
+      expect(text, String(banned)).not.toMatch(banned)
+    }
+  })
+
+  it('two answers of equal weight: the same verb, yes and no', () => {
+    expect(CONSENT_COPY.accept).toBe('Accept')
+    expect(CONSENT_COPY.decline).toBe("Don't accept")
+    expect(CONSENT_COPY.privacyButton).toBe('Privacy policy')
+  })
+
+  it('the ATT purpose string is neutral, says what tracking is for, and is the same in package.json and Info.plist', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as {
+      levelplay: { userTrackingDescription: string }
+    }
+    const att = pkg.levelplay.userTrackingDescription
+    const plist = readFileSync(new URL('../../../ios/App/App/Info.plist', import.meta.url), 'utf8')
+    expect(plist).toContain(`<key>NSUserTrackingUsageDescription</key>\n    <string>${att}</string>`)
+    expect(att).toMatch(/Unity Ads and ironSource Exchange/)
+    expect(att).toMatch(/advertising identifier/)
+    expect(att).toMatch(/measure/)
+    for (const banned of [/plays the same/i, /either way/i, /\ballow\b/i, /support/i, /help/i, /free/i]) {
+      expect(att, String(banned)).not.toMatch(banned)
+    }
   })
 })
 
 describe('the one-time consent reset — Google-era TCF keys are not a LevelPlay decision', () => {
   /*
    * 1.2.0 asked through Google's form, which leaves IABTCF_* keys the plugin's
-   * custom provider reads as a decision, skipping the modal. services/ads calls
-   * resetConsent() once per install, before init(); these pin what it does here.
+   * custom provider read as a decision. services/ads calls resetConsent() once
+   * per install, before init() and before any question; these pin what it does here.
    */
-  it('clears the stored decision through the plugin, and init() afterwards still asks before it starts', async () => {
+  it('clears the stored decision through the plugin; init() afterwards asks nothing and starts nothing', async () => {
     await provider.resetConsent?.()
     await provider.init()
-    const order = calls.filter((c) =>
-      ['resetConsent', 'requestTrackingAuthorization', 'requestConsentInfo', 'initialize'].includes(c),
-    )
-    expect(order).toEqual(['resetConsent', 'requestTrackingAuthorization', 'requestConsentInfo', 'initialize'])
+    await settle()
+    expect(calls).toContain('resetConsent')
+    expect(provider.consentState?.()).toBe('UNKNOWN')
+    expect(calls).not.toContain('requestConsentInfo')
+    expect(calls).not.toContain('initialize')
   })
 
   it('the UNKNOWN status it emits can never start the SDK, even with the consent watcher attached', async () => {
@@ -345,11 +561,12 @@ describe('the one-time consent reset — Google-era TCF keys are not a LevelPlay
     expect(provider.adsAllowed?.()).toBe(true)
   })
 
-  it('a plugin that refuses the call does not reject — the session still gets its consent modal', async () => {
+  it('a plugin that refuses the call does not reject — and the stored answer still applies', async () => {
     resetFails = true
     await expect(provider.resetConsent?.()).resolves.toBeUndefined()
     await provider.init()
     expect(calls).toContain('requestConsentInfo')
+    expect(calls).toContain('initialize')
   })
 })
 
@@ -620,10 +837,13 @@ describe('prefetch — the ad is loaded before the tap, not at it', () => {
     consentStatus = 'UNKNOWN'
     await provider.init()
     await settle()
-    emit('onConsentStatusChanged', { status: 'GRANTED' }) // startSdk() begins
-    emit('onConsentStatusChanged', { status: 'DENIED' }) // same tick — the SDK is not up yet
+    holdInit = true
+    emit('onConsentStatusChanged', { status: 'GRANTED' }) // ATT, then startSdk() begins
     await settle()
     expect(calls).toContain('initialize')
+    emit('onConsentStatusChanged', { status: 'DENIED' }) // the SDK is not up yet
+    releaseInit?.()
+    await settle()
     expect(calls).not.toContain('loadInterstitial')
     expect(calls).not.toContain('loadRewarded')
     expect(argsOf.setCCPAConsent).toEqual({ doNotSell: true })

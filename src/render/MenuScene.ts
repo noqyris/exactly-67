@@ -13,6 +13,7 @@ import {
   rewardedBusy,
   watchRewarded,
 } from '../services/ads'
+import { CONSENT_COPY } from '../services/adConsentCopy'
 import { playPlace, playReward, setSoundEnabled, soundEnabled } from '../services/audio'
 import { hapticsEnabled, placeTap, setHapticsEnabled } from '../services/haptics'
 import { iapSupported, setIapListener, welcomePrice } from '../services/iap'
@@ -35,7 +36,8 @@ import {
   takeStreakNotice,
   welcomeOffered,
 } from '../services/progression'
-import { signalOnboardingDone, splashFinished, takePendingRoute } from '../services/session'
+import { AD_REPORT, reportAd } from '../services/report'
+import { splashFinished, takePendingRoute } from '../services/session'
 import { saveHapticsEnabled, saveMusicEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, INK, INK_CSS, OUTLINE, PAPER } from './palette'
@@ -107,8 +109,6 @@ export class MenuScene extends Phaser.Scene {
       else this.scene.start('LevelMap', {})
       return
     }
-    // Reaching the menu counts as "past onboarding": the ad layer may start.
-    signalOnboardingDone()
     this.modal = null
     this.refreshCountdown = null
     this.restartPending = false
@@ -157,23 +157,23 @@ export class MenuScene extends Phaser.Scene {
       jar.setPosition(cursor + jar.chipWidth / 2, barY)
     }
 
-    // --- privacy choices ------------------------------------------------------------
-    // Re-opens the ad-consent decision, so a player who declined can say yes and
-    // one who accepted can withdraw (GDPR: as easy as consenting). It lives in
-    // Settings too, but the consent modal, the in-app copy and the privacy policy
-    // all say "Privacy choices on the main menu" — so it stays here, where that
-    // wording points. Only for players the ad SDK can ever run for (Unlimited
-    // owners never start it). A quiet link under the gear, far from the bottom
-    // banner: a control next to an ad is a mis-tap waiting to be counted as a
-    // click. Small glyphs, generous padding, so the target is still ~44pt; its
-    // top edge sits below the gear's, so a gear tap can never land on it.
+    // --- privacy & ads -----------------------------------------------------------------
+    // Re-opens the ad-consent question, so a player who said no can say yes and
+    // one who said yes can withdraw (GDPR: as easy as consenting). The question
+    // and the in-app copy point to Settings → "Privacy & ads"; this corner link
+    // is the same row one tap closer, kept from 1.3.0, under the same name. Only
+    // for players the ad SDK can ever run for (Unlimited owners never start it).
+    // A quiet link under the gear, far from the bottom banner: a control next to
+    // an ad is a mis-tap waiting to be counted as a click. Small glyphs, generous
+    // padding, so the target is still ~44pt; its top edge sits below the gear's,
+    // so a gear tap can never land on it.
     let titleY = barY + chipH / 2 + f.eh * 0.07
     this.headerBottom = barY + chipH / 2
     if (adsSupported() && !hintsUnlimited()) {
       const padX = u(10)
       const padY = u(16)
       const privacy = this.add
-        .text(right + padX, barY + u(22), 'Privacy choices', TEXT.ink(12, '700'))
+        .text(right + padX, barY + u(22), CONSENT_COPY.settingsRow, TEXT.ink(12, '700'))
         .setOrigin(1, 0)
         .setColor(INK_SOFT)
         .setPadding({ x: padX, y: padY })
@@ -618,6 +618,14 @@ export class MenuScene extends Phaser.Scene {
         }
         if (!this.sys.isActive() || !ad.active) return
         take.setAlpha(1)
+        if (outcome === 'no-consent') {
+          // The tap asked for ad consent and got no yes: the player just chose,
+          // so nothing is said. A no takes the offer away (option A); no answer
+          // at all leaves it, and the next tap asks again.
+          if (rewardedAvailable('gift')) ad.setAlpha(1)
+          else ad.setAlpha(0.35).disableInteractive()
+          return
+        }
         if (outcome === 'unavailable') {
           // Nothing to show today (no fill, the cap spent): don't invite a retry.
           ad.setAlpha(0.35).disableInteractive()
@@ -707,10 +715,13 @@ export class MenuScene extends Phaser.Scene {
     overlay.add([icon, title, body, ok])
   }
 
-  /** Sound, music, haptics, daily reminders, and the ad-privacy decision. */
+  /** Sound, music, haptics, daily reminders — then "Privacy & ads" and "Report an ad". */
   private showSettings() {
     const cx = this.scale.width / 2
-    const showPrivacy = adsSupported() && !hintsUnlimited()
+    // The two ad rows, only for players the ad SDK can ever run for: an
+    // Unlimited owner never starts it, so there is nothing to consent to and no
+    // ad to report.
+    const adRows = adsSupported() && !hintsUnlimited()
     const cardW = this.modalCardWidth()
     const rowW = cardW - u(48)
     // The card is laid out top-down with a running cursor (offsets from its top
@@ -721,31 +732,30 @@ export class MenuScene extends Phaser.Scene {
     note.setWordWrapWidth(rowW).setAlign('center')
     // The note appears under the reminder row only when iOS says no; its line
     // (two, on a narrow phone) is reserved either way, so it never lands on the
-    // privacy link below.
+    // ad rows below.
     const noteH = note.height
     note.setText('')
-    // Re-opens the ad-consent decision: withdrawing must be as easy as
-    // consenting (GDPR). Here, far from the bottom banner, a mis-tap can never
-    // land on an ad. (The menu carries the same link; see create().)
-    const privacy = showPrivacy
-      ? this.add
-          .text(cx, 0, 'Privacy choices', TEXT.ink(14, '800'))
-          .setOrigin(0.5, 0)
-          .setColor(INK_CSS)
-          .setPadding({ x: u(16), y: u(12) })
-          .setInteractive({ useHandCursor: true })
-      : null
-    if (privacy) onTap(privacy, () => void openPrivacyOptions(), true)
 
+    // Row pitches: 52 pt per switch, 48 per link row. A 320×568 phone with the
+    // banner strip has about 474 pt for the card; when the full pitches do not
+    // fit they close up to 46 and 44 — every target stays at least 44 pt tall
+    // (Apple HIG) — rather than the card climbing off the screen.
     const ROWS = 4
-    const rowPitch = u(52)
+    const LINKS = adRows ? 2 : 0
+    const safe = safeArea()
+    const room = this.scale.height - safe.bottom - safe.top - u(16)
+    const chrome = u(50) + noteH + u(6) + u(8) + u(24) + u(40) // title band, note, Done
+    const roomy = chrome + ROWS * u(52) + LINKS * u(48) <= room
+    const rowPitch = roomy ? u(52) : u(46)
+    const linkPitch = roomy ? u(48) : u(44)
+
     let cursor = u(50) // below the title; each row is centred in its pitch
     const rowsAt = cursor
     cursor += ROWS * rowPitch
     const noteAt = cursor
     cursor += noteH + u(6)
-    const privacyAt = cursor
-    if (privacy) cursor += privacy.height + u(4)
+    const linksAt = cursor
+    cursor += LINKS * linkPitch
     const doneAt = cursor + u(8) + u(24) // Done's centre: a gap, then half its height
     cursor = doneAt + u(40) // its lower half, its drop, the card's padding
 
@@ -763,7 +773,7 @@ export class MenuScene extends Phaser.Scene {
       const g = this.add.graphics()
       const text = this.add.text(rowX + u(44), yy, label, TEXT.ink(16, '700')).setOrigin(0, 0.5)
       const sw = this.add.graphics()
-      const hit = this.add.zone(rowX + rowW / 2, yy, rowW, u(48)).setInteractive({ useHandCursor: true })
+      const hit = this.add.zone(rowX + rowW / 2, yy, rowW, Math.min(u(48), rowPitch)).setInteractive({ useHandCursor: true })
       const paint = () => {
         g.clear()
         g.setPosition(rowX + u(16), yy)
@@ -826,9 +836,27 @@ export class MenuScene extends Phaser.Scene {
     void reminderPermission().then((perm) => {
       if (perm !== 'granted' && remindersOn) say(NOTIFY_DENIED)
     })
-    if (privacy) {
-      privacy.setY(top + privacyAt)
-      overlay.add(privacy)
+    // "Privacy & ads" re-opens the ad-consent question whatever the answer was —
+    // withdrawing must be as easy as consenting (GDPR Art. 7(3)) — and "Report
+    // an ad" opens a pre-written mail (Apple 2.5.18). Full-width rows, each a
+    // target at least 44 pt tall, armed like the switches so a press that slides
+    // in from elsewhere opens nothing. Here, far from the bottom banner, a
+    // mis-tap can never land on an ad.
+    const link = (index: number, label: string, onPress: () => void) => {
+      const yy = top + linksAt + linkPitch * index + linkPitch / 2
+      const text = this.add.text(cx, yy, `${label}  ›`, TEXT.ink(15, '800')).setOrigin(0.5).setColor(INK_CSS)
+      const hit = this.add.zone(cx, yy, rowW, linkPitch).setInteractive({ useHandCursor: true })
+      hit.on('pointerdown', () => text.setAlpha(0.55))
+      hit.on('pointerout', () => text.setAlpha(1))
+      onTap(hit, () => {
+        text.setAlpha(1)
+        onPress()
+      })
+      overlay.add([text, hit])
+    }
+    if (adRows) {
+      link(0, CONSENT_COPY.settingsRow, () => void openPrivacyOptions())
+      link(1, AD_REPORT.row, () => reportAd())
     }
     const done = makeButton(this, 'Done', cardW * 0.4, u(48), 0xf5b942, '#2B2440', close)
     done.setPosition(cx, top + doneAt)

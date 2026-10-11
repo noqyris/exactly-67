@@ -3,27 +3,12 @@ import { Preferences } from '@capacitor/preferences'
 /**
  * Session-level signals that cross scenes without scenes knowing each other.
  *
- * Onboarding gate: on a brand-new install the ad layer (and with it the ATT
- * alert and the "Ads and your data" consent modal) waits until the player has
- * finished their first level, instead of stacking two native prompts over the
- * first frame of Level 1. Consent is still asked BEFORE the SDK starts — this
- * only moves when that moment comes (main.ts). Returning players never wait.
+ * (Until option A, 2026-10-11, this also held an onboarding gate that kept the
+ * ad layer — ATT, then the consent modal — waiting until a new player had
+ * finished Level 1. The ad layer asks nothing at launch any more: the consent
+ * question comes on the way out of the first finished level's win card, ATT
+ * only after a yes — services/ads.ts. So there is nothing left to hold back.)
  */
-let markDone: (() => void) | null = null
-const done = new Promise<void>((resolve) => {
-  markDone = resolve
-})
-
-/** Resolves once the first level has been played through (or immediately, see main.ts). */
-export function onboardingDone(): Promise<void> {
-  return done
-}
-
-/** The player has left their first win card, or reached the menu. Idempotent. */
-export function signalOnboardingDone(): void {
-  markDone?.()
-  markDone = null
-}
 
 /**
  * Where a tapped reminder wants to go, held until a screen can act on it. A

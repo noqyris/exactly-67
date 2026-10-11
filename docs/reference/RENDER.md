@@ -96,15 +96,25 @@ here — nowhere else references raw hex.
 live idle `ScaleView` "heartbeat", the button column (Play → first uncleared level
 via `isCleared` scan; Daily Challenge; Level map; and **Store** when
 `iapSupported() && !hintsUnlimited()`), the sound / music / haptics toggles, and the
-**"Privacy choices"** link.
+**"Privacy & ads"** link.
 
-**Privacy choices.** A quiet text link (12 pt, soft ink, padded to a ~44 pt touch
+**Privacy & ads.** A quiet text link (12 pt, soft ink, padded to a ~44 pt touch
 target) at the **top-right** of the content frame, deliberately far from the bottom
 banner — a control next to an ad is a mis-tap waiting to be counted as a click. It
-calls `ads.openPrivacyOptions()`, which re-opens the ad-consent modal so a player who
-declined can accept and one who accepted can withdraw. Shown only when
+calls `ads.openPrivacyOptions()`, which opens the ad-consent question (option A) so a
+player who said no can accept and one who accepted can withdraw — the same as the
+Settings row of that name, one tap closer. Shown only when
 `adsSupported() && !hintsUnlimited()`: never in a browser or an `ADS:off` build, and
 never for Unlimited owners, whose SDK never starts.
+
+**Settings sheet** (the gear): four switch rows (Sound, Music, Haptics, Daily
+reminder; the reminder note under them when iOS says no), then — for the same players
+as the link — two full-width link rows, **"Privacy & ads ›"** (`openPrivacyOptions()`)
+and **"Report an ad ›"** (`services/report.reportAd()`: a pre-written mail, Apple
+2.5.18), then *Done*. Every target is at least 44 pt tall: the pitches are 52 pt per
+switch and 48 per link, closing up to 46 and 44 when the card would not otherwise fit
+(a 320×568 phone with the banner strip); every row is armed, so a press that slides in
+from elsewhere opens nothing.
 
 **Responsive scale placement (the layout the QA fix hardened):**
 
@@ -226,7 +236,8 @@ the player opts in, and bars "support us" framing:
 | `watch` / `watchShort` | "Watch ad: +1 hint" / "Ad: +1 hint" |
 | `loading` | "Loading…" |
 | `body(n)` | n = 0: "Out of hints — watch a short ad for 1 hint, or grab a pack." · otherwise "You have N hint(s). Watch a short ad for 1 more." |
-| `videosOff` | "Hint videos are off because ads were declined. Turn them on under Privacy choices on the menu, or grab a pack." |
+| `videosOff` | "No hint videos: you chose no ads. Change it in Settings → Privacy & ads. Hints also come from the Star Jar and the daily gift." |
+| `notReady` | "Hint videos aren't ready yet — earn hints from the Star Jar, or grab a pack." (the stored consent answer not read yet) |
 | `earned` / `unavailable` / `notEarned` | "Hint earned!" / "No video available right now — try again soon" / "No hint this time — the ad didn't play to the end" |
 
 - **Layout.** Title, a body box, "More hints in the Store" (launches `StoreScene` as an
@@ -238,10 +249,12 @@ the player opts in, and bars "support us" framing:
   font and size against the button width minus `u(20)`, and falls back to
   `watchShort` when it does not fit (a 320 pt phone). Measured once per modal.
 - **`refresh()`** re-reads everything each time it runs — the stash, `hintBusy`, and
-  `ads.rewardedOffered()` — and rebuilds the buttons. When the offer stands: body
-  `body(hintCountValue())`, both buttons. When it does not (no ad consent): body
-  `videosOff`, **no watch button**, *Done* alone and centred. A yes given later from
-  Privacy choices brings the watch button back the next time the modal draws. It
+  `ads.rewardedOffered()` — and rebuilds the buttons. When the offer stands (consent,
+  or no answer yet: the tap asks — option A): body `body(hintCountValue())`, both
+  buttons. When it does not (a refusal inside its 180-day quiet period): body
+  `videosOff`, **no watch button**, *Done* alone and centred. A yes given later in
+  Settings → Privacy & ads brings the watch button back the next time the modal draws.
+  A tap whose consent question ends without a yes (`'no-consent'`) shows no note. It
   returns early once the body Text is destroyed.
 - **Messages** go to a note just **under the card** (cream text with an ink stroke,
   fades after 1.8 s), not to the scene toast, which sits under the dim and behind the

@@ -1,3 +1,5 @@
+import type { ConsentState, ConsentTrigger } from '../game/adConsent'
+
 /**
  * The seam between "what the app decides" and "who serves the ad".
  *
@@ -105,8 +107,31 @@ export interface AdProvider {
   /** A caller that asks for an unsupported format gets a clean no-op, not a hang. */
   supports(format: AdFormat): boolean
 
-  /** Consent (and ATT) FIRST, then SDK init — see providers/levelplay.ts init(). */
+  /**
+   * SDK init for a player whose consent answer is already STORED — and only on
+   * a stored yes (iOS ATT, then initialize). Asks NOTHING (option A,
+   * 2026-10-11): a player with no answer is asked later, through `askConsent`,
+   * and until then nothing starts. See providers/levelplay.ts init().
+   */
   init(): Promise<void>
+
+  /**
+   * Optional: the stored consent answer, read at draw time without an await —
+   * UNKNOWN until init() has read it. game/adConsent decides from it whether
+   * an offer may be drawn and whether a level ends with the question. A
+   * network with no consent step leaves it out, and the policy layer then
+   * reads `adsAllowed()` alone.
+   */
+  consentState?(): ConsentState
+
+  /**
+   * Optional: show the consent question now — after a finished level, on a
+   * tapped ad offer, or from Settings → "Privacy & ads" — and resolve with the
+   * answer standing afterwards (UNKNOWN when none came within the ceiling). A
+   * yes has gone on to iOS ATT and the SDK start by then (bounded), so a
+   * tapped offer can load its ad straight after. A no starts nothing.
+   */
+  askConsent?(trigger: ConsentTrigger): Promise<ConsentState>
 
   bannerShow(): Promise<void>
   bannerResume(): Promise<void>
@@ -133,23 +158,21 @@ export interface AdProvider {
 
   /**
    * Optional, synchronous: TRUE while the player's ad consent lets this network
-   * serve anything at all — on LevelPlay, only while consent reads GRANTED.
-   * Omitted means "no consent gate" (the mock).
+   * serve anything at all — on LevelPlay and in the mock, only while consent
+   * reads GRANTED. Omitted means "no consent gate".
    *
-   * Read at draw time by the hint modal: a player who declined must not be
-   * offered a "Watch ad" button that can never pay out — the SDK never started,
-   * so every tap would fail, and the consent modal itself promised "no hint
-   * videos". Also read by the interstitial gate and the banner, so a consent
-   * withdrawn from Privacy choices mid-session ends every ad surface for the
-   * session, as that same modal promises.
+   * Read by the banner, the interstitial gate and every rewarded show, so a
+   * consent withdrawn from Settings mid-session ends every ad surface for the
+   * session, as the question promises. Whether an offer is DRAWN without it is
+   * option A's call (services/ads rewardedOffered): only where a tap would ask.
    */
   adsAllowed?(): boolean
 
   /**
    * Optional: call `listener` with the new answer every time the consent
-   * decision is recorded — at boot, from the modal, and from Privacy choices.
-   * The policy layer tears the banner down on a no; the SDK itself cannot be
-   * stopped once it is up.
+   * decision is recorded — a stored one read at boot, and every answer to the
+   * question, Settings → "Privacy & ads" included. The policy layer tears the
+   * banner down on a no; the SDK itself cannot be stopped once it is up.
    */
   onConsentChange?(listener: (granted: boolean) => void): void
 
@@ -163,11 +186,11 @@ export interface AdProvider {
   setInterstitialWanted?(wanted: () => boolean): void
 
   /**
-   * Optional: forget every stored consent decision, so the next init() asks
-   * afresh. Never rejects. The policy layer calls it ONCE per install, before
-   * the first init(): 1.2.0 asked through Google's form, whose IAB TCF keys (if
-   * it wrote any) the LevelPlay plugin would otherwise read as its own decision
-   * and skip its modal. See services/ads.ts initAds().
+   * Optional: forget every stored consent decision, so the player counts as
+   * never asked. Never rejects. The policy layer calls it ONCE per install,
+   * before the first init() and before any question: 1.2.0 asked through
+   * Google's form, whose IAB TCF keys (if it wrote any) the LevelPlay plugin
+   * would otherwise read as its own decision. See services/ads.ts initAds().
    */
   resetConsent?(): Promise<void>
 
@@ -182,20 +205,14 @@ export interface AdProvider {
   retryInit?(): void
 
   /**
-   * Optional: call `listener` every time the SDK comes up — at boot, after a
-   * consent decision that arrived late (the modal read slowly, or a decline
-   * reversed from Privacy choices), or after an init retry finally succeeded.
+   * Optional: call `listener` every time the SDK comes up — at boot for a
+   * stored yes, after a yes to the question (the modal read slowly, or a
+   * decline reversed from Settings), or after an init retry finally succeeded.
    * The policy layer re-asks for the banner here; without it a player whose
    * SDK started late would sit with an empty reserved strip until some other
    * event happened to re-ask.
    */
   onReady?(listener: () => void): void
-
-  /**
-   * Optional: re-open the consent decision so the player can change it. GDPR
-   * requires withdrawal to be as available as the original consent.
-   */
-  openPrivacyOptions?(): Promise<void>
 
   /**
    * Whether `show*()` settles when the ad APPEARS rather than when the player is

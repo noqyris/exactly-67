@@ -1,5 +1,12 @@
 import { Capacitor } from '@capacitor/core'
 import {
+  adOffersVisible,
+  consentAskOnTap,
+  consentDueAfterLevel,
+  type ConsentState,
+  type ConsentTrigger,
+} from '../game/adConsent'
+import {
   clearsPerInterstitial,
   interstitialsLeftToday,
   noteInterstitialShown,
@@ -16,13 +23,16 @@ import { meta, today, updateMeta } from './metaStore'
 import { startMusic, stopMusic, suppressMusic } from './music'
 import {
   loadAdClears,
+  loadAdConsentAskedAt,
   loadConsentMigrated,
   loadHintCount,
   saveAdClears,
+  saveAdConsentAskedAt,
   saveAdsRemoved,
   saveConsentMigrated,
   saveHintCount,
   saveUnlimitedHints,
+  tallyAdConsentAnswer,
 } from './storage'
 
 /**
@@ -55,7 +65,9 @@ import {
  *                        interstitial — the formats that interrupt — are gone.
  *   - Unlimited ($4.99)  no SDK at all. Hints are free, so no ad can ever be
  *                        shown, and starting the SDK would only cost them a
- *                        consent modal and an ATT alert for nothing.
+ *                        consent question and an ATT alert for nothing.
+ * …and all of it only on a YES to the consent question, which since option A
+ * (2026-10-11) is never asked at launch — see "Consent: option A" below.
  */
 
 /**
@@ -229,33 +241,40 @@ function bannerWanted(): boolean {
 
 /**
  * Whether the player's ad consent lets the network serve anything right now —
- * on LevelPlay, only a GRANTED decision (AdProvider.adsAllowed). A provider
- * with no consent gate (the mock) always allows.
+ * only a GRANTED decision, on LevelPlay and in the mock (AdProvider.adsAllowed).
+ * A provider with no consent gate always allows.
  *
  * Deliberately NOT part of bannerWanted(): bannerReserve() is read at boot,
- * before the consent modal has even been shown, and a reserve that waited for
- * the answer would reflow the whole layout under the player once it came.
+ * before any answer is known, and a reserve that waited for the answer would
+ * reflow the whole layout under the player once it came.
  */
 function consentAllows(): boolean {
   return provider.adsAllowed?.() ?? true
 }
 
 /**
- * Whether the hint modal may offer a rewarded video at all. Read at draw time.
+ * Whether a rewarded offer ("Watch ad: …") may be drawn at all. Read at draw
+ * time by every placement.
  *
- * TRUE where there is no ad surface (browser dev, an ADS:off build): the hint
- * then takes its free-grant path, so the offer always pays. Otherwise it
- * follows consent. A player who declined — or never answered — has no SDK
- * running, so a "Watch ad" button would fail on every tap, forever, after a
- * modal that promised "no hint videos". A GRANTED decision made later from
- * Privacy choices turns it back on with no further code: the next read says yes.
+ * TRUE where there is no ad surface (browser dev, an ADS:off build): the reward
+ * then takes its free-grant path, so the offer always pays. Never for an
+ * Unlimited owner, who has no SDK. Otherwise option A (game/adConsent): drawn
+ * with consent, and wherever a TAP WOULD ASK — a player who never answered, or
+ * a refusal from before the ask time was kept, or one older than 180 days. A
+ * refusal inside its quiet period gets no offer at all: a button that neither
+ * plays nor asks is a dead button. Not drawn either while the stored answer is
+ * still being read (the first moments after the splash): the screens that draw
+ * an offer on arrival wait for adsSettled() and draw again.
  *
  * Deliberately NOT "is an ad loaded": no fill is a moment, not a state, and the
  * button's own loading state and toast cover it.
  */
 export function rewardedOffered(): boolean {
   if (!adsSupported()) return true
-  return consentAllows()
+  if (unlimited) return false
+  if (consentAllows()) return true
+  if (!provider.askConsent || !consentKnown()) return false
+  return adOffersVisible({ state: adConsentState(), lastAskedAt: consentAskedAt, nowMs: Date.now() })
 }
 
 /**
@@ -304,9 +323,9 @@ function safely(fn: (() => void) | undefined): void {
 // --- lifecycle -----------------------------------------------------------------
 
 // The SDK must be up before the FIRST banner request: the plugin refuses a
-// createBanner() before initialize() ("LevelPlay is not initialized"), and
-// consent can hold init back for as long as the player reads the modal. Parked
-// banner requests wait here and are released when initAds() settles either way.
+// createBanner() before initialize() ("LevelPlay is not initialized"), and a
+// stored yes still goes through ATT and initialize() first. Parked banner
+// requests wait here and are released when initAds() settles either way.
 let sdkReady: Promise<void> | null = null
 let markSdkReady: (() => void) | null = null
 
@@ -321,18 +340,11 @@ function sdkReadyGate(): Promise<void> {
 }
 
 /**
- * Consent + ATT, then the SDK. Safe to call more than once; main.ts calls it
- * once the splash is gone, because the consent modal and the ATT alert are
- * native views that would otherwise draw over the studio sting.
- *
- * The consent-before-init ORDER lives in the provider and is a legal
- * requirement — see providers/levelplay.ts init().
- */
-/**
- * Settles once initAds() has run its course (consent answered, SDK started or
- * failed) — or at once when this player gets no SDK at all. Screens that draw a
- * "Watch ad" button on arrival (the daily gift) wait on it, so a consent modal
- * still on screen does not decide the offer before the player has answered.
+ * Settles once initAds() has run its course (the stored consent answer read,
+ * and for a stored yes the SDK started or failed) — or at once when this
+ * player gets no SDK at all. Screens that draw a "Watch ad" button on arrival
+ * (the daily gift) wait on it, so the offer is not decided before the stored
+ * answer is known.
  */
 let markAdsSettled: () => void = () => {}
 let settledFlag = false
@@ -343,6 +355,16 @@ export function adsSettled(): Promise<void> {
   return settled
 }
 
+/**
+ * Read the stored consent answer and, for a stored yes only, start the SDK
+ * (ATT first). Asks NOTHING — option A, see "Consent: option A" below. Safe to
+ * call more than once; main.ts calls it once the splash is gone, because a
+ * stored yes may still bring Apple's ATT alert (a native view that would draw
+ * over the studio sting) on the rare launch where it was never answered.
+ *
+ * The consent-before-init ORDER lives in the provider and is a legal
+ * requirement — see providers/levelplay.ts init().
+ */
 export async function initAds(): Promise<void> {
   try {
     await startAds()
@@ -355,42 +377,29 @@ export async function initAds(): Promise<void> {
 async function startAds(): Promise<void> {
   if (!adsSupported() || initialized) return
   // Unlimited-hints owners can never be shown an ad, so they never start the
-  // SDK — and never see a consent modal or an ATT alert for ads they won't get.
-  // A No-Ads owner still does: the hint video is a real rewarded ad.
+  // SDK — and never see a consent question or an ATT alert for ads they won't
+  // get. A No-Ads owner still can: the hint video is a real rewarded ad.
   if (unlimited) return
   initialized = true
   clearsSinceInterstitial = await loadAdClears()
-  // Re-ask for the banner whenever the SDK comes up — including LATE: a consent
-  // read past its ceiling, a decline reversed from Privacy choices, or an init
-  // retry that finally got a network. showBanner() decides whether one is wanted.
+  // Never older than an ask this session already recorded (Settings can be
+  // reached before this read lands).
+  consentAskedAt = Math.max(consentAskedAt, await loadAdConsentAskedAt())
+  // Re-ask for the banner whenever the SDK comes up — including LATE: a yes to
+  // the question, a no reversed in Settings, or an init retry that finally got
+  // a network. showBanner() decides whether one is wanted.
   provider.onReady?.(() => void showBanner())
-  // A "no" — at boot, or withdrawn from Privacy choices after the SDK is up —
-  // takes the banner down now. The SDK cannot be stopped, so this layer keeps
-  // the promise the consent modal makes: every later banner, interstitial and
-  // hint-video offer reads consentAllows() and stays away for as long as the
-  // answer is no.
+  // A "no" — stored, or withdrawn in Settings after the SDK is up — takes the
+  // banner down now. The SDK cannot be stopped, so this layer keeps the promise
+  // the question makes: every later banner, interstitial and rewarded show
+  // reads consentAllows() and stays away for as long as the answer is no.
   provider.onConsentChange?.((granted) => {
     if (!granted) void removeBanner()
   })
   // Read live, so a purchase mid-session stops interstitial loads from then on.
   provider.setInterstitialWanted?.(() => !removed && !unlimited)
   try {
-    // ONE-TIME, and BEFORE the first init(): forget any consent record left
-    // over from 1.2.0. That build asked through Google's form, which writes IAB
-    // TCF keys wherever a GDPR message was live — and the LevelPlay plugin reads
-    // those as its own decision, so an EEA player who said yes to Google's
-    // partners would start Unity's SDK without ever seeing "Ads and your data".
-    // Whether any Exactly 67 install carries them cannot be checked any more
-    // (the old ad console is gone), and the reset is free, so every install gets
-    // it. Reset first, flag after: a kill between the two only means the modal
-    // is asked for once more. See storage.ts.
-    // Never from the fake-ads build: the mock provider stores no consent, so its
-    // "reset" clears nothing — and saving the flag from it would let a later
-    // live build on the same phone skip the one reset that matters.
-    if (!adsMock() && !(await loadConsentMigrated())) {
-      await provider.resetConsent?.()
-      await saveConsentMigrated()
-    }
+    await migrateConsentOnce()
     await provider.init()
   } catch {
     // Init failed (no network, no app key) — later calls guard and no-op. Not
@@ -420,18 +429,141 @@ export function adsForegrounded(): void {
   if (fullScreenDepth === 0) void showBanner()
 }
 
+// --- consent: option A -----------------------------------------------------------
+/*
+ * The owner's option A (2026-10-11, hq/projects/games/ads-consent-option-a.md),
+ * rules in game/adConsent. Nothing asks at launch: the provider's init() starts
+ * the SDK only for a stored yes. A player with no answer is asked after their
+ * first finished level — the question takes the place of that level's break,
+ * on the way out of the win card — or when they tap an ad offer themselves. A
+ * no is asked again only on such a tap, and not for 180 days; meanwhile the
+ * offers are not drawn (rewardedOffered), so nothing on screen leads nowhere,
+ * and Settings → "Privacy & ads" re-opens the question at any time. On iOS a
+ * yes is followed by Apple's ATT prompt, and only then does the SDK start.
+ */
+
+/** When the question was last shown (persisted: the 180-day rule spans launches). */
+let consentAskedAt = 0
+/** One after-level try per session: a question left unanswered waits for the next one. */
+let afterLevelAsked = false
+/** The question in flight: one at a time, whatever opened it. */
+let consentAsking: Promise<ConsentState> | null = null
+
 /**
- * Re-open the ad-consent decision so the player can change it (the menu's
- * Privacy choices). Scenes talk to the policy layer, never to a network, so
- * this delegates to the provider. A no-op where there is no ad surface.
+ * The stored consent answer: UNKNOWN (never answered), GRANTED or DENIED. A
+ * provider with no consent question reports only yes/no through adsAllowed().
+ */
+export function adConsentState(): ConsentState {
+  return provider.consentState?.() ?? (consentAllows() ? 'GRANTED' : 'DENIED')
+}
+
+/**
+ * Whether the stored answer has been read: a definite one is known as soon as
+ * the provider has it; "no answer" only once initAds() has run its course —
+ * before that, UNKNOWN only means "not read yet".
+ */
+function consentKnown(): boolean {
+  return settledFlag || adConsentState() !== 'UNKNOWN'
+}
+
+/**
+ * ONE-TIME, and BEFORE the first init() and the first question: forget any
+ * consent record left over from 1.2.0. That build asked through Google's form,
+ * which writes IAB TCF keys wherever a GDPR message was live — and the
+ * LevelPlay plugin read those as its own decision (PATCHED-CUSTOM-STATUS now
+ * stops it natively too), so an EEA player who said yes to Google's partners
+ * could start Unity's SDK without ever being asked. Whether any Exactly 67
+ * install carries them cannot be checked any more (the old ad console is
+ * gone), and the reset is free, so every install gets it. Reset first, flag
+ * after: a kill between the two only means one more question. See storage.ts.
+ *
+ * Shared by initAds() and every question, so a question asked while the reset
+ * is still running waits for it — a reset landing after an answer would erase
+ * it. Never from the fake-ads build: the mock provider stores no real consent,
+ * so its "reset" clears nothing — and saving the flag from it would let a later
+ * live build on the same phone skip the one reset that matters.
+ */
+let consentMigration: Promise<void> | null = null
+
+function migrateConsentOnce(): Promise<void> {
+  consentMigration ??= (async () => {
+    if (adsMock() || (await loadConsentMigrated())) return
+    await provider.resetConsent?.()
+    await saveConsentMigrated()
+  })().catch(() => {
+    // a storage hiccup: the reset simply runs again next launch
+  })
+  return consentMigration
+}
+
+/**
+ * Show the question, record when, and count the answer (on the device only,
+ * by trigger and result — game/adConsent rule 9). While it is up it counts as
+ * a full-screen surface: no ad and no second question can start over it, and
+ * the screens that rebuild on their own (a new day, a tapped reminder) wait.
+ */
+function askAdConsent(trigger: ConsentTrigger): Promise<ConsentState> {
+  const ask = provider.askConsent
+  if (!ask) return Promise.resolve(adConsentState())
+  consentAsking ??= (async (): Promise<ConsentState> => {
+    await migrateConsentOnce()
+    consentAskedAt = Date.now()
+    void saveAdConsentAskedAt(consentAskedAt)
+    fullScreenDepth++
+    try {
+      const state = await ask(trigger).catch((): ConsentState => adConsentState())
+      void tallyAdConsentAnswer(trigger, state === 'GRANTED' ? 'granted' : state === 'DENIED' ? 'denied' : 'unanswered')
+      return state
+    } finally {
+      fullScreenDepth--
+    }
+  })().finally(() => {
+    consentAsking = null
+  })
+  return consentAsking
+}
+
+/**
+ * A tapped rewarded offer without consent: ask (option A rule 5), with one
+ * sentence of context. Inside a refusal's quiet period the offer should not
+ * have been drawn (rewardedOffered), so that branch is only a race with a
+ * screen that drew it a moment before the answer changed: it plays nothing.
+ */
+async function consentForTap(): Promise<boolean> {
+  if (consentAllows()) return true
+  if (!provider.askConsent || !consentKnown()) return false
+  if (!consentAskOnTap({ state: adConsentState(), lastAskedAt: consentAskedAt, nowMs: Date.now() })) return false
+  return (await askAdConsent('adTap')) === 'GRANTED' && consentAllows()
+}
+
+/**
+ * Whether leaving this win card should open the consent question instead of
+ * an interstitial (game/adConsent consentDueAfterLevel): a player with no
+ * answer, once per session, never an owner of either ad-free product, and
+ * never after a card that already asked something or offered a video.
+ */
+function consentDueNow(opts: InterstitialContext): boolean {
+  if (!adsSupported() || !initialized || !provider.askConsent) return false
+  if (!consentKnown() || fullScreenDepth > 0) return false
+  return consentDueAfterLevel({
+    state: adConsentState(),
+    adsRemoved: removed || unlimited,
+    askedThisSession: afterLevelAsked,
+    cardAsked: opts.rewardPrompt === true || opts.cardAsk === true,
+  })
+}
+
+/**
+ * Settings → "Privacy & ads" (and the menu's corner link): open the consent
+ * question whatever the answer is and however recently it was given —
+ * withdrawing must be as easy as consenting (GDPR Art. 7(3)). A no takes the
+ * banner down at once and stops every ad; a yes asks ATT and starts the SDK.
+ * Scenes talk to the policy layer, never to a network. A no-op where there is
+ * no ad surface, and for an Unlimited owner, who has no SDK to consent to.
  */
 export async function openPrivacyOptions(): Promise<void> {
-  if (!adsSupported()) return
-  try {
-    await provider.openPrivacyOptions?.()
-  } catch {
-    // no privacy screen on this provider / not on device
-  }
+  if (!adsSupported() || unlimited) return
+  await askAdConsent('settings')
 }
 
 // --- banner --------------------------------------------------------------------
@@ -484,9 +616,9 @@ export async function showBanner(): Promise<void> {
   if (!bannerWanted() || !bannerOnScreen) return
   await sdkReadyGate()
   // Re-check: a purchase can land while we wait, or the player can enter a
-  // level. Consent is only asked here, after the gate — before it the modal may
-  // not have been answered yet, and a request dropped then would never be
-  // re-asked. Without consent the SDK is not up and the plugin would only
+  // level. Consent is only read here, after the gate — before it the stored
+  // answer may not have been read yet, and a request dropped then would never
+  // be re-asked. Without consent the SDK is not up and the plugin would only
   // refuse the request anyway.
   if (!bannerWanted() || !bannerOnScreen || !consentAllows()) return
   try {
@@ -553,13 +685,15 @@ export async function removeBanner(): Promise<void> {
  * for as long as the app stayed in memory.
  *
  * Resets only what is per SESSION — the cap and the warm-up, so the first clear
- * after coming back is never an ad. The 180 s spacing floor, the every-3rd-clear
+ * after coming back is never an ad, and the one after-level consent question a
+ * player with no answer may get. The 180 s spacing floor, the every-3rd-clear
  * counter, the quiet window after a rewarded video and the daily rewarded caps
  * are not per session and carry over.
  */
 export function startAdSession(now: number = Date.now()): void {
   sessionStart = now
   adsThisSession = 0
+  afterLevelAsked = false
 }
 
 /** Count one level clear toward the interstitial cadence (call once per win). */
@@ -595,8 +729,8 @@ export function interstitialWouldShow(clearedGlobal: number, opts: InterstitialC
   // upgrade (a full Star Jar, a finished pack) lands ad-free. The counter is not
   // spent, so the break simply moves to the next clear.
   if (opts.rewardPrompt || opts.cardAsk) return false
-  // No consent, no interstitial — including one withdrawn mid-session from
-  // Privacy choices, after the SDK was already up and still able to serve.
+  // No consent, no interstitial — including one withdrawn mid-session in
+  // Settings → "Privacy & ads", after the SDK was already up and able to serve.
   if (!consentAllows()) return false
   if (clearedGlobal <= ONBOARDING_LEVELS) return false
   // Every pack-complete clear — and the final "The End!" — lands ad-free.
@@ -628,8 +762,19 @@ export function interstitialWouldShow(clearedGlobal: number, opts: InterstitialC
  * The cadence is spent only on a presented ad: a no-fill, a refused show or a
  * failed present leaves the counter armed and the time floor unmoved, so the
  * next clear retries.
+ *
+ * Option A: for a player with no consent answer this break is where the
+ * consent question goes, once per session — in place of an interstitial that
+ * could not be shown anyway (no consent, no SDK). The clear was already
+ * counted toward the cadence at the win (noteCleared). Resolves FALSE then: no
+ * ad was presented, and the caller navigates once the question is answered.
  */
 export async function maybeShowInterstitial(clearedGlobal: number, opts: InterstitialContext = {}): Promise<boolean> {
+  if (consentDueNow(opts)) {
+    afterLevelAsked = true
+    await askAdConsent('afterLevel')
+    return false
+  }
   if (!interstitialWouldShow(clearedGlobal, opts)) return false
   // Never on top of another full-screen ad (a hint video still closing).
   if (fullScreenDepth > 0) return false
@@ -672,14 +817,19 @@ export async function maybeShowInterstitial(clearedGlobal: number, opts: Interst
  *
  *   earned       the reward arrived; grant the hint.
  *   unavailable  no video was ever shown: no fill, a load that failed or timed
- *                out, consent not given, or another full-screen ad still up.
- *                "No video available right now" is true of every one of them.
+ *                out, no consent and no question to ask, or another full-screen
+ *                ad still up. "No video available right now" is true of every
+ *                one of them.
  *   not-earned   a video was handed to the SDK and did not pay out — closed
  *                early, failed to present, or never appeared in time. Saying
  *                "no video available" here would contradict the ad the player
  *                may just have closed.
+ *   no-consent   the tap opened the consent question (option A) and it did not
+ *                end in a yes — "don't accept", or no answer. Nothing was
+ *                loaded or shown. Say nothing: the player just made that choice,
+ *                and a refusal also takes the offer off the screen.
  */
-export type RewardedOutcome = 'earned' | 'unavailable' | 'not-earned'
+export type RewardedOutcome = 'earned' | 'unavailable' | 'not-earned' | 'no-consent'
 
 /**
  * Whether a "Watch ad: …" button may be drawn for `placement` right now: the
@@ -703,10 +853,9 @@ export function rewardedBusy(): boolean {
 }
 
 /**
- * Whether the ad-consent question has been settled for this session (initAds()
- * has run its course). Before that — a brand-new install still on Level 1, whose
- * ads wait for the level to be played — "videos are off because ads were
- * declined" would be false: nobody has been asked yet.
+ * Whether initAds() has run its course this session: the stored consent answer
+ * is read. Before that (the first moments after the splash) no offer is drawn,
+ * and "you chose no ads" would be a guess: the hint modal says "not ready yet".
  */
 export function adsDecided(): boolean {
   return settledFlag
@@ -753,12 +902,16 @@ export async function watchRewardedHint(): Promise<RewardedOutcome> {
 async function playRewarded(): Promise<RewardedOutcome> {
   if (!adsSupported()) return 'earned'
   if (unlimited) return 'unavailable'
-  // Buttons are not drawn without consent; this is the guard for any path that
-  // asks anyway (a consent withdrawn while a card was open).
+  // Offers are drawn only with consent or where a tap would ask; this is the
+  // guard for a path that asks anyway (an answer that changed while a card
+  // stayed open).
   if (!rewardedOffered()) return 'unavailable'
   if (fullScreenDepth > 0) return 'unavailable'
   fullScreenDepth++
   try {
+    // No consent yet: the tap asks (option A). Anything but a yes plays nothing
+    // and loads nothing; a yes has started ATT and the SDK by the time it returns.
+    if (!(await consentForTap())) return 'no-consent'
     const loaded = await withTimeout(provider.loadRewarded(), AD_LOAD_TIMEOUT_MS, false)
     if (!loaded) return 'unavailable'
     const reward = await underFullScreenAd<unknown | null>({

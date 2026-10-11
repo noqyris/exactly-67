@@ -23,8 +23,10 @@ let bannerRefused = false
 /** Resolver for an init() the test holds open (consent modal still on screen). */
 let releaseInit: (() => void) | null = null
 let holdInit = false
-/** What the provider's consent says (AdProvider.adsAllowed) — flipped per test. */
-let consentOk = true
+/** The provider's stored consent answer (AdProvider.consentState / adsAllowed) — flipped per test. */
+let consent: 'UNKNOWN' | 'GRANTED' | 'DENIED' = 'GRANTED'
+/** What the player answers when the consent question is shown (AdProvider.askConsent). */
+let answer: 'UNKNOWN' | 'GRANTED' | 'DENIED' = 'GRANTED'
 /** The policy layer's consent listener (AdProvider.onConsentChange). */
 let consentListener: ((granted: boolean) => void) | null = null
 /** What the policy layer told the provider about interstitials (AdProvider.setInterstitialWanted). */
@@ -51,10 +53,19 @@ const fake = {
   retryInit: vi.fn(() => {
     calls.push('retryInit')
   }),
-  openPrivacyOptions: record('openPrivacyOptions'),
-  // A plain function, not a spy: the ADS:off test asserts no spy was called,
+  // Plain functions, not spies: the ADS:off test asserts no spy was called,
   // and reading consent is not a provider CALL in that sense.
-  adsAllowed: () => consentOk,
+  adsAllowed: () => consent === 'GRANTED',
+  consentState: () => consent,
+  // The question (option A): records the answer and, like both real providers,
+  // tells the policy layer about a change.
+  askConsent: vi.fn(async (trigger: string) => {
+    calls.push(`askConsent:${trigger}`)
+    const was = consent
+    consent = answer
+    if (consent !== was) consentListener?.(consent === 'GRANTED')
+    return consent
+  }),
   onConsentChange: vi.fn((l: (granted: boolean) => void) => {
     consentListener = l
   }),
@@ -103,6 +114,9 @@ vi.mock('./storage', () => ({
   saveConsentMigrated: async () => {
     stored.consentMigrated = true
   },
+  loadAdConsentAskedAt: async () => 0,
+  saveAdConsentAskedAt: async () => {},
+  tallyAdConsentAnswer: async () => {},
   loadFreeHintDate: async () => '',
   saveFreeHintDate: async () => {},
   loadHintCount: async () => 0,
@@ -122,7 +136,8 @@ async function freshAds(owner: { adsRemoved?: boolean; unlimited?: boolean } = {
   bannerRefused = false
   holdInit = false
   releaseInit = null
-  consentOk = true
+  consent = 'GRANTED'
+  answer = 'GRANTED'
   consentListener = null
   interstitialWanted = null
   for (const f of Object.values(fake)) if (vi.isMockFunction(f)) f.mockClear()
@@ -358,27 +373,29 @@ describe('banner — requested once, re-asked until it exists', () => {
   })
 })
 
-describe('Privacy choices', () => {
-  it('delegates to the provider where there is an ad surface', async () => {
+describe('Settings → Privacy & ads', () => {
+  it('asks the provider\'s consent question where there is an ad surface', async () => {
     const ads = await freshAds()
     await ads.openPrivacyOptions()
-    expect(fake.openPrivacyOptions).toHaveBeenCalledTimes(1)
+    expect(fake.askConsent).toHaveBeenCalledTimes(1)
+    expect(fake.askConsent).toHaveBeenCalledWith('settings')
   })
 
-  it('consent withdrawn mid-session: the banner comes down, and no interstitial or hint video is offered again', async () => {
-    // The SDK cannot be stopped once up; the modal the player just answered says
-    // a decline means "no ads and no hint videos", so this layer keeps that promise.
+  it('a withdrawal mid-session: the banner comes down, and no interstitial or hint video plays or is offered again', async () => {
+    // The SDK cannot be stopped once up; the question the player just answered
+    // says a no means "no ads are shown", so this layer keeps that promise.
     const ads = await freshAds()
     await armInterstitial(ads)
     await ads.showBanner()
     expect(ads.interstitialWouldShow(10)).toBe(true)
     expect(ads.rewardedOffered()).toBe(true)
-    consentOk = false
-    consentListener?.(false)
+    answer = 'DENIED'
+    await ads.openPrivacyOptions()
     await flush()
     expect(fake.bannerRemove).toHaveBeenCalledTimes(1)
     expect(ads.interstitialWouldShow(10)).toBe(false)
     await expect(ads.maybeShowInterstitial(10)).resolves.toBe(false)
+    // Asked just now: inside the 180-day quiet period the offers are not drawn.
     expect(ads.rewardedOffered()).toBe(false)
     await expect(ads.watchRewardedHint()).resolves.toBe('unavailable')
     // …and nothing brings the banner back while the answer is no.
@@ -393,12 +410,12 @@ describe('Privacy choices', () => {
 
   it('a later yes brings every surface back — the next banner request goes through', async () => {
     const ads = await freshAds()
-    consentOk = false
+    consent = 'DENIED'
     await armInterstitial(ads)
     await ads.showBanner()
-    expect(fake.bannerShow).not.toHaveBeenCalled() // declined at boot: never even asked
-    consentOk = true
-    consentListener?.(true)
+    expect(fake.bannerShow).not.toHaveBeenCalled() // a stored no: never even asked
+    answer = 'GRANTED'
+    await ads.openPrivacyOptions()
     readyListener?.() // the SDK starts on the new yes
     await flush()
     expect(fake.bannerShow).toHaveBeenCalledTimes(1)
@@ -419,7 +436,7 @@ describe('Privacy choices', () => {
     )
     const banner = ads.showBanner()
     await flush()
-    consentOk = false
+    consent = 'DENIED'
     consentListener?.(false)
     await flush()
     land()
@@ -427,6 +444,13 @@ describe('Privacy choices', () => {
     await flush()
     expect(fake.bannerRemove).toHaveBeenCalled()
     expect(calls.lastIndexOf('bannerRemove')).toBeGreaterThan(calls.indexOf('bannerShow'))
+  })
+
+  it('an Unlimited owner is never asked — there is no SDK to consent to', async () => {
+    const ads = await freshAds({ adsRemoved: true, unlimited: true })
+    await ads.initAds()
+    await ads.openPrivacyOptions()
+    expect(fake.askConsent).not.toHaveBeenCalled()
   })
 })
 

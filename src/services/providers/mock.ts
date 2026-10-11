@@ -1,3 +1,6 @@
+import { Preferences } from '@capacitor/preferences'
+import type { ConsentState, ConsentTrigger } from '../../game/adConsent'
+import { CONSENT_COPY, PRIVACY_POLICY_URL, consentMessage } from '../adConsentCopy'
 import { ADS_MARKER, BANNER_RESERVE_DESIGN_PX, type AdFormat, type AdProvider, type DismissWatcher } from '../adProvider'
 
 /**
@@ -25,14 +28,21 @@ import { ADS_MARKER, BANNER_RESERVE_DESIGN_PX, type AdFormat, type AdProvider, t
  * What it is NOT for: proving the real waterfall fills. Only LevelPlay's
  * reports can say that. Do not let a green mock run stand in for it.
  *
+ * Consent works like the real thing (option A): nothing is asked at launch, a
+ * FAKE consent window with the real words and two equal answers comes after
+ * the first finished level, on a tapped ad offer and from Settings → "Privacy
+ * & ads", and nothing is loaded or shown without a yes — so the whole path can
+ * be walked on a phone. iOS's ATT prompt is the one step it cannot show.
+ *
  * Every surface is deliberately ugly and says FAKE AD — MOCK BUILD in large
  * letters, so nobody ever wonders which build is on the phone in their hand.
  * The release gates refuse this bundle for every store target anyway
  * (`scripts/check-ad-mode.mjs`); the gates protect the store, the lettering
  * protects the human.
  *
- * E2E hooks: every surface carries `data-e67-mock="banner|interstitial|rewarded|privacy"`,
- * and each full-screen one's button carries `data-e67-mock-close`.
+ * E2E hooks: every surface carries `data-e67-mock="banner|interstitial|rewarded|consent"`,
+ * each full-screen ad's button carries `data-e67-mock-close`, and the consent
+ * window's buttons `data-e67-mock-consent="accept|decline|policy"`.
  */
 
 /** Seconds a fake rewarded video runs before closing it earns the reward. */
@@ -44,8 +54,10 @@ const Z = 2147483000
 const TAG = 'FAKE AD — MOCK BUILD'
 
 let bannerEl: HTMLElement | null = null
+/** The fake "SDK" is up: only ever after a yes, like the real one. */
 let initialized = false
 const readyListeners = new Set<() => void>()
+const consentListeners = new Set<(granted: boolean) => void>()
 
 /** Resolvers for the dismissal watchers, by format. */
 const dismissWaiters: Partial<Record<AdFormat, Array<() => void>>> = {}
@@ -60,6 +72,26 @@ const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 function styleOn(el: HTMLElement, css: Record<string, string>): void {
   for (const [k, v] of Object.entries(css)) el.style.setProperty(k, v)
+}
+
+/**
+ * Every half of a press that must stay on OUR layer. Phaser takes the release
+ * half of a press from `window` — so a drag that leaves the canvas still ends —
+ * and re-hit-tests it on the canvas; these sheets sit over the canvas, so a
+ * press on one of their buttons bubbled up to `window` and released whatever
+ * canvas button lay underneath: "Accept" in the fake consent window closed the
+ * Settings card below it (found walking option A at 320×568, 2026-10-11).
+ * KVIZKO and Quadshot met the same with their fake ads.
+ */
+const ISOLATED_INPUT_EVENTS = ['touchstart', 'touchend', 'touchcancel', 'mousedown', 'mouseup', 'pointerdown', 'pointerup'] as const
+
+/**
+ * Stop a DOM layer's presses at its root. Propagation only, never
+ * `preventDefault`: the browser still turns the press into a `click` on our own
+ * buttons, and the page still scrolls where it would.
+ */
+function isolateInput(el: HTMLElement): void {
+  for (const type of ISOLATED_INPUT_EVENTS) el.addEventListener(type, (e) => e.stopPropagation(), { passive: true })
 }
 
 const FONT = 'ui-sans-serif, system-ui, sans-serif'
@@ -111,6 +143,8 @@ function makeBanner(): HTMLElement {
 function sheet(kind: string): HTMLElement {
   const root = document.createElement('div')
   root.setAttribute('data-e67-mock', kind)
+  // Its presses are its own: none may release a game button underneath.
+  isolateInput(root)
   styleOn(root, {
     position: 'fixed',
     inset: '0',
@@ -245,29 +279,120 @@ function showFullScreen(format: 'interstitial' | 'rewarded', onPresented: () => 
   })
 }
 
-/** A stand-in for the native consent modal, so the menu's Privacy choices entry is testable. */
-function showPrivacySheet(): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const root = sheet('privacy')
-    const title = textBlock(`${TAG} · Privacy choices`, {
-      font: `800 20px/1.2 ${FONT}`,
+// ── consent (option A) ───────────────────────────────────────────────────────
+
+/** Where the fake answer is kept — never the plugin's key, which a real build on this phone reads. */
+const MOCK_CONSENT_KEY = 'exactly67.mockConsent'
+
+/** The fake answer. Like the real one, nothing is loaded or shown without a yes. */
+let consent: ConsentState = 'UNKNOWN'
+let consentOpen: Promise<ConsentState> | null = null
+
+async function loadMockConsent(): Promise<ConsentState> {
+  try {
+    const { value } = await Preferences.get({ key: MOCK_CONSENT_KEY })
+    return value === 'GRANTED' || value === 'DENIED' ? value : 'UNKNOWN'
+  } catch {
+    return 'UNKNOWN'
+  }
+}
+
+/** The fake SDK comes up on a yes — the policy layer then asks for the banner (onReady). */
+function fakeSdkUp(): void {
+  if (initialized) return
+  initialized = true
+  readyListeners.forEach((l) => l())
+}
+
+function recordConsent(state: ConsentState): void {
+  consent = state
+  void Preferences.set({ key: MOCK_CONSENT_KEY, value: state }).catch(() => {})
+  // A no ends the ad path at once, like the real provider's withdrawal: the
+  // policy layer takes the banner down when it hears it, and so does this.
+  if (state !== 'GRANTED') {
+    bannerEl?.remove()
+    bannerEl = null
+  }
+  consentListeners.forEach((l) => l(state === 'GRANTED'))
+  if (state === 'GRANTED') fakeSdkUp()
+}
+
+/**
+ * The fake build's consent question — the same title, text and three equal
+ * buttons as LevelPlay's native alert with PATCHED-EQUAL-BUTTONS, drawn in the
+ * DOM and labelled FAKE, so option A's whole path — after the first finished
+ * level, on a tapped offer, from Settings — can be walked on a phone without a
+ * real ad network ever being told anything. Resolves with the answer; a second
+ * call while it is up returns the same promise.
+ */
+function showMockConsent(trigger: ConsentTrigger): Promise<ConsentState> {
+  if (consentOpen) return consentOpen
+  consentOpen = new Promise<ConsentState>((resolve) => {
+    const root = sheet('consent')
+    root.style.setProperty('background', 'rgba(17, 20, 28, 0.82)')
+
+    const card = document.createElement('div')
+    styleOn(card, {
+      'max-width': '22rem',
+      'max-height': '100%',
+      'overflow-y': 'auto',
+      'box-sizing': 'border-box',
+      background: '#11141c',
+      border: '2px dashed #ff5a5a',
+      'border-radius': '16px',
+      padding: '18px',
+      display: 'flex',
+      'flex-direction': 'column',
+      gap: '12px',
+      color: '#e8eaf0',
+      font: `500 14px/1.45 ${FONT}`,
+    })
+
+    const tag = textBlock('FAKE CONSENT WINDOW — MOCK BUILD · the answer goes to no network', {
+      font: `800 12px/1.2 ${FONT}`,
       color: '#ff5a5a',
+      'letter-spacing': '.03em',
     })
-    const body = textBlock(
-      'On a device this opens the ad-consent modal, where the decision can be changed. The mock build has no ad SDK, so there is nothing to consent to.',
-      { color: '#9aa2b0', 'max-width': '30rem' },
-    )
-    const btn = button()
-    btn.textContent = 'Close'
-    btn.style.setProperty('background', '#ffc940')
-    btn.style.setProperty('color', '#11141c')
-    btn.addEventListener('click', () => {
+    const title = textBlock(CONSENT_COPY.title, { font: `800 18px/1.25 ${FONT}` })
+    const body = textBlock(consentMessage(trigger), { color: '#c3c8d2', 'text-align': 'left' })
+
+    const finish = (state: ConsentState) => {
       root.remove()
-      resolve()
+      consentOpen = null
+      recordConsent(state)
+      resolve(state)
+    }
+    // Accept and Don't accept are drawn identically — the whole point of option
+    // A's rule 3 is that neither answer is dressed up — and so is the policy link.
+    const choice = (kind: 'accept' | 'decline' | 'policy', label: string, onTap: () => void): HTMLButtonElement => {
+      const btn = document.createElement('button')
+      btn.setAttribute('data-e67-mock-consent', kind)
+      styleOn(btn, {
+        appearance: 'none',
+        border: '1px solid #3a4150',
+        'border-radius': '12px',
+        padding: '12px 16px',
+        'min-height': '44px',
+        font: `700 15px/1 ${FONT}`,
+        cursor: 'pointer',
+        background: '#1c212c',
+        color: '#e8eaf0',
+      })
+      btn.textContent = label
+      btn.addEventListener('click', onTap)
+      return btn
+    }
+    const accept = choice('accept', CONSENT_COPY.accept, () => finish('GRANTED'))
+    const decline = choice('decline', CONSENT_COPY.decline, () => finish('DENIED'))
+    const policy = choice('policy', CONSENT_COPY.privacyButton, () => {
+      window.open(PRIVACY_POLICY_URL, '_blank')
     })
-    root.append(title, body, btn)
+
+    card.append(tag, title, body, accept, decline, policy)
+    root.append(card)
     document.body.appendChild(root)
   })
+  return consentOpen
 }
 
 // ── the provider ─────────────────────────────────────────────────────────────
@@ -283,9 +408,11 @@ export const mockProvider: AdProvider = {
   supports: () => true,
 
   async init() {
+    // Like the real init(): a stored (fake) answer is read, nothing is asked,
+    // and the fake SDK comes up only on a yes.
+    consent = await loadMockConsent()
     await wait(LOAD_MS)
-    initialized = true
-    readyListeners.forEach((l) => l())
+    if (consent === 'GRANTED') fakeSdkUp()
   },
 
   onReady(listener: () => void) {
@@ -293,17 +420,23 @@ export const mockProvider: AdProvider = {
     if (initialized) listener()
   },
 
-  openPrivacyOptions: () => showPrivacySheet(),
-
-  // No SDK, so no consent to withhold: every fake surface is always allowed,
-  // and the hint modal always offers its (fake) video.
-  adsAllowed: () => true,
-  // Nothing stored to forget. Present so the policy layer's one-time consent
-  // migration runs the same path in a mock build as on a device.
+  consentState: () => consent,
+  askConsent: (trigger: ConsentTrigger) => showMockConsent(trigger),
+  // Only a yes lets a fake surface show, exactly as on LevelPlay.
+  adsAllowed: () => consent === 'GRANTED',
+  onConsentChange(listener: (granted: boolean) => void) {
+    consentListeners.add(listener)
+  },
+  // Nothing stored to forget. Present so the seam reads the same as on a
+  // device; the policy layer never runs the migration in a mock build (it
+  // would save the flag a later real build on this phone needs).
   resetConsent: async () => {},
 
   async bannerShow() {
     await wait(LOAD_MS)
+    // Refused without consent, like LevelPlay's before initialize(): the policy
+    // layer asks again when the fake SDK comes up.
+    if (consent !== 'GRANTED') throw new Error('mock: no consent — no banner')
     if (!bannerEl) {
       bannerEl = makeBanner()
       document.body.appendChild(bannerEl)
@@ -311,6 +444,7 @@ export const mockProvider: AdProvider = {
     bannerEl.style.setProperty('display', 'flex')
   },
   async bannerResume() {
+    if (consent !== 'GRANTED') throw new Error('mock: no consent — no banner')
     bannerEl?.style.setProperty('display', 'flex')
   },
   async bannerHide() {
@@ -323,9 +457,10 @@ export const mockProvider: AdProvider = {
 
   async loadInterstitial() {
     await wait(LOAD_MS)
-    return true
+    return consent === 'GRANTED'
   },
   showInterstitial() {
+    if (consent !== 'GRANTED') return Promise.resolve(false)
     // Resolves on PRESENT, like LevelPlay's — waiting for the player to be done
     // is watchDismissal's job, and conflating the two breaks the policy layer.
     return new Promise<boolean>((resolve) => {
@@ -335,9 +470,10 @@ export const mockProvider: AdProvider = {
 
   async loadRewarded() {
     await wait(LOAD_MS)
-    return true
+    return consent === 'GRANTED'
   },
   showRewarded() {
+    if (consent !== 'GRANTED') return Promise.resolve(null)
     // Settles ONLY on an earned reward, like LevelPlay's: a video closed early
     // leaves this pending, and the policy layer's dismissal watcher wins the
     // race and reads it as skipped.
@@ -347,7 +483,7 @@ export const mockProvider: AdProvider = {
       })
     })
   },
-  rewardedReady: () => true,
+  rewardedReady: () => consent === 'GRANTED',
 
   resolvesOnPresent: (format: AdFormat) => format === 'interstitial',
 

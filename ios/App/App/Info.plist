@@ -95,9 +95,12 @@
          SDK and asks for ATT without this key is rejected. package.json
          levelplay.userTrackingDescription carries the SAME sentence; the sync
          hook inserts that value only when this key is missing, so the two must
-         stay identical or a fresh project ships whichever one got there first. -->
+         stay identical or a fresh project ships whichever one got there first.
+         The prompt comes only after a yes to the game's own consent question
+         (option A, src/services/ads.ts), and the sentence stays neutral: what
+         tracking is used for, nothing that pushes either answer. -->
     <key>NSUserTrackingUsageDescription</key>
-    <string>Allow tracking so the ads you see stay relevant. The game plays the same either way.</string>
+    <string>Unity Ads and ironSource Exchange use your advertising identifier to show you ads based on your interests and to measure how those ads perform.</string>
     <key>SKAdNetworkItems</key>
     <array>
       <!-- Unity LevelPlay partner list, https://skan.mz.unity3d.com/v3/partner/skadnetworks.plist.json,
