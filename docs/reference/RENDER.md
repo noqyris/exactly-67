@@ -139,7 +139,8 @@ restarts the scene.
 
 `create()` builds a sticky header (back button → `Menu`, "Levels" title, a
 `totalStars/(TOTAL_LEVELS × 3)` chip — `/1800`) over a scrolling, virtualized
-4-column grid of all 25 packs. In a `VITE_UNLOCK_ALL` build it also prints
+column of 25 **pack shelves** (1.3.2): a card per pack that opens into its
+drawer of level cells (`game/shelfLayout.ts` geometry, `game/journey.ts` content). In a `VITE_UNLOCK_ALL` build it also prints
 **"TEST BUILD · all levels unlocked"** under the title and opens every level.
 
 - `init({ scrollTo? })` (`:25`) lands a given level in view.

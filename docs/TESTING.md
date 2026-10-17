@@ -221,7 +221,7 @@ that follows.
 | **useAll — blocked (L46)** | A subset summing to 67 (`59+47+31−29−41`) shows **green "67" but "Balanced — but every weight must be aboard!"**, beam locked level, **no win** (the `3`/`−3` net-zero pair still in the tray). |
 | **useAll — win (L46)** | Placing all 7 → win, `Solved with 7 — the perfect minimum!` |
 | **Win + stars** | "EXACTLY 67!" overlay; **3★ = solver minimum** (verified at 1/2/3/7 pieces); star pop-in animation. |
-| **Level map** | Packs, per-level stars/padlocks, total-stars chip (**141/216** for 47 cleared), scroll, tap-to-play, back. |
+| **Level map** | Pack shelves (1.3.2): the next level's pack open on arrival, a card tap opens/shuts its drawer, `scrollTo` centres the level, locked packs say which level opens them; total-stars chip, scroll, tap-to-play, back. Walked at 390×844, 320×568 and 900×640. |
 | **Hint** | Verified in this pass with the original flow (first hint free, then a rewarded "Watch ad"). The current flow — spend a banked hint on the ghost demo, open the hint modal at zero — and its video were re-verified on the mock build below. |
 | **Progress** | Seeded progress read on boot; a win writes through (`L46 win → "Play · level 47"`). |
 | **Navigation** | Play / Next / Map / Back all route correctly. |
