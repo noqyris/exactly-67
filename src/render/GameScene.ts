@@ -676,7 +676,7 @@ export class GameScene extends Phaser.Scene {
    * The pan's sum written out under the scale, in the order the pieces went on
    * (locked ones first): `53 + 19 − 5 = 67`. Balloons in their own colour. The
    * newest term pops in. More than seven terms show "…" and the last six.
-   * Hidden while the pan is empty.
+   * Hidden until there are two pieces to add up.
    */
   private updateEquation(pop = true) {
     this.equation?.destroy()
@@ -684,7 +684,8 @@ export class GameScene extends Phaser.Scene {
     const aboard = this.weights
       .filter((v) => this.placed[v.index] && this.slotOf[v.index] !== null)
       .sort((a, b) => (this.slotOf[a.index] ?? 0) - (this.slotOf[b.index] ?? 0))
-    if (aboard.length === 0) return
+    // One piece is not a sum ("90 = 90" says nothing the chip does not).
+    if (aboard.length < 2) return
     const geo = this.geo
     const f = this.frame()
     const x = this.wideMode ? geo.cx : f.cx
