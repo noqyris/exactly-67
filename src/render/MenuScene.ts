@@ -544,7 +544,7 @@ export class MenuScene extends Phaser.Scene {
   }
 
   /**
-   * The daily gift: the five-day ladder (1, 2, 4, 6, 8 hints for days in a row),
+   * The daily gift: the five-day ladder (1, 2, 3, 4, 5 hints for days in a row),
    * taken free, or with a video's flat +2 on top. Never a toll.
    */
   private showGift() {

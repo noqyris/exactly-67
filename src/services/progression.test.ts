@@ -198,9 +198,9 @@ describe('level wins', () => {
     // Replaying at the same score adds nothing.
     expect(p.recordLevelWin(1, 3, 1).gained).toBe(0)
     let opened = 0
-    for (let g = 2; g <= 6; g++) opened += p.recordLevelWin(g, 3, 1).opened
+    for (let g = 2; g <= 7; g++) opened += p.recordLevelWin(g, 3, 1).opened
     expect(opened).toBe(1)
-    expect(p.jarStars()).toBe((8 + 15) % JAR_CAPACITY)
+    expect(p.jarStars()).toBe((8 + 18) % JAR_CAPACITY)
   })
 
   it('finishing a pack pays its reward exactly once, with the medal', async () => {
@@ -295,7 +295,7 @@ describe('gift and safety nets', () => {
     expect(p.giftDue()).toBe(false)
   })
 
-  it('climbs 1, 2, 4, 6, 8 on days in a row, then starts over; a missed day resets it', async () => {
+  it('climbs 1, 2, 3, 4, 5 on days in a row, then starts over; a missed day resets it', async () => {
     progressWith(1, 2)
     const paid: number[] = []
     for (let d = 0; d < 7; d++) {
@@ -306,7 +306,7 @@ describe('gift and safety nets', () => {
       expect(p.claimGift(gift.hints)).toBe(true)
       paid.push(hints - before)
     }
-    expect(paid).toEqual([1, 2, 4, 6, 8, 1, 2])
+    expect(paid).toEqual([1, 2, 3, 4, 5, 1, 2])
     // The 17th goes by without a claim: the 18th is day 1 again.
     clockAt(new Date(2026, 8, 18, 10))
     const p = await boot()
@@ -317,13 +317,13 @@ describe('gift and safety nets', () => {
     progressWith(1, 2)
     stored.meta = JSON.stringify({ giftDay: addDays(TODAY, -1), giftStreak: 2 })
     const p = await boot()
-    expect(p.giftInfo()).toEqual({ day: 3, hints: 4, next: { day: 4, hints: 6 } })
+    expect(p.giftInfo()).toEqual({ day: 3, hints: 3, next: { day: 4, hints: 4 } })
     // The video's flat bonus rides on top of the rung; the climb is the same.
     expect(p.claimGift(4 + GIFT_AD_BONUS)).toBe(true)
     expect(hints).toBe(6)
     expect(p.claimGift(4)).toBe(false)
     expect(hints).toBe(6)
-    expect(p.giftInfo()).toEqual({ day: 3, hints: 4, next: { day: 4, hints: 6 } })
+    expect(p.giftInfo()).toEqual({ day: 3, hints: 3, next: { day: 4, hints: 4 } })
     expect(JSON.parse(stored.meta!)).toMatchObject({ giftDay: TODAY, giftStreak: 3 })
   })
 
@@ -355,9 +355,9 @@ describe('gift and safety nets', () => {
     p.syncReminders()
     expect(reminderFacts).toMatchObject({ giftTomorrow: null }) // unclaimed today: nothing is certain
     expect(p.claimGift(2)).toBe(true)
-    expect(reminderFacts).toMatchObject({ giftTomorrow: { day: 3, hints: 4 } }) // the claim re-plans
+    expect(reminderFacts).toMatchObject({ giftTomorrow: { day: 3, hints: 3 } }) // the claim re-plans
     p.syncReminders()
-    expect(reminderFacts).toMatchObject({ giftTomorrow: { day: 3, hints: 4 } })
+    expect(reminderFacts).toMatchObject({ giftTomorrow: { day: 3, hints: 3 } })
   })
 
   it('never promises an Unlimited owner a gift', async () => {

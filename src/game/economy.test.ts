@@ -39,8 +39,9 @@ const none = { adsRemoved: false, unlimited: false }
 
 describe('Star Jar', () => {
   it('fills with new stars and opens at capacity, carrying the rest', () => {
-    expect(fillJar({ stars: 17 }, 2)).toEqual({ jar: { stars: 19 }, opened: 0 })
-    expect(fillJar({ stars: 19 }, 3)).toEqual({ jar: { stars: 2 }, opened: 1 })
+    expect(JAR_CAPACITY).toBe(25)
+    expect(fillJar({ stars: JAR_CAPACITY - 3 }, 2)).toEqual({ jar: { stars: JAR_CAPACITY - 1 }, opened: 0 })
+    expect(fillJar({ stars: JAR_CAPACITY - 1 }, 3)).toEqual({ jar: { stars: 2 }, opened: 1 })
     expect(fillJar({ stars: 0 }, JAR_CAPACITY * 2 + 1)).toEqual({ jar: { stars: 1 }, opened: 2 })
   })
   it('ignores zero and negative gains (a replay that earned nothing new)', () => {
@@ -94,8 +95,8 @@ describe('daily gift', () => {
     expect(giftAvailable('2026-09-23', '2026-09-23')).toBe(false)
     expect(giftAvailable('2026-09-22', '2026-09-23')).toBe(true)
   })
-  it('climbs 1, 2, 4, 6, 8 on days in a row, then starts over at 1', () => {
-    expect(GIFT_LADDER).toEqual([1, 2, 4, 6, 8])
+  it('climbs 1, 2, 3, 4, 5 on days in a row, then starts over at 1', () => {
+    expect(GIFT_LADDER).toEqual([1, 2, 3, 4, 5])
     let last: string | null = null
     let count = 0
     const paid: number[] = []
@@ -106,7 +107,7 @@ describe('daily gift', () => {
       last = day
     }
     // Day 6 is day 1 again, day 7 is day 2 …
-    expect(paid).toEqual([1, 2, 4, 6, 8, 1, 2, 4, 6, 8, 1, 2])
+    expect(paid).toEqual([1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2])
     expect(count).toBe(12) // the count keeps going; only the rung cycles
   })
   it('a day without a claim drops the ladder back to day 1', () => {
@@ -129,17 +130,17 @@ describe('daily gift', () => {
     expect(giftDayAfter('2026-09-23', 0, '2026-09-24')).toBe(1)
   })
   it('reads an out-of-range day as the nearest rung', () => {
-    expect([1, 2, 3, 4, 5].map(giftHintsFor)).toEqual([1, 2, 4, 6, 8])
+    expect([1, 2, 3, 4, 5].map(giftHintsFor)).toEqual([1, 2, 3, 4, 5])
     expect(giftHintsFor(0)).toBe(1)
-    expect(giftHintsFor(9)).toBe(8)
+    expect(giftHintsFor(9)).toBe(5)
     expect(giftHintsFor(Number.NaN)).toBe(1)
   })
   it('the video adds a flat bonus that never outdoes the smallest hint pack', () => {
     const SMALLEST_PACK = 10 // iap.ts HINT_PACKS, $0.99
     expect(GIFT_AD_BONUS).toBe(2)
     expect(Math.max(...GIFT_LADDER) + GIFT_AD_BONUS).toBeLessThanOrEqual(SMALLEST_PACK)
-    // Why not a double: day 5 doubled would hand out more than the pack for one ad.
-    expect(Math.max(...GIFT_LADDER) * 2).toBeGreaterThan(SMALLEST_PACK)
+    // Why not a double: day 5 doubled would hand out as much as the pack for one ad.
+    expect(Math.max(...GIFT_LADDER) * 2).toBeGreaterThanOrEqual(SMALLEST_PACK)
   })
   it('an upgrade reads 1.2.x’s UTC hint date against today’s local day', () => {
     // Belgrade (UTC+2), 10:00 on the 23rd: local midnight was 22:00 UTC on the
@@ -183,12 +184,13 @@ describe('offers', () => {
     expect(welcomeEligible(offers(), { adsRemoved: true, unlimited: false })).toBe(false)
     expect(welcomeEligible(offers(), { adsRemoved: false, unlimited: true })).toBe(false)
   })
-  it('the no-ads nudge waits for 8 interstitials, then 7 days apart, 4 times ever', () => {
+  it('the no-ads nudge waits for 3 interstitials, then 3 days apart, 4 times ever', () => {
     const now = 10 * 86_400_000
-    expect(noAdsNudgeDue(offers({ interstitials: 7 }), none, now)).toBe(false)
-    expect(noAdsNudgeDue(offers({ interstitials: 8 }), none, now)).toBe(true)
-    expect(noAdsNudgeDue(offers({ interstitials: 8, noAdsLastAt: now - 86_400_000 }), none, now)).toBe(false)
-    expect(noAdsNudgeDue(offers({ interstitials: 8, noAdsNudges: 4 }), none, now)).toBe(false)
+    expect(noAdsNudgeDue(offers({ interstitials: 2 }), none, now)).toBe(false)
+    expect(noAdsNudgeDue(offers({ interstitials: 3 }), none, now)).toBe(true)
+    expect(noAdsNudgeDue(offers({ interstitials: 3, noAdsLastAt: now - 2 * 86_400_000 }), none, now)).toBe(false)
+    expect(noAdsNudgeDue(offers({ interstitials: 3, noAdsLastAt: now - 3 * 86_400_000 }), none, now)).toBe(true)
+    expect(noAdsNudgeDue(offers({ interstitials: 3, noAdsNudges: 4 }), none, now)).toBe(false)
     expect(noAdsNudgeDue(offers({ interstitials: 50 }), { adsRemoved: true, unlimited: false }, now)).toBe(false)
   })
   it('payers see interstitials half as often', () => {

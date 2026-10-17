@@ -1,34 +1,36 @@
 import { Capacitor } from '@capacitor/core'
 import { InAppReview } from '@capacitor-community/in-app-review'
-import { loadReviewRequested, saveReviewRequested } from './storage'
+import { noteReviewAsked, parseReviewAsks, reviewDue } from '../game/review'
+import { loadReviewAsks, loadReviewRequested, saveReviewAsks } from './storage'
 
 /**
- * "Rate this app" — a thin, one-shot wrapper over the native review prompt,
- * following the audio/haptics/ads pattern (toggle-gated, web-no-op, try-catch).
+ * "Rate this app" — a thin wrapper over the native review prompt, following the
+ * audio/haptics/ads pattern (web-no-op, try-catch). WHEN to ask is pure
+ * (game/review.ts): up to three asks a year at moments of delight — the OS caps
+ * the sheet at three per 365 days anyway and may show it fewer times. There is
+ * no callback telling us whether the sheet appeared or the player rated, so we
+ * ask at good moments and never depend on the outcome. Per Apple's HIG: only
+ * after engagement, never wired to a button, never gating content, never
+ * incentivised, never after a failure. See docs/MONETIZATION.md.
  *
- * The prompt is fire-and-forget by design: on iOS `InAppReview.requestReview()`
- * calls the modern StoreKit `AppStore.requestReview(in:)` (with an
- * `SKStoreReviewController` fallback), which the OS silently caps at ~3 prompts
- * per 365 days and may show zero times. There is no callback telling us whether
- * the sheet appeared or the user rated — so we simply spend our one ask at the
- * best possible moment and never depend on the outcome. Per Apple's HIG we:
- *   - ask only after demonstrated engagement, at a moment of genuine delight,
- *   - never wire it to a button, never gate content on it, never incentivise it,
- *   - ask at most once (a persisted flag), and never after a failure.
- *
- * See docs/MONETIZATION.md.
+ * Until 1.3.2 it asked once in a lifetime (exactly67.reviewRequested) and the
+ * store page has no ratings. A player who had that one ask counts as asked at
+ * the first launch of 1.3.2, so the next ask is still two weeks away.
  */
 
-/** Global level (>= this) at which a first-ever 3★ clear is delight enough to ask. */
-const DELIGHT_MIN_GLOBAL = 8
-/** Fallback: ask by this milestone even for players who never earn 3★. */
-const MILESTONE_GLOBAL = 12
+let asks: number[] = []
 
-let requested = false
-
-/** Load the persisted one-shot flag at boot (before any win can fire the ask). */
+/** Load the persisted asks at boot (before any win can fire one). */
 export async function initReview(): Promise<void> {
-  requested = await loadReviewRequested()
+  const stored = await loadReviewAsks()
+  if (stored) {
+    asks = parseReviewAsks(stored)
+    return
+  }
+  if (await loadReviewRequested()) {
+    asks = [Date.now()]
+    void saveReviewAsks(asks)
+  }
 }
 
 /**
@@ -37,22 +39,20 @@ export async function initReview(): Promise<void> {
  * same moment. Never pair two asks on one win.
  */
 export function reviewWouldAsk(global: number, stars: number): boolean {
-  if (!Capacitor.isNativePlatform() || requested) return false
-  const delight = stars === 3 && global >= DELIGHT_MIN_GLOBAL
-  const milestone = global >= MILESTONE_GLOBAL
-  return delight || milestone
+  if (!Capacitor.isNativePlatform()) return false
+  return reviewDue({ asks, nowMs: Date.now(), global, stars })
 }
 
 /**
- * Ask for a review if this clear is a good delight peak and we've never asked.
- * Call from the win overlay, a beat after the star pop. Native-only; resolves
- * immediately whether or not the OS actually shows the sheet.
+ * Ask for a review if this clear is a good delight peak. Call from the win
+ * overlay, a beat after the star pop. Native-only; resolves immediately whether
+ * or not the OS actually shows the sheet.
  */
 export async function maybeRequestReview(global: number, stars: number): Promise<void> {
   if (!reviewWouldAsk(global, stars)) return
-  // Spend the one-shot up front so a slow/failed native call can't double-ask.
-  requested = true
-  void saveReviewRequested(true)
+  // Record the ask up front so a slow/failed native call can't double-ask.
+  asks = noteReviewAsked(asks, Date.now())
+  void saveReviewAsks(asks)
   try {
     await InAppReview.requestReview()
   } catch {

@@ -126,6 +126,26 @@ export async function loadHintCount(): Promise<number> {
   }
 }
 
+// JSON array of epoch ms, one per rating ask (game/review.ts: up to 3 a year).
+const REVIEW_ASKS_KEY = 'exactly67.reviewAsks'
+
+export async function loadReviewAsks(): Promise<number[] | null> {
+  try {
+    const { value } = await Preferences.get({ key: REVIEW_ASKS_KEY })
+    return value ? (JSON.parse(value) as number[]) : null
+  } catch {
+    return null
+  }
+}
+
+export async function saveReviewAsks(asks: readonly number[]): Promise<void> {
+  try {
+    await Preferences.set({ key: REVIEW_ASKS_KEY, value: JSON.stringify(asks) })
+  } catch {
+    // non-fatal: at worst one ask is spaced from an older time
+  }
+}
+
 // 'on' once the one-time "Stuck? A hint shows the next piece." nudge was shown.
 const HINT_NUDGED_KEY = 'exactly67.hintNudged'
 

@@ -74,12 +74,12 @@ sources), then built:
   between levels" on a win card that is not followed by an interstitial; at most
   every 7 days, 4 times ever.
 - **The daily free hint is now the visible daily gift, on a five-day ladder**:
-  days in a row pay **1, 2, 4, 6, 8 hints**, day 6 starts over at 1, and a day
+  days in a row pay **1, 2, 3, 4, 5 hints** (1.3.2; 1, 2, 4, 6, 8 before), day 6 starts over at 1, and a day
   without a claim drops back to day 1 (`economy.ts` `GIFT_LADDER`). The video adds
   a **flat +2** on any rung (`GIFT_AD_BONUS`), never a double: a doubled day 5
   would pay 16 hints for one ad, more than the $0.99 10-pack, and the rewarded
   faucet must never undercut the packs. A player who comes back every day gets
-  21 free hints per five days (1.2 gave 5); the ladder is the lever if pack
+  15 free hints per five days since 1.3.2 (21 before, 1.2 gave 5); the ladder is the lever if pack
   revenue drops. Tomorrow's rung is what the next day's reminder may name.
 
 **Recommended, not done (owner's call — it changes what live players pay):**
@@ -103,7 +103,7 @@ favours opt-in and light-touch over ad saturation:
 
 | Format | Role | Where |
 |---|---|---|
-| **Rewarded** | The opt-in earner. Hints are a **banked inventory**: the free **daily gift** (1.3.0: a five-day ladder of 1, 2, 4, 6, 8 hints on days in a row — it replaced 1.2's silent +1 per UTC day at boot) and **+1 per rewarded hint video watched to the end**. A video banks a hint; it does not reveal one, so the player spends hints on their own terms. Offered only while the player's ad consent is `GRANTED`. | **"Watch ad: +1 hint"** ("Ad: +1 hint" where that does not fit, a 320 pt phone) in the hint modal, which opens when the 💡 is tapped with zero hints; **"Watch ad: +2 more"** on the menu's daily-gift card (a flat +2 on any rung, once a day). Every placement and cap: [`RETENTION.md`](RETENTION.md#rewarded-placements-all-capped-per-local-day-in-economyts) |
+| **Rewarded** | The opt-in earner. Hints are a **banked inventory**: the free **daily gift** (1.3.0: a five-day ladder of 1, 2, 3, 4, 5 hints on days in a row (1, 2, 4, 6, 8 until 1.3.2) — it replaced 1.2's silent +1 per UTC day at boot) and **+1 per rewarded hint video watched to the end**. A video banks a hint; it does not reveal one, so the player spends hints on their own terms. Offered only while the player's ad consent is `GRANTED`. | **"Watch ad: +1 hint"** ("Ad: +1 hint" where that does not fit, a 320 pt phone) in the hint modal, which opens when the 💡 is tapped with zero hints; **"Watch ad: +2 more"** on the menu's daily-gift card (a flat +2 on any rung, once a day). Every placement and cap: [`RETENTION.md`](RETENTION.md#rewarded-placements-all-capped-per-local-day-in-economyts) |
 | **Interstitial** | Occasional full-screen ad at a natural break, under a **hybrid gate**: a clear count decides *where*, time + session + opt-in state decide *whether*. | On the leave-tap after a win (Next / The End! / Map), never on Retry, never mid-level, never in the Daily Challenge. See the cadence table below. |
 | **Banner** | Passive fill. | Bottom-anchored, in a **reserved strip** every scene keeps clear |
 | **Hint packs (IAP)** | Consumables for players who want help without the unlock: **10 / 30 / 100 hints at $0.99 / $1.99 / $2.99**. Bought hints join the same inventory and never expire (a plain persisted counter, no decay). | Store screen |

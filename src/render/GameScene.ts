@@ -98,7 +98,7 @@ import {
   shouldOfferReminders,
 } from '../services/notifications'
 import { splashFinished } from '../services/session'
-import { welcomePrice } from '../services/iap'
+import { noAdsPrice, welcomePrice } from '../services/iap'
 import { loadHintNudged, saveDailyDone, saveHapticsEnabled, saveHintNudged, saveMusicEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, MAX_WIDE_W, prefersReducedMotion, safeArea, setBannerStrip, u } from './layout'
 import { BG, CREAM_CSS, FONT, GOOD, INK, INK_CSS, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
@@ -1593,7 +1593,11 @@ export class GameScene extends Phaser.Scene {
     const bodyOff = u(54)
     const watchOff = bodyOff + bodyBox + u(18) + rowH / 2
     const useOff = watchOff + rowH + u(12)
-    const cardH = useOff + rowH / 2 + u(20)
+    // The Store, one quiet link under the choice — the moment a player is down
+    // to their last hints is where the one-time Welcome pack is worth most, and
+    // a new player who chains Next never passes the menu where it otherwise sits.
+    const upsellOff = useOff + rowH / 2 + u(26)
+    const cardH = upsellOff + u(22)
     const cy = Math.min(h * 0.44, h - safeArea().bottom - cardH / 2 - u(16))
     const top = cy - cardH / 2
 
@@ -1604,6 +1608,21 @@ export class GameScene extends Phaser.Scene {
     const watchLabel = this.fitLabel(HINT_COPY.keepWatch, HINT_COPY.keepWatchShort, btnW, rowH)
     const { note, say } = this.hintCardNote(overlay, cx, top + cardH + u(30), cardW)
     overlay.add([dim, card, cardHit, title, body, note, this.closeGlyph(cx + cardW / 2 - u(30), top + u(30), close)])
+    const welcome = welcomeOffered() ? welcomePrice() : null
+    const upsell = this.add
+      .text(cx, top + upsellOff, welcome ? `Welcome pack: 25 hints for ${welcome} ›` : 'More hints in the Store ›', TEXT.ink(12, '700'))
+      .setOrigin(0.5)
+      .setColor(INK_SOFT)
+      .setPadding({ x: u(12), y: u(8) })
+      .setInteractive({ useHandCursor: true })
+    onTap(upsell, () => {
+      if (this.hintBusy) return
+      close()
+      // Overlay, not a scene swap: the board must still be here afterwards.
+      this.scene.pause()
+      this.scene.launch('Store', { returnTo: 'Game' })
+    })
+    overlay.add(upsell)
 
     let watch: Phaser.GameObjects.Container | null = null
     let use: Phaser.GameObjects.Container | null = null
@@ -2474,7 +2493,8 @@ export class GameScene extends Phaser.Scene {
       y += rows.extra
     } else if (win.nudge) {
       const link = this.add
-        .text(cx, y + rows.extra / 2, 'Remove ads between levels', TEXT.ink(13, '700'))
+        // The price named up front (StoreKit's, when it has loaded): no surprise on the next screen.
+        .text(cx, y + rows.extra / 2, noAdsPrice() ? `Remove ads between levels · ${noAdsPrice()}` : 'Remove ads between levels', TEXT.ink(13, '700'))
         .setOrigin(0.5)
         .setColor(INK_SOFT)
         .setPadding({ x: u(16), y: u(12) })

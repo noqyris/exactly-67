@@ -14,8 +14,12 @@ import { addDays, daysInMonth, isDayKey, monthOf } from './days'
 
 // --- Star Jar -------------------------------------------------------------------
 
-/** New stars a full jar holds. ~2.4★ per level → a jar roughly every 8 levels. */
-export const JAR_CAPACITY = 20
+/**
+ * New stars a full jar holds. ~2.4★ per level → a jar roughly every 10 levels.
+ * 20 until 1.3.2: with the gift ladder it put ~40 free hints in a daily
+ * player's first week, and the hint video and the packs had little to do.
+ */
+export const JAR_CAPACITY = 25
 /** Where a brand-new install's jar starts (endowed progress: the first jar opens
  *  inside the first session). Existing players start at 0 — no back-dated flood. */
 export const JAR_START_NEW = 5
@@ -94,10 +98,10 @@ export function monthProgress(
  * flat gift is worth the same whenever it is taken — this one is worth more
  * only if the player comes back TOMORROW.
  */
-export const GIFT_LADDER: readonly number[] = [1, 2, 4, 6, 8]
+export const GIFT_LADDER: readonly number[] = [1, 2, 3, 4, 5]
 /**
  * What the optional video adds on top of any rung — flat, never a multiplier:
- * doubling day 5 would hand out 16 hints for one ad, more than the $0.99
+ * doubling day 5 would hand out 10 hints for one ad, as many as the $0.99
  * 10-pack, and the rewarded faucet must never undercut the packs.
  */
 export const GIFT_AD_BONUS = 2
@@ -249,9 +253,10 @@ export function noteInterstitialShown(c: DayCount, today: string): DayCount {
 /** One-time Welcome pack: 25 hints for the lowest price tier, once per player. */
 export const WELCOME_HINTS = 25
 /** The "remove ads between levels" nudge: after this many interstitials seen… */
-export const NO_ADS_NUDGE_AFTER = 8
-/** …at most this often, and this many times ever. */
-export const NO_ADS_NUDGE_GAP_MS = 7 * 86_400_000
+export const NO_ADS_NUDGE_AFTER = 3
+/** …at most this often, and this many times ever. (8 and 7 days until 1.3.2:
+ *  at under one interstitial a player-day that was day 8–12, which few reach.) */
+export const NO_ADS_NUDGE_GAP_MS = 3 * 86_400_000
 export const NO_ADS_NUDGE_MAX = 4
 
 export interface Offers {

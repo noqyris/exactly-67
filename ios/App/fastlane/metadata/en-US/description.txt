@@ -30,7 +30,7 @@ Every level has a known minimum number of pieces. Solve it in the fewest weights
 REWARDS ALONG THE WAY
 - Every new star drops into your Star Jar. A full jar pays out a free hint.
 - Finish a pack to earn bonus hints and a bronze, silver or gold medal.
-- A daily gift that grows each day in a row you come back: 1, 2, 4, 6, then 8 hints.
+- A daily gift that grows each day in a row you come back: 1, 2, 3, 4, then 5 hints.
 
 MADE TO FEEL GOOD
 - Bold, candy-colored look with a chunky physics-toy feel.
