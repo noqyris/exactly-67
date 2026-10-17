@@ -568,3 +568,14 @@ as `mock`.
 | **Consent on upgrade** | The first launch of 1.2.1 resets any stored consent record once (`exactly67.levelplayConsentMigrated`), so **every existing install on an ads-on build** — every player except Unlimited-hints owners — sees ATT (if still undecided) and the "Ads and your data" modal once more, TestFlight testers who already answered it included. Ads-off builds never run the reset. Intended: 1.2.0's Google consent form may have left IAB TCF keys the LevelPlay plugin would read as its own decision. |
 | **TestFlight hygiene** | Installable after 2026-09-26: 38 (ads off, newest), 37 (live — the review build; expire once `READY_FOR_SALE`), 36/34/30/28 (ads off), 31/32 (mock). |
 | **Android** | Last AAB: `versionCode 2` / `1.2.0` (AdMob-era — do not upload). Needs gated Android chains, the LevelPlay Android app, and the Play IAP products (blocked on a Google Payments profile). |
+
+## TestFlight groups (2026-10-17)
+
+- **Internal · safe builds** — internal, `hasAccessToAllBuilds: false`, the owner its only member.
+  Gets only the builds added to it by hand: ads-off N+1 builds and fake-ads (`mock`) builds. Never
+  a live build. First build in it: 1.3.2 (41), mock.
+- **Internal Testers** — the original internal group, `hasAccessToAllBuilds: true`, **no members**.
+  Leave it empty: anything in it receives every build, the App Store build N included.
+- Until 2026-10-17 the owner was a tester of Exactly 67 in no group at all (the one tester record
+  for this app was REVOKED), so TestFlight never offered him the game. Tester records are per app.
+

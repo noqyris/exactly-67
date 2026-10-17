@@ -1,12 +1,20 @@
 # Exactly 67 — šta treba
 
-Stanje: **12. 10. 2026. uveče.** Šta je urađeno i kako: `IZVESTAJ-2026-10-12.md`.
+Stanje: **17. 10. 2026. popodne.** Šta je urađeno i kako: `IZVESTAJ-2026-10-17.md` (i stariji
+`IZVESTAJ-2026-10-12.md`).
 Stavke su po redu. Kad se neka završi, obriši je ili precrtaj.
 
-**Gde stoji:** 1.3.1 je u prodaji od 11. 10. Ništa ne čeka pregled i ništa nije hitno. Igra je u
-30 dana do 9. 10. imala 8 preuzimanja (Velika Britanija, Nemačka, Francuska, Tajland, SAD).
+**Gde stoji:** 1.3.1 je u prodaji od 11. 10. Verzija **1.3.2** je spremna u kodu (grana
+`feat/monetization`, poslata) i na TestFlight-u je kao build **41 sa LAŽNIM reklamama** za tvoje
+testiranje. Ništa ne čeka pregled. U 30 dana: 0 prikaza reklama, 0 ocena, ~8 preuzimanja.
 
 ## Sada
+
+0. **Ti: testiraj build 41 (1.3.2, LAŽNE reklame) sa TestFlight-a.** Dodat si u novu grupu
+   „Internal · safe builds" (prihvati pozivnicu ako stigne). Reklame i kupovine su lažne (crtamo ih
+   sami, piše „FAKE AD — MOCK BUILD" / „FAKE PURCHASE"); slobodno tapkaj. Nivoi se otključavaju
+   redom. Javi šta ti se ne sviđa — to ide pre izdanja. Ubuduće u tu grupu idu samo bez-reklama i
+   lažni build-ovi; build sa pravim reklamama nikad.
 
 1. **Ti: odluka o granama.** Izdanje koje je u prodaji je sa grane `feat/monetization`, ne sa
    `main`. Na `main` je samo strana politike, jer se javni sajt služi iz `main` → `/docs`. Ako
@@ -17,7 +25,7 @@ Stavke su po redu. Kad se neka završi, obriši je ili precrtaj.
    `node ~/.claude/skills/mobile-game-playbook/scripts/levelplay-daily.js 2026-10-11 2026-10-18 --by-version`
    Brojevi će biti mali; gleda se da li se reklame uopšte pokreću u 1.3.1.
 
-## Uz sledeće izdanje (jedan par, 41/42)
+## Uz sledeće izdanje 1.3.2 (jedan par, 42/43 — 41 je zauzet lažnim build-om)
 
 - ~~**Tiho odbijanje.**~~ Urađeno 17. 10.: deo 8 (`PATCHED-QUIET-REFUSAL`) je u
   `scripts/patch-levelplay-consent.mjs`, oba sistema (iOS ×2, Android ×1 + ×1), u tabelama kapija
@@ -40,8 +48,17 @@ Stavke su po redu. Kad se neka završi, obriši je ili precrtaj.
 
 ## Tvoje odluke (iz istraživanja 17. 10.)
 
-- **Veličina dnevnog poklona.** Lestvica 1·2·4·6·8 daje oko 23 od ~40 besplatnih pomoći u prvoj
-  nedelji. Spuštanje na 1·2·3·4·5 bi jače od svega ostalog povećalo nagradne reklame.
+- ~~**Veličina dnevnog poklona.**~~ Urađeno 17. 10. uz tvoj zadatak „maksimalna zarada": 1·2·3·4·5 i
+  Star Jar 25 (commit `0679333`). Vraća se jednom izmenom u `src/game/economy.ts` ako ti se ne sviđa.
+- **Podešavanja prodavnice — za tvoje „da" (ništa nije menjano):**
+  - *Small Business Program* u App Store Connect (Agreements): ako nisi upisan, Apple uzima 15% umesto
+    30% — najsigurnijih +21% od kupovina. Upis radiš ti.
+  - *Cene kupovina:* Unlimited Hints + No Ads $4.99 → **$9.99**, 100 Hints $2.99 → **$4.99**, No Ads
+    $0.99 → **$1.99**; ostale iste. Kod ne treba menjati (cene čita iz prodavnice).
+  - *In-App Event* „Daily Challenge" (besplatna vidljivost u pretrazi i Today).
+  - *ASC_VENDOR* (vendor broj iz Payments and Financial Reports) u `../kvizko/.env`, da se preuzimanja
+    i kupovine mere skriptom.
+  - *Unity / LevelPlay: podaci za isplatu i porez* — proveri da su uneti, inače mali iznosi nikad ne stižu.
 - **Nivoi 70–72** su po formuli generatora teži od svega do otprilike nivoa 530, a moraju da se pređu
   redom. Mogući zid na kome igrači odustaju.
 - **Pitanje o reklamama posle nivoa 8 umesto posle nivoa 1.** U ovoj igri reklama ne dolazi pre
@@ -64,10 +81,13 @@ Ovaj deo je isti u svakom projektu.
   samo kad Claude radi u web delu: odgovor Apple-u na odbijanje i oznake privatnosti.
 - **Pravila koja se ne krše:** build sa pravim reklamama se nikad ne instalira i ne otvara, ni na
   telefonu ni na simulatoru. Svako izdanje je par: pravi build N, pa odmah build bez reklama N+1.
-  Jedan par po izdanju. Ništa ne ide na GitHub bez tvoje reči.
+  Jedan par po izdanju. `feat/monetization` se šalje na GitHub posle svakog koraka (tvoja dozvola
+  od 17. 10.); `main` i dalje samo uz tvoju reč.
+- **Simulator na ovom računaru ne radi:** „CoreSimulator is out of date". Popravka (traži lozinku):
+  `sudo xcodebuild -runFirstLaunch`.
 - **Snimak upita za praćenje (ATT)** se pravi iz posebnog build-a sa lažnim reklamnim ključem, koji
   ne može da učita nijednu reklamu. Postupak je u playbook-u:
   `~/.claude/skills/mobile-game-playbook/references/app-store.md`, odeljak o ATT snimku.
 - **Ceo plan zarade:** https://claude.ai/artifact/11xZitt15r7Tg4q1mRBxRf
 - **Kako početi sa Claude-om u ovom projektu:** „pročitaj `STA-TREBA.md` i
-  `IZVESTAJ-2026-10-12.md`, pa kreni od prve stavke".
+  `IZVESTAJ-2026-10-17.md`, pa kreni od prve stavke".
