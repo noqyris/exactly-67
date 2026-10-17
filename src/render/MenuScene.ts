@@ -1,8 +1,9 @@
 import Phaser from 'phaser'
 import { formatCountdown, msUntilNextDay } from '../game/days'
 import { GIFT_AD_BONUS, GIFT_LADDER, JAR_CAPACITY } from '../game/economy'
+import { nextLevel } from '../game/journey'
 import { levelByGlobal, TOTAL_LEVELS } from '../game/levels'
-import { isCleared, totalStars } from '../game/progress'
+import { totalStars } from '../game/progress'
 import {
   adsSettled,
   adsSupported,
@@ -42,6 +43,7 @@ import { saveHapticsEnabled, saveMusicEnabled, saveSoundEnabled } from '../servi
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
 import { BG, INK, INK_CSS, OUTLINE, PAPER } from './palette'
 import { ScaleView } from './ScaleView'
+import { WeightView } from './WeightView'
 import {
   drawBellIcon,
   drawBulb,
@@ -53,7 +55,6 @@ import {
   drawJar,
   drawLogo,
   drawMusicIcon,
-  drawProgressBar,
   drawSoundIcon,
   logoExtent,
   makeButton,
@@ -76,6 +77,14 @@ let skippedForFirstRun = false
 
 export class MenuScene extends Phaser.Scene {
   private scaleView?: ScaleView
+  /**
+   * The 67 on the idle scale's right pan, matching the 67 slab on its left: a
+   * level beam with one empty pan was a scale telling a lie. It rides the pan
+   * every frame (the beam sways), so it is placed in update().
+   */
+  private panWeight?: { view: WeightView; scale: number }
+  /** Where a toast centres: on the wordmark, above the logo, clear of the scale and every button. */
+  private toastY = 0
   private hintChip?: ReturnType<typeof makeChip>
   private modal: Phaser.GameObjects.Container | null = null
   /** Bottom of the top bar (and the Privacy link under it): modal cards never climb over it. */
@@ -99,6 +108,7 @@ export class MenuScene extends Phaser.Scene {
     }
     skippedForFirstRun = true
     this.scaleView = undefined
+    this.panWeight = undefined
     // A tapped reminder that arrived while a level was open lands here. A daily
     // one that came in while the player was on today's board is spent once they
     // have solved it: acting on it now would reopen a board they just finished.
@@ -122,8 +132,7 @@ export class MenuScene extends Phaser.Scene {
     const topAnchor = Math.max(f.oy, safe.top)
 
     const p = progress()
-    let next = 1
-    while (next < TOTAL_LEVELS && isCleared(p, next)) next++
+    const next = nextLevel(p, TOTAL_LEVELS)
     const started = totalStars(p) > 0
     const s = streak()
     const doneToday = dailyDoneToday()
@@ -192,8 +201,10 @@ export class MenuScene extends Phaser.Scene {
     // around the column's full height. Base heights, compressed together on a
     // short screen so nothing overlaps.
     const columnBottom = h - safe.bottom - u(14)
-    const base = { play: 64, packLine: 30, daily: 64, row: 52, gap: 12 }
-    const baseTotal = base.play + base.packLine + base.gap + base.daily + base.gap + base.row
+    // The pack progress rides inside the Play button as its second line (it was
+    // a bar row of its own under it), so Play is a little taller instead.
+    const base = { play: 68, daily: 64, row: 52, gap: 12 }
+    const baseTotal = base.play + base.gap + base.daily + base.gap + base.row
 
     // --- title: the wordmark over the app icon's artwork ---------------------------
     // The candy "67" on its level beam is the home-screen icon's own art, so the
@@ -239,8 +250,7 @@ export class MenuScene extends Phaser.Scene {
     const k = (n: number) => u(n) * kc
     const rowY = columnBottom - k(base.row) / 2
     const dailyY = rowY - k(base.row) / 2 - k(base.gap) - k(base.daily) / 2
-    const packY = dailyY - k(base.daily) / 2 - k(base.gap) - k(base.packLine) / 2
-    const playY = packY - k(base.packLine) / 2 - k(base.play) / 2
+    const playY = dailyY - k(base.daily) / 2 - k(base.gap) - k(base.play) / 2
 
     // The idle scale between the tagline and the column — only when it fits.
     let gapTop = tagY + u(20)
@@ -273,8 +283,17 @@ export class MenuScene extends Phaser.Scene {
       })
       this.scaleView.setTargetAngle(0)
       this.scaleView.settleImmediately()
+      // 67 against 67: the same weight a player would drop on that pan, sized
+      // to the left pan's slab, so the level beam is the truth.
+      const view = new WeightView(this, -1, 67, false)
+      this.panWeight = { view, scale: (panWidth * 0.62) / view.bodySize }
+      view.setScale(this.panWeight.scale)
+      this.placePanWeight()
     }
 
+    // Where "Level N" sits in the bigger picture, as Play's second line.
+    const ref = levelByGlobal(next)
+    const packLine = ref ? `${ref.pack.name} · ${packInfo(ref.packIndex).cleared}/${ref.pack.levels.length}` : undefined
     const play = makeButton(
       this,
       started ? `Continue  ·  Level ${next}` : 'Play',
@@ -283,24 +302,14 @@ export class MenuScene extends Phaser.Scene {
       0xf5b942,
       '#2B2440',
       () => this.scene.start('Game', { level: next }),
+      packLine,
     )
     play.setPosition(cx, playY)
     this.breathe(play)
 
-    // Pack progress under Play: where "Level N" sits in the bigger picture.
-    const ref = levelByGlobal(next)
-    if (ref) {
-      const info = packInfo(ref.packIndex)
-      const g = this.add.graphics()
-      const barW = colW * 0.46
-      const label = this.add
-        .text(cx - colW / 2 + u(4), packY, ref.pack.name, TEXT.ink(13, '800'))
-        .setOrigin(0, 0.5)
-      const count = this.add.text(cx + colW / 2 - u(4), packY, `${info.cleared}/${info.levels}`, TEXT.ink(13, '800')).setOrigin(1, 0.5)
-      const barRight = count.x - count.width - u(8)
-      const barLeft = Math.max(label.x + label.width + u(10), barRight - barW)
-      drawProgressBar(g, barLeft, packY - u(6), Math.max(u(30), barRight - barLeft), u(12), info.cleared / info.levels, 0x69db7c)
-    }
+    // A toast sits on the wordmark: above the logo, never over the scale or a
+    // button (it used to land mid-screen, on the scale or on Play).
+    this.toastY = word.y
 
     // The Daily Challenge card: the streak's home on the menu.
     this.dailyCard(cx, dailyY, colW, k(base.daily), s.current, doneToday)
@@ -408,6 +417,16 @@ export class MenuScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     this.scaleView?.update(time, delta)
+    this.placePanWeight()
+  }
+
+  /** Stand the pan's 67 in the right dish, as GameScene stacks a weight there. */
+  private placePanWeight() {
+    if (!this.scaleView || !this.panWeight) return
+    const { view, scale } = this.panWeight
+    const anchor = this.scaleView.rightPanAnchor()
+    const bodyH = view.bodySize * 0.8 * scale
+    view.setPosition(anchor.x, anchor.y - bodyH / 2 - u(2))
   }
 
   /** A slow breath on the primary button — the eye's first stop. */
@@ -864,12 +883,15 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private toast(message: string) {
-    const safe = safeArea()
+    const pad = u(12)
     const t = this.add
-      .text(this.scale.width / 2, Math.max(safe.top + u(92), this.scale.height * 0.5), message, TEXT.cream(14, '800'))
+      .text(this.scale.width / 2, 0, message, TEXT.cream(14, '800'))
       .setOrigin(0.5)
       .setDepth(300)
-    const pad = u(12)
+      .setWordWrapWidth(this.scale.width - u(72))
+      .setAlign('center')
+    // On the wordmark, and never up over the top bar (or the Privacy link) above it.
+    t.setY(Math.max(this.toastY, this.headerBottom + u(6) + t.height / 2 + pad * 0.6))
     const bg = this.add.graphics().setDepth(299)
     bg.fillStyle(INK, 0.92)
     bg.fillRoundedRect(t.x - t.width / 2 - pad, t.y - t.height / 2 - pad * 0.6, t.width + pad * 2, t.height + pad * 1.2, u(14))

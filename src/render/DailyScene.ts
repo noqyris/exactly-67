@@ -1,5 +1,8 @@
 import Phaser from 'phaser'
 import { formatCountdown, monthDays, monthOf, msUntilNextDay, weekdayMon0 } from '../game/days'
+import { dayMark, nextLevel } from '../game/journey'
+import type { DayMark } from '../game/journey'
+import { TOTAL_LEVELS } from '../game/levels'
 import { FREEZE_HINT_COST, MAX_FREEZES, REPAIR_HINT_COST } from '../game/streak'
 import {
   hintCountValue,
@@ -13,6 +16,7 @@ import {
 import type { RewardedOutcome } from '../services/ads'
 import { playReward, playStreak } from '../services/audio'
 import { today } from '../services/metaStore'
+import { progress } from '../services/progressStore'
 import {
   buyFreeze,
   canBuyFreeze,
@@ -28,7 +32,7 @@ import {
 } from '../services/progression'
 import type { RepairResult } from '../services/progression'
 import { contentFrame, prefersReducedMotion, safeArea, u } from './layout'
-import { BG, GOOD, INK, OUTLINE, PAPER, STAR } from './palette'
+import { BEAM, BG, GOOD, INK, OUTLINE, PAPER } from './palette'
 import {
   drawBackIcon,
   drawCard,
@@ -42,6 +46,10 @@ import {
 } from './ui'
 
 const INK_SOFT = '#5D5470'
+/** A past day of this month without a solve: still playable, so not the future's look. */
+const MISSED_FILL = 0xefe6d6
+const MISSED_DOT = 0x5d5470
+const SOLVED_FILL = 0x8ce99a
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -116,22 +124,21 @@ export class DailyScene extends Phaser.Scene {
 
     // --- today, pinned at the bottom ------------------------------------------------------
     const btnY = h - safe.bottom - u(46)
-    // The one-line "Solved ✓" needs less of the screen than the play button.
-    const barTop = btnY - (doneToday ? u(22) : u(40))
+    const barTop = btnY - u(40)
     // The calendar scrolls under this bar, never behind or beside the play
     // button. It runs to the screen's edge, so with a banner strip reserved it
     // is also the level map's footer: opaque and tap-swallowing over the strip,
     // so no scrolled day cell is drawn — or tapped — right next to the ad.
     this.add.rectangle(w / 2, (barTop + h) / 2, w, h - barTop, BG).setDepth(5).setInteractive()
-    let countdown: Phaser.GameObjects.Text | null = null
     if (doneToday) {
-      const solved = this.add
-        .text(cx, btnY, `Solved ✓ · next puzzle in ${formatCountdown(msUntilNextDay(new Date()))}`, TEXT.ink(15, '800'))
-        .setOrigin(0.5)
-        .setColor(INK_SOFT)
-        .setDepth(10)
-      fitWidth(solved, colW)
-      countdown = solved
+      // Today's puzzle done: the screen still leads somewhere — the next level.
+      // The countdown to tomorrow's puzzle moved up into the streak card, so the
+      // calendar keeps the room it had before the solve.
+      const level = nextLevel(progress(), TOTAL_LEVELS)
+      const cont = makeButton(this, `Continue  ·  Level ${level}`, Math.min(colW, u(300)), u(58), 0xf5b942, '#2B2440', () => {
+        if (!this.busy && !this.moved) this.scene.start('Game', { level })
+      })
+      cont.setPosition(cx, btnY).setDepth(10)
     } else {
       // Not at the end of a scroll that began on it, nor while a video is loading.
       const play = makeButton(this, "Play today's puzzle", Math.min(colW, u(300)), u(58), 0xf5b942, '#2B2440', () => {
@@ -172,11 +179,14 @@ export class DailyScene extends Phaser.Scene {
     fitWidth(title, best.x - best.width - u(10) - textX)
     const sub = put(
       this.add
-        .text(textX, y + u(58), doneToday ? "Today's puzzle solved" : streakSafeToday() ? 'Your streak is safe today' : s.current > 0 ? 'Solve today to keep it' : 'Solve today to start one', TEXT.ink(13, '700'))
+        .text(textX, y + u(58), doneToday ? solvedLine() : streakSafeToday() ? 'Your streak is safe today' : s.current > 0 ? 'Solve today to keep it' : 'Solve today to start one', TEXT.ink(13, '700'))
         .setOrigin(0, 0.5)
         .setColor(INK_SOFT),
     )
-    fitWidth(sub, left + colW - u(16) - textX)
+    const subRoom = left + colW - u(16) - textX
+    fitWidth(sub, subRoom)
+    // Solved: the line counts down to tomorrow's puzzle (the tick below refreshes it).
+    const countdown = doneToday ? sub : null
 
     // Freezes: shown as slots under the text, with the ways to fill an empty one.
     const fy = y + u(88)
@@ -295,7 +305,7 @@ export class DailyScene extends Phaser.Scene {
       const row = Math.floor(pos / cols)
       const x = gx + col * (cell + gap) + cell / 2
       const yc = gridTop + row * (cell + gap) + cell / 2
-      this.dayCell(content, key, i + 1, x, yc, cell, key === todayKey, key > todayKey, dailySolvedOn(key))
+      this.dayCell(content, key, i + 1, x, yc, cell, key === todayKey, dayMark(key, todayKey, dailySolvedOn(key)))
     })
     this.contentHeight = gridTop + rowsN * cell + (rowsN - 1) * gap + pad
     this.bindScrolling(headerH, viewH)
@@ -329,8 +339,8 @@ export class DailyScene extends Phaser.Scene {
         return
       }
       if (countdown?.active) {
-        countdown.setText(`Solved ✓ · next puzzle in ${formatCountdown(msUntilNextDay(new Date()))}`)
-        fitWidth(countdown, colW)
+        countdown.setScale(1).setText(solvedLine())
+        fitWidth(countdown, subRoom)
       }
     }
     this.time.addEvent({ delay: 30_000, loop: true, callback: tick })
@@ -421,23 +431,42 @@ export class DailyScene extends Phaser.Scene {
     y: number,
     size: number,
     isToday: boolean,
-    future: boolean,
-    solved: boolean,
+    mark: DayMark,
   ) {
     const c = this.add.container(x, y)
     parent.add(c)
     const g = this.add.graphics()
     const r = size * 0.28
-    const fill = solved ? 0x8ce99a : future ? 0xefe7d8 : isToday ? STAR : PAPER
-    g.fillStyle(fill, 1)
-    g.fillRoundedRect(-size / 2, -size / 2, size, size, r)
-    g.lineStyle(isToday ? OUTLINE : u(2.5), INK, future ? 0.25 : 1)
+    const future = mark === 'future'
+    const solved = mark === 'solved'
+    const missed = mark === 'missed'
+    // Solved: green with a tick. Missed (a past day, still playable): beige with
+    // a dot. Still to come: an empty outline. Today: a ring in the beam's gold,
+    // inside its outline so it never touches a neighbour.
+    if (!future) {
+      g.fillStyle(solved ? SOLVED_FILL : missed ? MISSED_FILL : PAPER, 1)
+      g.fillRoundedRect(-size / 2, -size / 2, size, size, r)
+    }
+    const edge = isToday ? OUTLINE : u(2.5)
+    g.lineStyle(edge, INK, future ? 0.25 : 1)
     g.strokeRoundedRect(-size / 2, -size / 2, size, size, r)
+    if (isToday) {
+      const ring = u(3)
+      const inset = edge / 2 + ring / 2
+      g.lineStyle(ring, BEAM, 1)
+      g.strokeRoundedRect(-size / 2 + inset, -size / 2 + inset, size - 2 * inset, size - 2 * inset, Math.max(1, r - inset))
+    }
     const label = this.add
-      .text(0, solved ? -size * 0.12 : 0, String(n), TEXT.ink(Math.max(11, Math.min(16, size / u(3.2))), '800'))
+      .text(0, solved || missed ? -size * 0.12 : 0, String(n), TEXT.ink(Math.max(11, Math.min(16, size / u(3.2))), '800'))
       .setOrigin(0.5)
       .setAlpha(future ? 0.35 : 1)
     c.add([g, label])
+    if (missed) {
+      const dot = this.add.graphics()
+      dot.fillStyle(MISSED_DOT, 1)
+      dot.fillCircle(0, size * 0.24, u(2))
+      c.add(dot)
+    }
     if (solved) {
       const tick = this.add.graphics()
       tick.lineStyle(u(2.5), INK, 1)
@@ -600,6 +629,11 @@ export class DailyScene extends Phaser.Scene {
     bg.fillRoundedRect(t.x - t.width / 2 - pad, t.y - t.height / 2 - pad * 0.6, t.width + pad * 2, t.height + pad * 1.2, u(14))
     this.tweens.add({ targets: [t, bg], alpha: 0, delay: 1800, duration: 400, onComplete: () => (t.destroy(), bg.destroy()) })
   }
+}
+
+/** The streak card's line once today's puzzle is solved. */
+function solvedLine(): string {
+  return `Solved ✓ · next puzzle in ${formatCountdown(msUntilNextDay(new Date()))}`
 }
 
 /** Shrink `t` to `room` px wide when it is wider (a 320 pt column, a long streak). */
