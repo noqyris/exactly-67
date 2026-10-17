@@ -176,6 +176,47 @@ export function noteRewarded(c: AdCaps, today: string, p: RewardPlacement): AdCa
   return { day: today, counts: { ...now.counts, [p]: (now.counts[p] ?? 0) + 1 } }
 }
 
+// --- Keep your hint ---------------------------------------------------------------
+
+/**
+ * "Keep your hint": a tap on the 💡 with only a hint or two left asks whether to
+ * spend one, or to watch an ad for THIS hint and keep the stash. A hint the
+ * player owns is worth more to them than one more on top (the endowment effect),
+ * and the last ones most of all — while "+1 more" on a stash of twenty is worth
+ * next to nothing, which is all the other offers were. It pays the hint the tap
+ * was about to spend and banks nothing, so it cannot be used to stock up, and it
+ * shares the `hint` cap: one ad still buys one hint.
+ *
+ * Only on the player's own tap, never a badge or a pop-up. At zero the earn
+ * modal stays as it is, and from three up the tap just spends. After this many
+ * "Use 1 hint" picks in a session it stops asking: a player who keeps saying
+ * "use it" has answered.
+ */
+export const KEEP_HINT_AT = 2
+export const KEEP_HINT_DECLINES_PER_SESSION = 2
+
+export interface KeepHintContext {
+  /** Hints banked right now. */
+  hints: number
+  /** The $4.99 unlock: hints are free, and there are never ads. */
+  unlimited: boolean
+  /** A hint video may be drawn now: consent (or a tap that would ask), not capped today. */
+  videoOffered: boolean
+  /** This board's hint is already paid: a re-tap replays it for free. */
+  freeReplay: boolean
+  /** "Use 1 hint" picks on this sheet so far this session. */
+  declines: number
+  /** Past the levels that never see an ad (or the Daily Challenge). */
+  pastOnboarding: boolean
+}
+
+/** Whether a hint tap asks "use one, or watch an ad and keep yours" instead of spending. */
+export function keepHintOfferDue(c: KeepHintContext): boolean {
+  if (c.unlimited || c.freeReplay || !c.videoOffered || !c.pastOnboarding) return false
+  if (c.hints < 1 || c.hints > KEEP_HINT_AT) return false
+  return c.declines < KEEP_HINT_DECLINES_PER_SESSION
+}
+
 // --- Interstitials per day --------------------------------------------------------
 
 /**

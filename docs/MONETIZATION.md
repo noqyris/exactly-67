@@ -526,6 +526,23 @@ screen. Once displayed, the wait belongs to the player however long the video ru
 Where there is no ad surface (browser dev, an `ADS:off` build) it resolves `earned`
 without an ad, so the hint flow stays testable; no store player can reach that path.
 
+**Keep your hint (1.3.2).** With one or two hints banked, the 💡 tap no longer spends at
+once: a sheet asks **"Use 1 hint"** or **"Watch ad: keep my hint"** ("Ad: keep my hint" on a
+320 pt phone), two stacked buttons of the same size, and a tap on the dim closes it and
+spends nothing. The video pays for THIS board's hint, whose demo runs at once, and the
+stash stays as it was; it banks nothing, so it cannot be used to stock up, and it spends the
+same `hint` cap (6 a day). The rule is `keepHintOfferDue` in `game/economy.ts`: 1–2 hints,
+a video on offer (`rewardedAvailable('hint')` — consent or a tap that would ask, so never in
+a refusal's 180 days), not a free replay, past level 8 or the Daily, never for Unlimited
+owners (No ads owners keep it: hint videos stay for them), and not after two "Use 1 hint"
+picks in a session (`noteKeepHintDeclined`, reset by `startAdSession`). A video that did not
+pay says "No video right now — your hint is safe" / "The ad didn't finish — your hint is
+safe"; `no-consent` closes the sheet. Why: with ~40 free hints in a daily player's first
+week, "+1 more" on a stash of twenty is worth almost nothing, while the last hint or two
+is worth the most to its owner (the endowment effect). The research (2026-10-17) expected a
+small uplift, single digits to ~15% of rewarded views, not the +30–80% first estimated;
+the larger lever is the gift ladder's size, which is the owner's call.
+
 **While it runs**, the modal is held shut (`hintBusy`): the watch button reads
 "Loading…" at 60% opacity with input off, and *Done* and the Store link dim and do
 nothing. A modal closed during the load used to let the video present late — over the

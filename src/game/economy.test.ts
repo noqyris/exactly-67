@@ -13,6 +13,10 @@ import {
   giftHintsFor,
   giftStreakAfterClaim,
   JAR_CAPACITY,
+  KEEP_HINT_AT,
+  KEEP_HINT_DECLINES_PER_SESSION,
+  keepHintOfferDue,
+  type KeepHintContext,
   monthProgress,
   monthTier,
   noAdsNudgeDue,
@@ -279,5 +283,36 @@ describe('interstitials per day', () => {
     expect(parseMeta(JSON.stringify({ interstitialDay: { day: 'nope', count: 4 } })).interstitialDay).toEqual({ day: '', count: 0 })
     expect(parseMeta(JSON.stringify({ interstitialDay: { day: '2026-09-26', count: -3 } })).interstitialDay).toEqual({ day: '2026-09-26', count: 0 })
     expect(parseMeta(JSON.stringify({})).interstitialDay).toEqual({ day: '', count: 0 })
+  })
+})
+
+describe('keep your hint', () => {
+  // The state the choice is for: one or two hints left, past onboarding, a video on offer.
+  const base: KeepHintContext = { hints: 1, unlimited: false, videoOffered: true, freeReplay: false, declines: 0, pastOnboarding: true }
+  const due = (over: Partial<KeepHintContext> = {}) => keepHintOfferDue({ ...base, ...over })
+
+  it('asks at one or two hints, and only then', () => {
+    expect(KEEP_HINT_AT).toBe(2)
+    expect([0, 1, 2, 3, 20].map((hints) => due({ hints }))).toEqual([false, true, true, false, false])
+  })
+
+  it('never for an Unlimited owner, without a video to watch, or on a free replay of this board', () => {
+    expect(due({ unlimited: true })).toBe(false)
+    expect(due({ videoOffered: false })).toBe(false)
+    expect(due({ freeReplay: true })).toBe(false)
+  })
+
+  it('never during onboarding — the Daily counts as past it', () => {
+    expect(due({ pastOnboarding: false })).toBe(false)
+  })
+
+  it('stops asking after two "Use 1 hint" picks in a session', () => {
+    expect(KEEP_HINT_DECLINES_PER_SESSION).toBe(2)
+    expect([0, 1, 2, 3].map((declines) => due({ declines }))).toEqual([true, true, false, false])
+  })
+
+  it('shares the hint cap: a day of single-hint videos stays under the smallest pack (10 hints)', () => {
+    expect(PLACEMENT_CAPS.hint + PLACEMENT_CAPS.store).toBeLessThan(10)
+    expect(Object.keys(PLACEMENT_CAPS)).not.toContain('keep')
   })
 })

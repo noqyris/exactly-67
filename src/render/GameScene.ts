@@ -46,7 +46,7 @@ import { progress } from '../services/progressStore'
 import { shareText } from '../services/share'
 import { maybeRequestReview, reviewWouldAsk } from '../services/review'
 import { bestFor, isCleared } from '../game/progress'
-import { JAR_AD_HINTS, JAR_CAPACITY, JAR_HINTS, PACK_AD_HINTS, PACK_HINTS, type RewardPlacement } from '../game/economy'
+import { JAR_AD_HINTS, JAR_CAPACITY, JAR_HINTS, keepHintOfferDue, PACK_AD_HINTS, PACK_HINTS, type RewardPlacement } from '../game/economy'
 import {
   adsDecided,
   adsSettled,
@@ -56,8 +56,11 @@ import {
   hasHint,
   hintCountValue,
   interstitialWouldShow,
+  keepHintDeclinesThisSession,
   maybeShowInterstitial,
   noteCleared,
+  noteKeepHintDeclined,
+  ONBOARDING_LEVELS,
   rewardedAvailable,
   rewardedBusy,
   rewardedOffered,
@@ -130,7 +133,7 @@ const INK_SOFT = '#5D5470'
  * the same policy names that framing as a violation.
  */
 const HINT_COPY = {
-  /** Needs a ~180 pt button; hintWatchLabel() falls back to the short one on a 320 pt phone. */
+  /** Needs a ~180 pt button; fitLabel() falls back to the short one on a 320 pt phone. */
   watch: 'Watch ad: +1 hint',
   watchShort: 'Ad: +1 hint',
   loading: 'Loading…',
@@ -158,6 +161,23 @@ const HINT_COPY = {
   unavailable: 'No video available right now — try again soon',
   /** A video was handed over and did not pay out: closed early, or failed to present. */
   notEarned: "No hint this time — the ad didn't play to the end",
+
+  /**
+   * The keep-your-hint sheet (game/economy keepHintOfferDue): a tap with one or
+   * two hints left. The ad buys THIS hint — the demo runs at once — and the
+   * stash stays as it is; both buttons say what they do before the tap.
+   */
+  keepBody: (n: number) =>
+    n === 1
+      ? '1 hint left. Use it, or watch a short ad for this one and keep yours.'
+      : `${n} hints left. Use one, or watch a short ad for this one and keep yours.`,
+  /** Needs a ~210 pt button; fitLabel() falls back to the short one on a 320 pt phone. */
+  keepWatch: 'Watch ad: keep my hint',
+  keepWatchShort: 'Ad: keep my hint',
+  keepUse: 'Use 1 hint',
+  /** Nothing was spent either way: say so, so the stash does not look at risk. */
+  keepUnavailable: 'No video right now — your hint is safe',
+  keepNotEarned: "The ad didn't finish — your hint is safe",
 } as const
 
 /** A reward the win card offers: the free amount, or `ad` for a rewarded video. */
@@ -287,6 +307,8 @@ export class GameScene extends Phaser.Scene {
   private win: WinCard | null = null
   private winOverlay: Phaser.GameObjects.Container | null = null
   private hintOverlay: Phaser.GameObjects.Container | null = null
+  /** Which sheet hintOverlay is, so a resize redraws the same one. */
+  private hintOverlayKind: 'menu' | 'keep' = 'menu'
   /** Whether the pan total sat within NEAR_GAP of 67 after the last change. */
   private wasNear = false
 
@@ -486,9 +508,11 @@ export class GameScene extends Phaser.Scene {
       this.showWinOverlay(false)
     }
     if (this.hintOverlay && !this.hintBusy) {
+      const kind = this.hintOverlayKind
       this.hintOverlay.destroy()
       this.hintOverlay = null
-      this.showHintMenu()
+      if (kind === 'keep') this.showKeepHintSheet()
+      else this.showHintMenu()
     }
   }
 
@@ -834,14 +858,15 @@ export class GameScene extends Phaser.Scene {
    * Tap the 💡: spend one banked hint to run the ghost demo of the exact next
    * piece — which the player still drags themselves (relieves being stuck
    * without hollowing out "I solved it"). A re-tap on the SAME board replays the
-   * demo for free (no double-charge); at zero hints, open the earn modal. The
-   * "why" is taught by the demo toast + the live gap text under the total chip.
+   * demo for free (no double-charge); at zero hints, open the earn modal; with
+   * one or two left, ask whether to spend one or keep it for an ad (see
+   * showKeepHintSheet). The "why" is taught by the demo toast + the live gap
+   * text under the total chip.
    */
   private doHint() {
     if (this.wonState || this.hintBusy) return
     if (this.time.now < this.hintCooldownUntil) return
-    const index = this.hintIndex()
-    if (index == null) return
+    if (this.hintIndex() == null) return
     // Bundle owners get hints on the house: free, unlimited, never an ad. Note
     // this is hintsUnlimited(), NOT adsRemoved() — the $0.99 ads-only product
     // removes ads without buying the hint perk.
@@ -850,13 +875,42 @@ export class GameScene extends Phaser.Scene {
         this.showHintMenu()
         return
       }
-      useHint()
-      this.refreshHint()
-      this.hintShown = true
+      const keep = keepHintOfferDue({
+        hints: hintCountValue(),
+        unlimited: hintsUnlimited(),
+        videoOffered: rewardedAvailable('hint'),
+        freeReplay: this.hintShown,
+        declines: keepHintDeclinesThisSession(),
+        pastOnboarding: this.daily || this.ref.global > ONBOARDING_LEVELS,
+      })
+      if (keep) {
+        this.showKeepHintSheet()
+        return
+      }
+      this.spendHintAndPlay()
+      return
     }
-    const ev = evaluate(this.ref.def, this.placed)
-    this.revealHintDemo(index, ev)
+    this.playHint()
+  }
+
+  /** Spend one banked hint on this board, then run its demo. */
+  private spendHintAndPlay() {
+    if (!useHint()) {
+      this.showHintMenu()
+      return
+    }
+    this.refreshHint()
+    this.hintShown = true
+    this.playHint()
+  }
+
+  /** Run the demo of the next piece — paid for already, or free. False when there is none. */
+  private playHint(): boolean {
+    const index = this.hintIndex()
+    if (index == null) return false
+    this.revealHintDemo(index, evaluate(this.ref.def, this.placed))
     this.hintCooldownUntil = this.time.now + 2400
+    return true
   }
 
   /** The weight a hint should point at: the next unplaced solution piece. */
@@ -1027,19 +1081,191 @@ export class GameScene extends Phaser.Scene {
     else modal.say(outcome === 'unavailable' ? HINT_COPY.unavailable : HINT_COPY.notEarned)
   }
 
-  /** The watch button's label: the full disclosure when it fits, the short one on a 320 pt phone. */
-  private hintWatchLabel(buttonW: number, rowH: number): string {
+  /**
+   * Watch a rewarded video to KEEP a hint: the video pays for this board's hint,
+   * whose demo runs at once, and the stash is not touched. Same lock as
+   * watchForHint — no way out of the sheet while the video loads or plays.
+   */
+  private async watchToKeepHint(sheet: { refresh: () => void; say: (message: string) => void; close: () => void }) {
+    if (this.hintBusy || this.wonState || rewardedBusy()) return
+    this.hintBusy = true
+    sheet.refresh() // "Loading…" on the button, every way out locked
+    let outcome: RewardedOutcome = 'unavailable'
+    try {
+      outcome = await watchRewarded('hint')
+    } finally {
+      this.hintBusy = false
+    }
+    // A video watched to the end is owed its hint. Where its demo can no longer
+    // run — the scene stopped under the ad, the board is won, no next piece —
+    // the hint goes into the stash instead.
+    if (!this.sys.isActive()) {
+      if (outcome === 'earned') grantHint()
+      return
+    }
+    if (outcome === 'earned') {
+      sheet.close()
+      this.hintShown = true
+      if (this.wonState || !this.playHint()) {
+        this.hintShown = false
+        grantHint()
+        this.refreshHint()
+      }
+      return
+    }
+    // The tap asked for ad consent and got no yes, or the offer went away
+    // meanwhile (consent withdrawn): nothing was spent, and the next tap spends.
+    if (outcome === 'no-consent' || !rewardedAvailable('hint')) {
+      sheet.close()
+      return
+    }
+    sheet.refresh()
+    sheet.say(outcome === 'unavailable' ? HINT_COPY.keepUnavailable : HINT_COPY.keepNotEarned)
+  }
+
+  /** A button's label: the full disclosure when it fits, the short one on a 320 pt phone. */
+  private fitLabel(full: string, short: string, buttonW: number, rowH: number): string {
     // Same style makeButton gives its label, measured off the display list.
     const probe = this.make.text(
       {
-        text: HINT_COPY.watch,
+        text: full,
         style: { fontFamily: FONT, fontSize: `${Math.round(rowH * 0.42)}px`, fontStyle: '700' },
       },
       false,
     )
     const fits = probe.width <= buttonW - u(20)
     probe.destroy()
-    return fits ? HINT_COPY.watch : HINT_COPY.watchShort
+    return fits ? full : short
+  }
+
+  /** The hint card's frame: an ink drop shadow, paper, an ink outline. */
+  private drawHintCard(cx: number, top: number, cardW: number, cardH: number): Phaser.GameObjects.Graphics {
+    const card = this.add.graphics()
+    card.fillStyle(INK, 1)
+    card.fillRoundedRect(cx - cardW / 2, top + u(6), cardW, cardH, u(24))
+    card.fillStyle(PAPER, 1)
+    card.fillRoundedRect(cx - cardW / 2, top, cardW, cardH, u(24))
+    card.lineStyle(OUTLINE + u(1), INK, 1)
+    card.strokeRoundedRect(cx - cardW / 2, top, cardW, cardH, u(24))
+    return card
+  }
+
+  /**
+   * What happened to a tap, said just under a hint card. The scene's own toast
+   * sits under the dim and, on most phones, behind the card itself — a "no
+   * video available" nobody can read is the dead tap these sheets exist to avoid.
+   */
+  private hintCardNote(overlay: Phaser.GameObjects.Container, cx: number, y: number, cardW: number) {
+    const note = this.add
+      .text(cx, y, '', TEXT.cream(15, '700'))
+      .setOrigin(0.5)
+      .setAlign('center')
+      .setWordWrapWidth(cardW)
+      .setAlpha(0)
+    note.setStroke(INK_CSS, u(5))
+    let noteTween: Phaser.Tweens.Tween | null = null
+    const say = (message: string) => {
+      // Sheet already closed: the scene's toast is in plain sight again.
+      if (!note.active) {
+        this.showToast(message)
+        return
+      }
+      noteTween?.stop()
+      note.setText(message).setAlpha(1)
+      noteTween = this.tweens.add({ targets: note, alpha: 0, delay: 1800, duration: 350 })
+    }
+    overlay.once(Phaser.GameObjects.Events.DESTROY, () => noteTween?.stop())
+    return { note, say }
+  }
+
+  /**
+   * One or two hints left: "use one, or watch an ad for this one and keep
+   * yours" (game/economy keepHintOfferDue). Two stacked buttons of the same
+   * size, each saying what it does; a tap on the dim closes it and spends
+   * nothing. Opened only by the player's own hint tap.
+   */
+  private showKeepHintSheet() {
+    const w = this.scale.width
+    const h = this.scale.height
+    const overlay = this.add.container(0, 0).setDepth(120)
+    this.hintOverlay = overlay
+    this.hintOverlayKind = 'keep'
+    overlay.once(Phaser.GameObjects.Events.DESTROY, () => {
+      if (this.hintOverlay === overlay) this.hintOverlay = null
+    })
+    // No way out while a video is loading or on screen — see watchToKeepHint().
+    const close = () => {
+      if (this.hintBusy) return
+      overlay.destroy()
+    }
+
+    const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45).setInteractive()
+    onTap(dim, close)
+
+    const cardW = Math.min(w - u(48), u(340))
+    const cx = w / 2
+    const title = this.add.text(cx, 0, 'Hints', TEXT.ink(21, '800')).setOrigin(0.5)
+    const body = this.add.text(cx, 0, '', TEXT.ink(13, '600')).setOrigin(0.5, 0)
+    body.setColor(INK_SOFT).setAlign('center').setWordWrapWidth(cardW - u(40))
+    // Sized once for the longer text, so the buttons never move under a thumb.
+    let bodyBox = 0
+    for (const n of [1, 2]) {
+      body.setText(HINT_COPY.keepBody(n))
+      bodyBox = Math.max(bodyBox, body.height)
+    }
+
+    // Stacked, full width, the same size: side by side, the watch label would
+    // fit neither form on a 320 pt phone.
+    const margin = u(16)
+    const rowH = u(52)
+    const btnW = cardW - margin * 2
+    const bodyOff = u(54)
+    const watchOff = bodyOff + bodyBox + u(18) + rowH / 2
+    const useOff = watchOff + rowH + u(12)
+    const cardH = useOff + rowH / 2 + u(20)
+    const cy = Math.min(h * 0.44, h - safeArea().bottom - cardH / 2 - u(16))
+    const top = cy - cardH / 2
+
+    const card = this.drawHintCard(cx, top, cardW, cardH)
+    // The card swallows taps, so only the dim around it closes the sheet.
+    const cardHit = this.add.zone(cx, top + cardH / 2, cardW, cardH).setInteractive()
+    title.setY(top + u(34))
+    const watchLabel = this.fitLabel(HINT_COPY.keepWatch, HINT_COPY.keepWatchShort, btnW, rowH)
+    const { note, say } = this.hintCardNote(overlay, cx, top + cardH + u(30), cardW)
+    overlay.add([dim, card, cardHit, title, body, note])
+
+    let watch: Phaser.GameObjects.Container | null = null
+    let use: Phaser.GameObjects.Container | null = null
+    const refresh = () => {
+      // The sheet can already be gone when a video settles (its scene left).
+      if (!body.active) return
+      body.setText(HINT_COPY.keepBody(hintCountValue()))
+      body.setY(top + bodyOff + (bodyBox - body.height) / 2)
+      watch?.destroy()
+      use?.destroy()
+      watch = makeButton(this, this.hintBusy ? HINT_COPY.loading : watchLabel, btnW, rowH, 0xf5b942, '#2B2440', () =>
+        void this.watchToKeepHint({ refresh, say, close }),
+      )
+      watch.setPosition(cx, top + watchOff)
+      use = makeButton(this, HINT_COPY.keepUse, btnW, rowH, PAPER, '#2B2440', () => {
+        if (this.hintBusy) return
+        noteKeepHintDeclined()
+        close()
+        this.spendHintAndPlay()
+      })
+      use.setPosition(cx, top + useOff)
+      if (this.hintBusy) {
+        watch.setAlpha(0.6).disableInteractive()
+        use.setAlpha(0.5)
+      }
+      overlay.add([watch, use])
+    }
+    refresh()
+
+    if (!this.reducedMotion) {
+      overlay.setAlpha(0)
+      this.tweens.add({ targets: overlay, alpha: 1, duration: 160 })
+    }
   }
 
   /** Modal to earn a hint (a rewarded ad) or buy a hint pack. */
@@ -1048,6 +1274,7 @@ export class GameScene extends Phaser.Scene {
     const h = this.scale.height
     const overlay = this.add.container(0, 0).setDepth(120)
     this.hintOverlay = overlay
+    this.hintOverlayKind = 'menu'
     overlay.once(Phaser.GameObjects.Events.DESTROY, () => {
       if (this.hintOverlay === overlay) this.hintOverlay = null
     })
@@ -1104,13 +1331,7 @@ export class GameScene extends Phaser.Scene {
     const top = cy - cardH / 2
     const btnY = top + btnOff
 
-    const card = this.add.graphics()
-    card.fillStyle(INK, 1)
-    card.fillRoundedRect(cx - cardW / 2, top + u(6), cardW, cardH, u(24))
-    card.fillStyle(PAPER, 1)
-    card.fillRoundedRect(cx - cardW / 2, top, cardW, cardH, u(24))
-    card.lineStyle(OUTLINE + u(1), INK, 1)
-    card.strokeRoundedRect(cx - cardW / 2, top, cardW, cardH, u(24))
+    const card = this.drawHintCard(cx, top, cardW, cardH)
     title.setY(top + u(34))
     upsell.setY(top + upsellOff)
 
@@ -1121,33 +1342,13 @@ export class GameScene extends Phaser.Scene {
     const rowInner = cardW - margin * 2 - gap
     const doneW = rowInner * 0.33
     const watchW = rowInner - doneW
-    const watchLabel = this.hintWatchLabel(watchW, rowH)
+    const watchLabel = this.fitLabel(HINT_COPY.watch, HINT_COPY.watchShort, watchW, rowH)
 
     let watch: Phaser.GameObjects.Container | null = null
     let done: Phaser.GameObjects.Container | null = null
 
-    // What happened to a tap, said just under the card. The scene's own toast
-    // sits under the dim and, on most phones, behind this very card — a "no
-    // video available" nobody can read is the dead tap this modal exists to avoid.
-    const note = this.add
-      .text(cx, top + cardH + u(30), '', TEXT.cream(15, '700'))
-      .setOrigin(0.5)
-      .setAlign('center')
-      .setWordWrapWidth(cardW)
-      .setAlpha(0)
-    note.setStroke(INK_CSS, u(5))
-    let noteTween: Phaser.Tweens.Tween | null = null
-    const say = (message: string) => {
-      // Modal already closed: the scene's toast is in plain sight again.
-      if (!note.active) {
-        this.showToast(message)
-        return
-      }
-      noteTween?.stop()
-      note.setText(message).setAlpha(1)
-      noteTween = this.tweens.add({ targets: note, alpha: 0, delay: 1800, duration: 350 })
-    }
-    overlay.once(Phaser.GameObjects.Events.DESTROY, () => noteTween?.stop())
+    // What happened to a tap, said just under the card (see hintCardNote).
+    const { note, say } = this.hintCardNote(overlay, cx, top + cardH + u(30), cardW)
 
     overlay.add([dim, card, title, body, upsell, note])
 

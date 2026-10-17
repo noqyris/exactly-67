@@ -395,6 +395,26 @@ describe('interstitial cadence — unchanged by the network move', () => {
     expect(again.interstitialWouldShow(LEVEL + 3)).toBe(true)
   })
 
+  it('the keep-your-hint "Use 1 hint" count is per session: it starts at 0 and a new session clears it', async () => {
+    const ads = await freshAds()
+    expect(ads.keepHintDeclinesThisSession()).toBe(0)
+    ads.noteKeepHintDeclined()
+    ads.noteKeepHintDeclined()
+    expect(ads.keepHintDeclinesThisSession()).toBe(2)
+    ads.startAdSession()
+    expect(ads.keepHintDeclinesThisSession()).toBe(0)
+  })
+
+  it('a hint video watched to keep a hint is the same placement: it spends the hint cap and mutes interstitials', async () => {
+    const ads = await freshAds()
+    await seconds(90)
+    clears(ads, 3)
+    const left = ads.rewardedLeftToday('hint')
+    await expect(ads.watchRewarded('hint')).resolves.toBe('earned')
+    expect(ads.rewardedLeftToday('hint')).toBe(left - 1)
+    expect(ads.interstitialWouldShow(LEVEL)).toBe(false)
+  })
+
   it('a new session keeps the quiet window after an earned hint video', async () => {
     const ads = await freshAds()
     await seconds(90)

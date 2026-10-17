@@ -95,7 +95,7 @@ const provider = import.meta.env.VITE_ADS === 'mock' ? mockProvider : levelplayP
 /** Never interrupt the first levels. The signature balloon mechanic debuts at
  *  L6, so a player hasn't met the hook before ~L8; early sessions also monetize
  *  poorly, so holding ads to L8 costs ~nothing and protects the first impression. */
-const ONBOARDING_LEVELS = 8
+export const ONBOARDING_LEVELS = 8
 /** Hard spacing floor: never two interstitials closer than this. 3 min reads
  *  distinctly "calm/premium", and the 3-clear gate already spaces most ads past
  *  it, so the revenue cost is near-zero. */
@@ -165,6 +165,8 @@ let sessionStart = Date.now()
 let lastInterstitialAt = 0 // ms epoch of the last *presented* interstitial; 0 = none since launch
 let adsThisSession = 0
 let lastRewardedAt = 0 // ms epoch of the last *earned* rewarded hint; 0 = none since launch
+/** "Use 1 hint" picks on the keep-your-hint sheet this session (game/economy.ts keepHintOfferDue). */
+let keepHintDeclines = 0
 
 /** Full-screen ads currently up (or being shown) — never stack a second one. */
 let fullScreenDepth = 0
@@ -686,14 +688,26 @@ export async function removeBanner(): Promise<void> {
  *
  * Resets only what is per SESSION — the cap and the warm-up, so the first clear
  * after coming back is never an ad, and the one after-level consent question a
- * player with no answer may get. The 180 s spacing floor, the every-3rd-clear
- * counter, the quiet window after a rewarded video and the daily rewarded caps
- * are not per session and carry over.
+ * player with no answer may get — and the keep-your-hint sheet's "Use 1 hint"
+ * count, so a new session may ask again. The 180 s spacing floor, the
+ * every-3rd-clear counter, the quiet window after a rewarded video and the daily
+ * rewarded caps are not per session and carry over.
  */
 export function startAdSession(now: number = Date.now()): void {
   sessionStart = now
   adsThisSession = 0
   afterLevelAsked = false
+  keepHintDeclines = 0
+}
+
+/** The player picked "Use 1 hint" on the keep-your-hint sheet. */
+export function noteKeepHintDeclined(): void {
+  keepHintDeclines++
+}
+
+/** "Use 1 hint" picks on the keep-your-hint sheet this session. */
+export function keepHintDeclinesThisSession(): number {
+  return keepHintDeclines
 }
 
 /** Count one level clear toward the interstitial cadence (call once per win). */

@@ -26,7 +26,7 @@ unit-tested in `src/game` (`days.ts`, `streak.ts`, `economy.ts`, `meta.ts`,
 
 | Placement | Where | Free | With ad | Cap/day |
 |---|---|---|---|---|
-| `hint` | hint modal at 0 hints | — | +1 hint | 6 |
+| `hint` | hint modal at 0 hints; the keep-your-hint sheet at 1–2 (the ad pays this board's hint, the stash stays) | — | +1 hint | 6 |
 | `gift` | menu, first visit each day | 1 · 2 · 4 · 6 · 8 hints (days in a row) | +2 on any rung | 1 |
 | `jar` | win card, jar full | 1 hint | 3 hints | 3 |
 | `pack` | win card, pack finished (+ any jar) | 3 (+jar) | 6 (+jar×3) | 3 |
