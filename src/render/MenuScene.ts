@@ -63,6 +63,7 @@ import {
   onTap,
   TEXT,
 } from './ui'
+import { flyBulbs, popTarget } from './fx'
 
 const INK_SOFT = '#5D5470'
 
@@ -597,13 +598,25 @@ export class MenuScene extends Phaser.Scene {
         close()
         return
       }
-      playReward()
       // The video may have outlived this menu (backgrounded, a reminder tapped):
       // the hints are paid either way, but a torn-down scene's objects are gone.
-      if (!this.sys.isActive()) return
-      if (this.hintChip?.active) this.hintChip.setLabel(String(hintCountValue()))
+      if (!this.sys.isActive()) {
+        playReward()
+        return
+      }
       close()
       this.toast(`+${hintsText(n)}`)
+      // The gift flies to the hint chip, which counts up as each bulb lands.
+      const chip = this.hintChip
+      if (!chip?.active) return
+      const end = hintCountValue()
+      const start = end - n
+      const count = Math.min(n, 8)
+      flyBulbs(this, { x: cx, y: btnY }, { x: chip.x, y: chip.y }, n, (i, last) => {
+        if (!chip.active) return
+        chip.setLabel(String(last ? hintCountValue() : start + Math.round(((i + 1) / count) * n)))
+        popTarget(this, chip)
+      })
     }
     const offerAd = rewardedAvailable('gift')
     if (!offerAd) {
