@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * The purchase service's grant path, against a stand-in for the plugin's
@@ -100,6 +100,10 @@ function deliver(id: string | undefined, product: string): void {
 
 async function boot() {
   vi.resetModules()
+  // These tests drive the real grant path against their own stand-in. In a
+  // VITE_ADS=mock run (the fake-ads build chain runs this suite too) initIap()
+  // would swap in the fake store instead, so the env is pinned here.
+  vi.stubEnv('VITE_ADS', 'off')
   installStore()
   const iap = await import('./iap')
   await iap.initIap()
@@ -110,6 +114,10 @@ const HINTS30 = 'com.noqyris.exactly67.hints30'
 const WELCOME = 'com.noqyris.exactly67.welcome'
 const NO_ADS = 'com.noqyris.exactly67.noads'
 const UNLIMITED = 'com.noqyris.exactly67.removeads'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 beforeEach(() => {
   calls.hints = []
