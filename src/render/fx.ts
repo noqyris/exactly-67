@@ -150,3 +150,10 @@ export function drawGridIcon(g: Phaser.GameObjects.Graphics, size: number): void
     }
   }
 }
+
+/** Three dots across — "more" — centred in a `size` box. */
+export function drawMoreIcon(g: Phaser.GameObjects.Graphics, size: number): void {
+  g.fillStyle(INK, 1)
+  const r = size * 0.075
+  for (const dx of [-1, 0, 1]) g.fillCircle(dx * size * 0.2, 0, r)
+}

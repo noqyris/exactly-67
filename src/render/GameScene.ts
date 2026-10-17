@@ -34,7 +34,7 @@ import {
   setSoundEnabled,
   soundEnabled,
 } from '../services/audio'
-import { duckMusic } from '../services/music'
+import { duckMusic, musicEnabled, setMusicEnabled } from '../services/music'
 import {
   hapticsEnabled,
   lockTap,
@@ -99,7 +99,7 @@ import {
 } from '../services/notifications'
 import { splashFinished } from '../services/session'
 import { welcomePrice } from '../services/iap'
-import { loadHintNudged, saveDailyDone, saveHapticsEnabled, saveHintNudged, saveSoundEnabled } from '../services/storage'
+import { loadHintNudged, saveDailyDone, saveHapticsEnabled, saveHintNudged, saveMusicEnabled, saveSoundEnabled } from '../services/storage'
 import { contentFrame, MAX_WIDE_W, prefersReducedMotion, safeArea, setBannerStrip, u } from './layout'
 import { BG, CREAM_CSS, FONT, GOOD, INK, INK_CSS, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
@@ -110,6 +110,7 @@ import {
   drawCard,
   drawFlame,
   drawHapticsIcon,
+  drawMusicIcon,
   drawHintIcon,
   drawJar,
   drawMedal,
@@ -122,7 +123,7 @@ import {
   TEXT,
 } from './ui'
 import { WeightView } from './WeightView'
-import { drawCloseIcon, drawGridIcon, flyBulbs, landingPuff, popTarget, ringBurst } from './fx'
+import { drawCloseIcon, drawGridIcon, drawMoreIcon, flyBulbs, landingPuff, popTarget, ringBurst } from './fx'
 import { meta } from '../services/metaStore'
 
 const GOOD_CSS = '#37B24D'
@@ -916,28 +917,12 @@ export class GameScene extends Phaser.Scene {
       if (this.daily) this.scene.start('Daily', {})
       else this.scene.start('LevelMap', { scrollTo: this.ref.global })
     })
-    const sound = makeIconButton(
-      this,
-      size,
-      (g, s) => drawSoundIcon(g, s, soundEnabled()),
-      () => {
-        setSoundEnabled(!soundEnabled())
-        void saveSoundEnabled(soundEnabled())
-        sound.refresh()
-        if (soundEnabled()) playPlace()
-      },
-    )
-    const haptics = makeIconButton(
-      this,
-      size,
-      (g, s) => drawHapticsIcon(g, s, hapticsEnabled()),
-      () => {
-        setHapticsEnabled(!hapticsEnabled())
-        void saveHapticsEnabled(hapticsEnabled())
-        haptics.refresh()
-        if (hapticsEnabled()) placeTap()
-      },
-    )
+    // One "more" button instead of two switches in the HUD: the sheet holds
+    // sound, music and haptics, and Restart / Levels (showMoreSheet).
+    const more = makeIconButton(this, size, (g, s) => drawMoreIcon(g, s), () => {
+      if (this.wonState || this.hintOverlay) return
+      this.showMoreSheet()
+    })
     const hint = makeIconButton(
       this,
       size,
@@ -955,7 +940,7 @@ export class GameScene extends Phaser.Scene {
       .text(size * 0.295, -size * 0.295, '1', TEXT.cream(12, '800'))
       .setOrigin(0.5)
     hint.add(this.hintBadge)
-    this.hudButtons = { back, sound, haptics, hint }
+    this.hudButtons = { back, more, hint }
     this.refreshHint()
     // Coming back from the Store overlay, the stash may have grown (or hints may
     // have become unlimited) — resync the badge instead of showing a stale count.
@@ -964,8 +949,7 @@ export class GameScene extends Phaser.Scene {
 
   private hudButtons!: {
     back: ReturnType<typeof makeIconButton>
-    sound: ReturnType<typeof makeIconButton>
-    haptics: ReturnType<typeof makeIconButton>
+    more: ReturnType<typeof makeIconButton>
     hint: ReturnType<typeof makeIconButton>
   }
 
@@ -995,8 +979,7 @@ export class GameScene extends Phaser.Scene {
 
     this.hudButtons.back.setPosition(leftX, top + size / 2)
     this.hudButtons.hint.setPosition(leftX + size + u(12), top + size / 2)
-    this.hudButtons.haptics.setPosition(rightX, top + size / 2)
-    this.hudButtons.sound.setPosition(rightX - size - u(12), top + size / 2)
+    this.hudButtons.more.setPosition(rightX, top + size / 2)
 
     this.levelText.setPosition(f.cx, top - u(2))
     this.levelText.setText(this.daily ? 'Daily 67' : `Level ${this.ref.global}`)
@@ -1004,7 +987,8 @@ export class GameScene extends Phaser.Scene {
     this.packText.setText(this.ref.pack.name)
     // The title lives between the two button clusters: on a 320 pt phone
     // "Level 372" ran under the hint button and "Dead Reckoning" lost its ends.
-    const room = rightX - size - u(12) - size / 2 - (leftX + size + u(12) + size / 2) - u(8)
+    // Symmetric about the centre: the left cluster (back + hint) is the wider one.
+    const room = 2 * (f.cx - (leftX + size + u(12) + size / 2)) - u(8)
     for (const t of [this.levelText, this.packText]) t.setScale(Math.min(1, room / Math.max(t.width, 1)))
 
     // Total chip sits between the HUD row and the beam (over the scale's column
@@ -1422,6 +1406,99 @@ export class GameScene extends Phaser.Scene {
     const fits = probe.width <= buttonW - u(20)
     probe.destroy()
     return fits ? full : short
+  }
+
+  /**
+   * The HUD's "⋯": sound, music and haptics switches, then Restart level and
+   * Levels (or the Daily calendar). The same switches as the menu's Settings.
+   */
+  private showMoreSheet() {
+    const w = this.scale.width
+    const h = this.scale.height
+    const overlay = this.add.container(0, 0).setDepth(120)
+    const close = () => overlay.destroy()
+    const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45).setInteractive()
+    onTap(dim, close)
+    const cardW = Math.min(w - u(48), u(340))
+    const cx = w / 2
+    const rowPitch = u(52)
+    const btnH = u(50)
+    const rowsTop = u(62)
+    const cardH = rowsTop + rowPitch * 3 + u(14) + btnH * 2 + u(12) + u(22)
+    const top = Math.max(safeArea().top + u(70), Math.min(h * 0.44 - cardH / 2, h - safeArea().bottom - cardH - u(16)))
+    const card = this.drawHintCard(cx, top, cardW, cardH)
+    const cardHit = this.add.zone(cx, top + cardH / 2, cardW, cardH).setInteractive()
+    const title = this.add.text(cx, top + u(32), this.daily ? 'Daily 67' : `Level ${this.ref.global}`, TEXT.ink(21, '800')).setOrigin(0.5)
+    overlay.add([dim, card, cardHit, title, this.closeGlyph(cx + cardW / 2 - u(30), top + u(30), close)])
+    const rowX = cx - cardW / 2 + u(22)
+    const rowW = cardW - u(44)
+    let y = top + rowsTop + rowPitch / 2
+    const row = (
+      label: string,
+      icon: (g: Phaser.GameObjects.Graphics, size: number, on: boolean) => void,
+      get: () => boolean,
+      set: (on: boolean) => void,
+    ) => {
+      const yy = y
+      const g = this.add.graphics().setPosition(rowX + u(16), yy)
+      const text = this.add.text(rowX + u(44), yy, label, TEXT.ink(16, '700')).setOrigin(0, 0.5)
+      const sw = this.add.graphics()
+      const hit = this.add.zone(rowX + rowW / 2, yy, rowW, u(48)).setInteractive({ useHandCursor: true })
+      const paint = () => {
+        g.clear()
+        icon(g, u(34), get())
+        const on = get()
+        const sx = rowX + rowW - u(52)
+        sw.clear()
+        sw.fillStyle(on ? 0x69db7c : 0xe7ddcb, 1)
+        sw.fillRoundedRect(sx, yy - u(14), u(52), u(28), u(14))
+        sw.lineStyle(u(3), INK, 1)
+        sw.strokeRoundedRect(sx, yy - u(14), u(52), u(28), u(14))
+        sw.fillStyle(PAPER, 1)
+        sw.fillCircle(on ? sx + u(38) : sx + u(14), yy, u(10))
+        sw.strokeCircle(on ? sx + u(38) : sx + u(14), yy, u(10))
+      }
+      paint()
+      onTap(hit, () => {
+        set(!get())
+        if (hit.active) paint()
+      })
+      overlay.add([g, text, sw, hit])
+      y += rowPitch
+    }
+    row('Sound', drawSoundIcon, soundEnabled, (on) => {
+      setSoundEnabled(on)
+      void saveSoundEnabled(on)
+      if (on) playPlace()
+    })
+    row('Music', drawMusicIcon, musicEnabled, (on) => {
+      setMusicEnabled(on)
+      void saveMusicEnabled(on)
+    })
+    row('Haptics', drawHapticsIcon, hapticsEnabled, (on) => {
+      setHapticsEnabled(on)
+      void saveHapticsEnabled(on)
+      if (on) placeTap()
+    })
+    const bw = cardW - u(44)
+    let by = y - rowPitch / 2 + u(14) + btnH / 2
+    const restart = makeButton(this, 'Restart level', bw, btnH, PAPER, '#2B2440', () => {
+      close()
+      this.scene.restart(this.daily ? { daily: true, date: this.dailyDate } : { level: this.ref.global })
+    })
+    restart.setPosition(cx, by)
+    by += btnH + u(12)
+    const away = makeButton(this, this.daily ? 'Daily calendar' : 'Levels', bw, btnH, PAPER, '#2B2440', () => {
+      close()
+      if (this.daily) this.scene.start('Daily', {})
+      else this.scene.start('LevelMap', { scrollTo: this.ref.global })
+    })
+    away.setPosition(cx, by)
+    overlay.add([restart, away])
+    if (!this.reducedMotion) {
+      overlay.setAlpha(0)
+      this.tweens.add({ targets: overlay, alpha: 1, duration: 140 })
+    }
   }
 
   /** A sheet's visible way out: an ✕ in the card's top-right corner (40 pt, a 48 pt target). */
@@ -2824,7 +2901,6 @@ export class GameScene extends Phaser.Scene {
       } else if (key === 'm' || key === 'M') {
         setSoundEnabled(!soundEnabled())
         void saveSoundEnabled(soundEnabled())
-        this.hudButtons.sound.refresh()
       } else if (key === 'Escape') {
         if (this.daily) this.scene.start('Daily', {})
         else this.scene.start('LevelMap', { scrollTo: this.ref.global })
