@@ -293,3 +293,15 @@ Leave the tree safe: after any live build, `npm run ios:sync` so `dist/` and
 Full procedure: [`docs/RELEASE.md`](docs/RELEASE.md) and the user-level
 `mobile-game-playbook` skill (`references/ad-safety.md`, `references/launch-runbook.md`).
 The older `ad-safety` skill is AdMob-era and marked superseded.
+
+## Git: commit and push at the end of every iteration
+
+The owner's standing rule since 2026-10-17. The owner works from two laptops and a phone (cloud sessions start from GitHub), so work that exists only on one machine is lost to the others.
+
+- **Session start:** run `git fetch`, then `git pull --ff-only` on the current branch. If the branch has diverged from origin, stop and tell the owner. Never merge or rebase someone else's work silently.
+- **End of every iteration** (a finished, working step with the gates green): commit only the files you changed (`git add <paths>`, never a blind `git add -A`), then run `git push -u origin HEAD`. This is the owner's standing permission for `git push`. Never use `--force`.
+- **Never commit** secrets (`.env*` except `.env.example`, `*.p8`, `*.p12`, `*.jks`, keystores, provisioning profiles) or build output (`dist/`, `ios/App/build/`, `*.ipa`, `*.aab`).
+- **Still ask the owner first** for:
+  - a push that deploys or publishes: `noqyris-website`, `djordjesubotic` and `viciral` deploy to Vercel; `noqyris.github.io` publishes to GitHub Pages;
+  - a push to a repo that is still public;
+  - TestFlight and Play uploads, store submissions and releases.
