@@ -28,7 +28,7 @@ import { loadIapPaid, saveIapPaid } from './storage'
  */
 
 /**
- * The premium unlock ($4.99, Non-Consumable): removes ads **and** grants
+ * The premium unlock ($9.99 since 2026-10-17, $4.99 before; Non-Consumable): removes ads **and** grants
  * unlimited hints. Owners from before the store split bought this same product
  * at $0.99 with both perks, so it must keep granting both — see the
  * grandfathering note in `storage.loadUnlimitedHints`.
@@ -36,7 +36,7 @@ import { loadIapPaid, saveIapPaid } from './storage'
 export const REMOVE_ADS_ID = 'com.noqyris.exactly67.removeads'
 
 /**
- * Ads-only unlock ($0.99, Non-Consumable). Removes ads and nothing else —
+ * Ads-only unlock ($1.99 since 2026-10-17, $0.99 before; Non-Consumable). Removes ads and nothing else —
  * hints stay consumable. Deliberately does NOT grant unlimited hints, which is
  * the only thing keeping the $4.99 tier meaningful.
  */

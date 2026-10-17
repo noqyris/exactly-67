@@ -88,9 +88,9 @@ Ad Controls age limit is part of the pre-release checklist in
 |---|---|---|---|---|
 | 10 hints | 10 Hints | Consumable | $0.99 | `com.noqyris.exactly67.hints10` |
 | 30 hints | 30 Hints | Consumable | $1.99 | `com.noqyris.exactly67.hints30` |
-| 100 hints | 100 Hints | Consumable | $2.99 | `com.noqyris.exactly67.hints100` |
-| No ads: removes the banner and the ads between levels; hints not included; the optional hint videos stay | No Ads | Non-Consumable | $0.99 | `com.noqyris.exactly67.noads` |
-| Unlimited hints + no ads | **Remove Ads** — rename before 1.2.1 | Non-Consumable | **$4.99** | `com.noqyris.exactly67.removeads` (the original 1.1.0 "Remove Ads" id) |
+| 100 hints | 100 Hints | Consumable | **$4.99** (was $2.99 until 2026-10-17) | `com.noqyris.exactly67.hints100` |
+| No ads: removes the banner and the ads between levels; hints not included; the optional hint videos stay | No Ads | Non-Consumable | **$1.99** (was $0.99 until 2026-10-17) | `com.noqyris.exactly67.noads` |
+| Unlimited hints + no ads | **Remove Ads** — rename before 1.2.1 | Non-Consumable | **$9.99** (was $4.99 until 2026-10-17) | `com.noqyris.exactly67.removeads` (the original 1.1.0 "Remove Ads" id) |
 
 The display names are the ones this file last recorded, not re-read from App Store Connect. They
 matter because StoreKit's purchase sheet and the player's purchase history show the **ASC display

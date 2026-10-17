@@ -40,7 +40,8 @@ const INK_SOFT = '#5D5470'
  * ad, the hint packs as tiles with their true per-hint price, then No ads.
  *
  * The price architecture is deliberate — the unlock costs MORE than every pack
- * ($4.99 vs $0.99/$1.99/$2.99) precisely so it doesn't dominate them. When the
+ * ($9.99 vs $0.99/$1.99/$4.99 since 2026-10-17; $4.99 vs …/$2.99 before) precisely
+ * so it doesn't dominate them. When the
  * unlock was $0.99 it was strictly better than every pack on both price and
  * quantity, which made the packs traps: anyone buying one overpaid for less.
  * Keep that ordering intact if prices ever change.

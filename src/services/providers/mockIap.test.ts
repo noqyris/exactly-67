@@ -67,7 +67,7 @@ describe('the fake store (VITE_ADS=mock only)', () => {
     const { cdv } = await fresh()
     const offer = cdv.store.get(HINTS30)!.getOffer()
     expect(offer.pricingPhases[0]).toEqual({ price: '$1.99 · TEST', priceMicros: 1_990_000, currency: 'USD' })
-    expect(cdv.store.get(UNLIMITED)!.getOffer().pricingPhases[0].price).toBe('$4.99 · TEST')
+    expect(cdv.store.get(UNLIMITED)!.getOffer().pricingPhases[0].price).toBe('$9.99 · TEST')
     expect(cdv.store.get('com.example.unknown')).toBeUndefined()
   })
 

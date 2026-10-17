@@ -82,14 +82,14 @@ sources), then built:
   15 free hints per five days since 1.3.2 (21 before, 1.2 gave 5); the ladder is the lever if pack
   revenue drops. Tomorrow's rung is what the next day's reminder may name.
 
-**Recommended, not done (owner's call — it changes what live players pay):**
-the research found the ladder priced well below comparable games (Flow Free sells
-5 hints for £0.99; standalone remove-ads in the top-100 games is $2.50–$10). If
-wanted, reprice in App Store Connect in this order so Unlimited always stays above
-the biggest pack: `removeads` → **$9.99**, then `hints100` → **$4.99**, then `noads`
-→ **$2.99** (optionally a lower custom price in Serbia and other low-income
-storefronts). No code change is needed — every price and the "Best value" badge
-come from StoreKit.
+**Repriced 2026-10-17 (owner's yes):** the research found the ladder well below
+comparable games (Flow Free: 5 hints for $0.99, unlock all + no ads $4.99; standalone
+remove-ads in the top-100 games $2.50–$10). In App Store Connect, US base, every other
+storefront equalized by Apple: `removeads` **$4.99 → $9.99**, `hints100` **$2.99 → $4.99**,
+`noads` **$0.99 → $1.99**; 10 / 30 / Welcome unchanged. `tools/asc/reprice.mjs` snapshots all
+175 storefronts, writes, and diffs: exactly those three products changed, in all 175. No code
+change was needed — every price and the "Best value" badge come from StoreKit (the fake store's
+table follows the new US prices). Unity's age limit and the rest untouched.
 
 **Not built:** a subscription (no receipt server to verify expiry), paid or random
 rewards, coins, iCloud backup of the hint balance (consumables cannot be restored,
@@ -106,9 +106,9 @@ favours opt-in and light-touch over ad saturation:
 | **Rewarded** | The opt-in earner. Hints are a **banked inventory**: the free **daily gift** (1.3.0: a five-day ladder of 1, 2, 3, 4, 5 hints on days in a row (1, 2, 4, 6, 8 until 1.3.2) — it replaced 1.2's silent +1 per UTC day at boot) and **+1 per rewarded hint video watched to the end**. A video banks a hint; it does not reveal one, so the player spends hints on their own terms. Offered only while the player's ad consent is `GRANTED`. | **"Watch ad: +1 hint"** ("Ad: +1 hint" where that does not fit, a 320 pt phone) in the hint modal, which opens when the 💡 is tapped with zero hints; **"Watch ad: +2 more"** on the menu's daily-gift card (a flat +2 on any rung, once a day). Every placement and cap: [`RETENTION.md`](RETENTION.md#rewarded-placements-all-capped-per-local-day-in-economyts) |
 | **Interstitial** | Occasional full-screen ad at a natural break, under a **hybrid gate**: a clear count decides *where*, time + session + opt-in state decide *whether*. | On the leave-tap after a win (Next / The End! / Map), never on Retry, never mid-level, never in the Daily Challenge. See the cadence table below. |
 | **Banner** | Passive fill. | Bottom-anchored, in a **reserved strip** every scene keeps clear |
-| **Hint packs (IAP)** | Consumables for players who want help without the unlock: **10 / 30 / 100 hints at $0.99 / $1.99 / $2.99**. Bought hints join the same inventory and never expire (a plain persisted counter, no decay). | Store screen |
-| **No ads (IAP)** | **$0.99**, one-time. Removes the banner and the ads between levels (interstitials) and **nothing else** — hints stay consumable, and the opt-in hint video stays available. The Store card says so in its sublabel ("hints not included · hint videos stay", shortened to fit on a 320 pt phone but always naming the hint videos), and so do the App Store description and release notes. | Store screen |
-| **Unlimited hints (IAP)** | **$4.99**, one-time. **Unlimited free hints and no ads.** Owners never start the ad SDK at all. The hero tier at the top of the ladder. | Store screen |
+| **Hint packs (IAP)** | Consumables for players who want help without the unlock: **10 / 30 / 100 hints at $0.99 / $1.99 / $4.99** (100 was $2.99 until 2026-10-17). Bought hints join the same inventory and never expire (a plain persisted counter, no decay). | Store screen |
+| **No ads (IAP)** | **$1.99** (was $0.99 until 2026-10-17), one-time. Removes the banner and the ads between levels (interstitials) and **nothing else** — hints stay consumable, and the opt-in hint video stays available. The Store card says so in its sublabel ("hints not included · hint videos stay", shortened to fit on a 320 pt phone but always naming the hint videos), and so do the App Store description and release notes. | Store screen |
+| **Unlimited hints (IAP)** | **$9.99** (was $4.99 until 2026-10-17), one-time. **Unlimited free hints and no ads.** Owners never start the ad SDK at all. The hero tier at the top of the ladder. | Store screen |
 | **Rate this app** | Not revenue, but the App Store rating *is* the funnel. The native StoreKit prompt, requested **once**, at a post-win delight peak. | `review.ts`, from the win overlay |
 
 **No app-open ad, ever.** LevelPlay has no such format, and Unity's Placement
@@ -652,9 +652,10 @@ screenshots. Beyond those:
 ## The Store (hint packs + the two unlocks)
 
 > **Read this before touching prices.** The products form a deliberate ladder:
-> `10 hints = $0.99 < 30 = $1.99 < 100 = $2.99 < Unlimited hints + no ads = $4.99`,
-> with **No ads ($0.99)** beside it buying a different thing (quiet, not hints). The
-> $4.99 unlock grants unlimited hints, so it must always cost **more than the largest
+> `10 hints = $0.99 < 30 = $1.99 < 100 = $4.99 < Unlimited hints + no ads = $9.99`
+> (since 2026-10-17; 100 was $2.99 and Unlimited $4.99 before), with **No ads ($1.99, was
+> $0.99)** beside it buying a different thing (quiet, not hints). The
+> unlock grants unlimited hints, so it must always cost **more than the largest
 > pack**. When it was $0.99 it strictly dominated every pack (cheaper *and*
 > unlimited), which turned the packs into dominated decoys — anyone who bought one
 > paid more for less. That is both self-cannibalising and the exact harm the EU CPC

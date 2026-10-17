@@ -33,12 +33,13 @@ const FONT = "'Baloo 2', system-ui, sans-serif"
 
 /** What the sheet shows: App Store Connect's display name and USA price for each product. */
 const PRODUCTS: Readonly<Record<string, { name: string; usd: number }>> = {
-  [REMOVE_ADS_ID]: { name: 'Unlimited Hints + No Ads', usd: 4.99 },
-  [NO_ADS_ID]: { name: 'No Ads', usd: 0.99 },
+  // The App Store's US prices (since 2026-10-17: Unlimited 9.99, No Ads 1.99, 100 hints 4.99).
+  [REMOVE_ADS_ID]: { name: 'Unlimited Hints + No Ads', usd: 9.99 },
+  [NO_ADS_ID]: { name: 'No Ads', usd: 1.99 },
   [WELCOME_ID]: { name: 'Welcome Pack: 25 Hints', usd: 0.99 },
   [HINT_PACKS[0].id]: { name: '10 Hints', usd: 0.99 },
   [HINT_PACKS[1].id]: { name: '30 Hints', usd: 1.99 },
-  [HINT_PACKS[2].id]: { name: '100 Hints', usd: 2.99 },
+  [HINT_PACKS[2].id]: { name: '100 Hints', usd: 4.99 },
 }
 
 interface FakeTransaction {

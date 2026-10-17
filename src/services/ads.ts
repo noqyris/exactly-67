@@ -60,10 +60,10 @@ import {
  *
  * Who gets what — two entitlements, never confused (see iap.ts):
  *   - nothing bought     SDK init + banner + interstitials + hint videos
- *   - No Ads ($0.99)     SDK init + hint videos only. The rewarded video is the
+ *   - No Ads ($1.99)     SDK init + hint videos only. The rewarded video is the
  *                        player's own choice, so it breaks no promise; banner and
  *                        interstitial — the formats that interrupt — are gone.
- *   - Unlimited ($4.99)  no SDK at all. Hints are free, so no ad can ever be
+ *   - Unlimited ($9.99)  no SDK at all. Hints are free, so no ad can ever be
  *                        shown, and starting the SDK would only cost them a
  *                        consent question and an ATT alert for nothing.
  * …and all of it only on a YES to the consent question, which since option A

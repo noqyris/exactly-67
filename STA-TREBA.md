@@ -53,8 +53,9 @@ testiranje. Ništa ne čeka pregled. U 30 dana: 0 prikaza reklama, 0 ocena, ~8 p
 - **Podešavanja prodavnice — za tvoje „da" (ništa nije menjano):**
   - *Small Business Program* u App Store Connect (Agreements): ako nisi upisan, Apple uzima 15% umesto
     30% — najsigurnijih +21% od kupovina. Upis radiš ti.
-  - *Cene kupovina:* Unlimited Hints + No Ads $4.99 → **$9.99**, 100 Hints $2.99 → **$4.99**, No Ads
-    $0.99 → **$1.99**; ostale iste. Kod ne treba menjati (cene čita iz prodavnice).
+  - ~~*Cene kupovina*~~ — urađeno 17. 10. uz tvoje „može": Unlimited Hints + No Ads **$9.99**, 100 Hints
+    **$4.99**, No Ads **$1.99** (US osnova, ostale zemlje izjednačio Apple; promenjene tačno te tri u
+    svih 175 prodavnica, ostale iste). Vraća se istom skriptom: `node tools/asc/reprice.mjs`.
   - *In-App Event* „Daily Challenge" (besplatna vidljivost u pretrazi i Today).
   - *ASC_VENDOR* (vendor broj iz Payments and Financial Reports) u `../kvizko/.env`, da se preuzimanja
     i kupovine mere skriptom.
