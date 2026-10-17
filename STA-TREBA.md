@@ -19,13 +19,9 @@ Stavke su po redu. Kad se neka završi, obriši je ili precrtaj.
 
 ## Uz sledeće izdanje (jedan par, 41/42)
 
-- **Tiho odbijanje.** Posle „ne" na pitanje o reklamama, reklamni sistem koji nije pokrenut ipak
-  uradi jedan DNS upit i upiše dva zapisa na telefon. Ispravka je u KVIZKO-u 1.3.2. Ovde: iz
-  kanonske skripte `~/.claude/skills/mobile-game-playbook/scripts/patch-levelplay-consent.mjs`
-  preneti deo 8 (`PATCHED-QUIET-REFUSAL`, na iOS-u oznaka dva puta u `LevelPlayAdsImpl.swift`) u
-  `scripts/patch-levelplay-consent.mjs` ove igre. Ne prepisivati celu skriptu preko ove; tekstovi
-  i zaglavlje se razlikuju po igri. Zatim dodati oznaku u tabele kapija (`scripts/check-native-sync.mjs` preko `scripts/lib/consent-patch-markers.mjs`, Xcode provera),
-  pokrenuti goli `npm install` i testove zakrpe. Uzor: KVIZKO, commit-i `fa97a8a` i `9731f8d`.
+- ~~**Tiho odbijanje.**~~ Urađeno 17. 10.: deo 8 (`PATCHED-QUIET-REFUSAL`) je u
+  `scripts/patch-levelplay-consent.mjs`, oba sistema (iOS ×2, Android ×1 + ×1), u tabelama kapija
+  i u Xcode proveri; `ios:sync` prolazi. Ulazi u sledeće izdanje samo od sebe.
 - **Snimak ATT upita pre slanja.** Apple ga je 12. 10. tražio za Quadshot i Moonsoon. Jednom
   po igri: build sa lažnim ključem na tvoj telefon, ti snimiš ekran, snimak ide kao prilog
   pregledu (`asc-review-attachment.mjs`). Bez toga isto odbijanje može da stigne i ovde.

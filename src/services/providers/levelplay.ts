@@ -756,8 +756,10 @@ export const levelplayProvider: AdProvider = {
     // Not recorded yet: a yes counts only once LevelPlay has been handed it, so
     // no other start path (a foreground retry) can run ahead of it.
     // A stored answer is APPLIED, with no UI: requestConsentInfo() opens the
-    // alert only while there is no answer, and otherwise hands the answer to
-    // LevelPlay's privacy settings before initialize() — and, with
+    // alert only while there is no answer, and otherwise hands a stored YES to
+    // LevelPlay's privacy settings before initialize() — a stored no is not
+    // handed to an SDK that is not running (PATCHED-QUIET-REFUSAL: told one,
+    // it looked up its init host and wrote event records) — and, with
     // PATCHED-NO-TCF-STUB, clears the fake TCF record a 1.3.0 answer left
     // beside it. Bounded: a call that never returns must not leave init()
     // pending for the whole session.

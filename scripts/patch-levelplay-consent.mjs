@@ -1,15 +1,17 @@
-// Fixes five consent defects in capacitor-levelplay-ads 0.1.42 (the `custom`
+// Fixes six consent defects in capacitor-levelplay-ads 0.1.42 (the `custom`
 // consent provider Exactly 67 uses — package.json → levelplay.consentProvider),
-// in eleven places. Wired via package.json "postinstall"; idempotent;
+// in fifteen places. Wired via package.json "postinstall"; idempotent;
 // ALL-OR-NOTHING — nothing is written unless every patch applies — and it fails
 // LOUDLY (exit 1) when the plugin's source no longer has the shape these patches
 // were written against: a silently un-applied consent patch is worse than none.
 //
 // The PATCHES table is the canonical one (mobile-game-playbook/scripts/
-// patch-levelplay-consent.mjs, from KVIZKO 1.3.1, 2026-10-11), byte for byte;
-// this file adds Exactly 67's plugin locator (scripts/lib/levelplay-plugin.mjs:
-// the app root from this file's own location, the exact 0.1.42 pin) and reads
-// every written file back.
+// patch-levelplay-consent.mjs, from KVIZKO at fa97a8a, 2026-10-12), byte for
+// byte, less its parts 6 (PATCHED-ANSWERS-PINNED) and 7 (PATCHED-TEST-LAB):
+// both Android only, and Exactly 67 ships no Android build. The canonical
+// numbering is kept, so the parts here are 1–5 and 8. This file adds Exactly
+// 67's plugin locator (scripts/lib/levelplay-plugin.mjs: the app root from this
+// file's own location, the exact 0.1.42 pin) and reads every written file back.
 //
 // 1. PATCHED-CONSENT-ORDER — TcfPrefs (iOS TcfPrefs.swift, Android TcfPrefs.java)
 //    turned a REFUSAL into consent from the second launch onward:
@@ -61,11 +63,40 @@
 //    whenever a stored answer is applied, which also wipes the stub an older
 //    build (every Exactly 67 answer given in 1.2.1–1.3.0) left behind.
 //
+// 8. PATCHED-QUIET-REFUSAL — a refusal is not told to an SDK that is not
+//    running. The plugin handed every answer to LevelPlay's privacy settings the
+//    moment it was given or re-read: a Decline, and the stored Decline again at
+//    every launch (init() in providers/levelplay.ts calls requestConsentInfo(),
+//    which applies a stored answer). The SDK is never initialised after a no —
+//    and still it acts on being told. Captured in KVIZKO on the iOS Simulator on
+//    2026-10-11 (this plugin with parts 1–5, IronSourceSDK 9.6.0.0, the SDK
+//    Exactly 67 pins): at the Decline tap, and at every later launch with a
+//    stored no, one DNS lookup of init.supersonicads.com and two event records
+//    appended to NSUserDefaults (com.supersonic.events.events) —
+//    applyUserConsent → LPMPrivacySettings.setGDPRConsent(s) → ISEventsEngine →
+//    SCNetworkReachabilityCreateWithName("init.supersonicads.com"). No
+//    connection and no bytes to an ad host, but it is the ad SDK acting after a
+//    refusal, and docs/privacy.html says that without consent the ad system
+//    never starts. Now the answer is stored exactly as before, the plugin's own
+//    per-network map is kept exactly as before, and only the SDK calls wait.
+//    "Running" means the plugin's initialize() has got as far as handing the
+//    start to the SDK in this process — a static flag set there and never
+//    cleared. Not `initialized` / `initializing`: both are false again after a
+//    start that FAILED, and an SDK started with a yes may still finish on its
+//    own, so a withdrawal has to reach it. A yes is forwarded as before, ahead
+//    of init; a refusal while running (a yes withdrawn in Settings → "Privacy &
+//    ads") is forwarded as before; and initialize() itself tells the SDK a
+//    stored refusal right before the start, so the SDK can never start without
+//    it. Four places, one marker: iOS LevelPlayAdsImpl.swift — the flag with
+//    initialize(), and one line of applyUserConsent() written INSIDE the body of
+//    part 3 (`inside`, below); Android PrivacyExecutor.setUserConsent() and one
+//    line of LevelPlayAdsPlugin.initialize().
+//
 // The release gates refuse a tree without these bodies' markers, at the counts
 // the patched files carry: scripts/check-native-sync.mjs (every iOS and Android
 // sync chain, and the fastlane archive and ad_gate lanes, which re-run it) and
 // ios/App/ad-mode-guard.sh (every Xcode build). scripts/patchLevelplayConsent.test.ts
-// fails the build while any of the eleven bodies is missing from the installed
+// fails the build while any of the fifteen bodies is missing from the installed
 // plugin. A targeted `npm install <pkg>` can skip postinstall: re-run
 // `node scripts/patch-levelplay-consent.mjs` (or a bare `npm install`).
 import { readFileSync, realpathSync, existsSync, writeFileSync } from 'node:fs'
@@ -78,7 +109,15 @@ const IOS = 'ios/Sources/LevelPlayAdsPlugin'
 const ANDROID = 'android/src/main/java/com/capacitor/plugins/levelplay'
 
 /** Every patch, in the order it is applied. `old` is the known-defective upstream
- *  body, `new` the patched one; both are matched byte for byte. */
+ *  body, `new` the patched one; both are matched byte for byte.
+ *
+ *  A part is frozen once it has shipped: a body that changes could not be
+ *  recognised in a plugin that already carries the earlier text, so it could not
+ *  be upgraded in place. A later part that has to change a line INSIDE an
+ *  earlier part's body therefore names that part — `inside: <its label>` — and
+ *  is written against its body: its `old` is text of the earlier `new`. The
+ *  earlier part is then recognised in either form — as written, or with the
+ *  later part applied to it (`settled`, below). */
 export const PATCHES = [
   {
     marker: 'PATCHED-CONSENT-ORDER',
@@ -321,7 +360,156 @@ export const PATCHES = [
             // Honor the existing decision without re-prompting.
             callback.onDecision(current == ConsentStatus.GRANTED);`,
   },
+  {
+    marker: 'PATCHED-QUIET-REFUSAL',
+    label: 'iOS LevelPlayAdsImpl.swift initialize() marks the SDK started',
+    file: `${IOS}/LevelPlayAdsImpl.swift`,
+    old: `    public var isInitialized: Bool { initialized }
+
+    public func initialize(appKey: String, userId: String?, isTesting: Bool,
+                           completion: @escaping (Bool, String?) -> Void) {
+#if canImport(IronSource)
+        if initialized { completion(true, nil); return }
+        if initializing { completion(false, "LevelPlay is already initializing."); return }
+        initializing = true
+`,
+    new: `    public var isInitialized: Bool { initialized }
+
+    // PATCHED-QUIET-REFUSAL (scripts/patch-levelplay-consent.mjs)
+    // True once initialize() has handed the start to the SDK in this process,
+    // and never false again — also after a start that failed: the SDK was given
+    // a yes and may still finish on its own. \`initialized\` and \`initializing\`
+    // cannot say that: both are false again after a failure. While this is
+    // false a refusal is not told to the SDK at all (applyUserConsent) — told,
+    // an SDK that nothing ever initialised looks up its init host and writes
+    // event records.
+    private static var adSdkStarted = false
+
+    public func initialize(appKey: String, userId: String?, isTesting: Bool,
+                           completion: @escaping (Bool, String?) -> Void) {
+#if canImport(IronSource)
+        if initialized { completion(true, nil); return }
+        if initializing { completion(false, "LevelPlay is already initializing."); return }
+        initializing = true
+        // From here on a refusal goes to the SDK as it always did. One that was
+        // kept from it — stored by an earlier launch, or given a moment ago — is
+        // told now, so the SDK never starts without it.
+        LevelPlayAdsImpl.adSdkStarted = true
+        if consentStatus() == "DENIED" { applyUserConsent(granted: false, networks: []) }
+`,
+  },
+  {
+    marker: 'PATCHED-QUIET-REFUSAL',
+    label: 'iOS LevelPlayAdsImpl.swift applyUserConsent() keeps a refusal from an idle SDK',
+    file: `${IOS}/LevelPlayAdsImpl.swift`,
+    // The body of part 3 (PATCHED-GDPR-FRESH), which stays as it shipped.
+    inside: 'iOS LevelPlayAdsImpl.swift applyUserConsent()',
+    old: `        gdprConsents["all"] = NSNumber(value: granted)
+        LPMPrivacySettings.setGDPRConsents(gdprConsents)
+        LPMPrivacySettings.setGDPRConsent(granted)
+`,
+    new: `        gdprConsents["all"] = NSNumber(value: granted)
+        // PATCHED-QUIET-REFUSAL (scripts/patch-levelplay-consent.mjs)
+        // A refusal is not told to an SDK that is not running: the answer is
+        // stored (storeConsent) and the map above is kept, and that is all.
+        // Told, the SDK logs events and looks up its init host though nothing
+        // ever initialised it. A yes passes; so does a refusal once initialize()
+        // has started the SDK in this process — which tells it a stored one.
+        if !granted && !LevelPlayAdsImpl.adSdkStarted { return }
+        LPMPrivacySettings.setGDPRConsents(gdprConsents)
+        LPMPrivacySettings.setGDPRConsent(granted)
+`,
+  },
+  {
+    marker: 'PATCHED-QUIET-REFUSAL',
+    label: 'Android PrivacyExecutor.java setUserConsent() keeps a refusal from an idle SDK',
+    file: `${ANDROID}/privacy/PrivacyExecutor.java`,
+    old: `    public void setUserConsent(boolean granted, List<String> networks) {
+        // Global GDPR flag — forwarded to LevelPlay core and every adapter.
+        LevelPlay.setConsent(granted);
+
+        if (networks != null) {
+            for (String network : networks) {
+                if (network != null && !network.isEmpty()) {
+                    gdprConsents.put(network, granted);
+                }
+            }
+        }
+        if (!gdprConsents.isEmpty()) {
+            // Re-send the full canonical map — partial maps would wipe the rest.
+            LevelPlayPrivacySettings.setGDPRConsents(new HashMap<>(gdprConsents));
+        }
+    }
+`,
+    new: `    public void setUserConsent(boolean granted, List<String> networks) {
+        // PATCHED-QUIET-REFUSAL (scripts/patch-levelplay-consent.mjs)
+        // A refusal is not told to an SDK that is not running: the answer is
+        // stored (the consent provider did that) and the map below is kept, and
+        // that is all. Told, the SDK logs "setConsent" and queues an event though
+        // nothing ever initialised it. A yes is told; so is a refusal once the
+        // plugin has started the SDK in this process (adSdkStarting()).
+        final boolean tell = granted || adSdkStarted;
+        // Global GDPR flag — forwarded to LevelPlay core and every adapter.
+        if (tell) LevelPlay.setConsent(granted);
+
+        if (networks != null) {
+            for (String network : networks) {
+                if (network != null && !network.isEmpty()) {
+                    gdprConsents.put(network, granted);
+                }
+            }
+        }
+        if (tell && !gdprConsents.isEmpty()) {
+            // Re-send the full canonical map — partial maps would wipe the rest.
+            LevelPlayPrivacySettings.setGDPRConsents(new HashMap<>(gdprConsents));
+        }
+    }
+
+    /**
+     * True once the plugin has handed initialize() to the SDK in this process,
+     * and never false again — also after a start that failed: the SDK was given
+     * a yes and may still finish on its own. Static, because the SDK is: a
+     * re-created Activity gets a new plugin object over the same running SDK.
+     */
+    private static volatile boolean adSdkStarted = false;
+
+    /**
+     * Called by the plugin right before it hands initialize() to the SDK. From
+     * here on a refusal goes to the SDK as it always did. One that was kept from
+     * it — stored by an earlier launch, or given a moment ago — is told now, so
+     * the SDK never starts without it.
+     */
+    public void adSdkStarting(boolean storedRefusal) {
+        adSdkStarted = true;
+        if (storedRefusal) setUserConsent(false, null);
+    }
+`,
+  },
+  {
+    marker: 'PATCHED-QUIET-REFUSAL',
+    label: 'Android LevelPlayAdsPlugin.java initialize() marks the SDK started',
+    file: `${ANDROID}/LevelPlayAdsPlugin.java`,
+    old: `        Boolean isTesting = call.getBoolean("isTesting", false);
+
+        coreImplementation.initialize(
+`,
+    new: `        Boolean isTesting = call.getBoolean("isTesting", false);
+
+        // PATCHED-QUIET-REFUSAL (scripts/patch-levelplay-consent.mjs)
+        // From this line the SDK counts as running, whatever comes of the call
+        // below, and a refusal goes to it as it always did. Until this line a
+        // refusal was only stored (PrivacyExecutor); a stored one is told now.
+        privacyExecutor.adSdkStarting(consentProvider.getStatus() == ConsentStatus.DENIED);
+        coreImplementation.initialize(
+`,
+  },
 ]
+
+/** A part's body as a fully patched file holds it: with every later part that
+ *  was written inside it (`inside`) applied. For every other part, its `new`. */
+export function settled(p) {
+  return PATCHES.filter((q) => q.inside === p.label).reduce((body, q) => body.replace(q.old, q.new), p.new)
+}
 
 const count = (src, needle) => src.split(needle).length - 1
 
@@ -361,10 +549,12 @@ function main() {
     const before = readFileSync(file, 'utf8')
     let src = before
     for (const p of patches) {
-      if (src.includes(p.new)) {
+      // In place — as written, or with a later part applied inside it.
+      const body = src.includes(p.new) ? p.new : src.includes(settled(p)) ? settled(p) : null
+      if (body) {
         // Patched — exactly once, and with no defective copy left beside it. A
         // doubled body or a leftover original is a file edited by hand.
-        if (count(src, p.new) !== 1 || src.includes(p.old)) {
+        if (count(src, body) !== 1 || src.includes(p.old)) {
           fail([
             `[${TAG}] ${p.label}: carries the patched body twice, or beside the defective one.`,
             '  Reinstall the plugin (rm -rf node_modules/capacitor-levelplay-ads && npm install) and read the result.',
@@ -374,8 +564,11 @@ function main() {
         continue
       }
       // A marker without the exact patched body means someone edited it, or an
-      // older/newer patch text is in place — neither is proven.
-      if (src.includes(`${p.marker} (scripts/patch-levelplay-consent.mjs)`) && !src.includes(p.old)) {
+      // older/newer patch text is in place — neither is proven. Read from the
+      // file as it is ON DISK: a marker with several places in one file is
+      // written into `src` by the first of them, and the next place, if its
+      // upstream shape is gone, would be reported as an edited patch.
+      if (before.includes(`${p.marker} (scripts/patch-levelplay-consent.mjs)`) && !src.includes(p.old)) {
         fail([
           `[${TAG}] ${p.label}: carries ${p.marker} but not the expected patched body.`,
           '  Reinstall the plugin (rm -rf node_modules/capacitor-levelplay-ads && npm install) and read the result.',
@@ -404,11 +597,14 @@ function main() {
 
   // Phase 2: every patch is known to apply. Then read every file back: a write
   // that did not land (a read-only tree, a sync tool racing it) must stop the
-  // build here, not ship an unpatched consent dialog.
+  // build here, not ship an unpatched consent dialog. A written file now holds
+  // every one of its parts in its final form — a part another one was written
+  // inside as `settled(p)`, whether it was applied now or already in place.
   for (const [file, src] of writes) writeFileSync(file, src)
-  for (const p of applied) {
+  const written = new Set(writes.map(([file]) => file))
+  for (const p of PATCHES.filter((x) => written.has(join(pkgDir, x.file)))) {
     const src = readFileSync(join(pkgDir, p.file), 'utf8')
-    if (count(src, p.new) !== 1 || src.includes(p.old)) {
+    if (count(src, settled(p)) !== 1 || src.includes(p.old)) {
       fail([`[${TAG}] ${p.label}: wrote the patch but cannot read it back. Do not build.`])
     }
   }

@@ -190,4 +190,21 @@ describe('the Xcode guard refuses an unpatched plugin on every build', () => {
     expect(r.out).toContain('TcfPrefs.swift is missing')
     expect(r.out).toContain('LevelPlayAdsImpl.swift has PATCHED-EQUAL-BUTTONS x0 (expected x1)')
   })
+
+  it.skipIf(macOnly)('the quiet refusal needs both iOS places — the 1.3.1 plugin, or one place of two, never builds', () => {
+    const quiet = PATCHES.filter((p) => p.marker === 'PATCHED-QUIET-REFUSAL' && p.file.startsWith('ios/'))
+    expect(quiet).toHaveLength(2)
+    for (const keep of [0, 1]) {
+      const root = tree(true)
+      const impl = join(root, 'node_modules/capacitor-levelplay-ads', quiet[0].file)
+      let src = readFileSync(impl, 'utf8')
+      for (const p of quiet.slice(keep)) src = src.replace(p.new, p.old)
+      writeFileSync(impl, src)
+      for (const action of ['build', 'install']) {
+        const r = guard(root, action)
+        expect(r.status, `${action}: ${r.out}`).toBe(1)
+        expect(r.out).toContain(`LevelPlayAdsImpl.swift has PATCHED-QUIET-REFUSAL x${keep} (expected x2)`)
+      }
+    }
+  })
 })

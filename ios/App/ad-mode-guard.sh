@@ -134,7 +134,9 @@ fi
 # (ios/App), so this reads exactly the files an archive compiles. A targeted
 # `npm install <pkg>` skips postinstall, and an unpatched plugin builds fine:
 # then a Decline reads back as consent, every answer tells each SDK that GDPR
-# does not apply, and Decline is drawn apart from Accept. Every build, Run and
+# does not apply, Decline is drawn apart from Accept, and a Decline is handed to
+# an ad SDK that was never started (which then looks up its init host and
+# writes event records). Every build, Run and
 # Archive, ads-off and mock included: the next live archive compiles these same
 # files. The same rows, at the same counts, as the iOS half of
 # scripts/lib/consent-patch-markers.mjs (scripts/consentGates.test.ts compares
@@ -156,6 +158,7 @@ need_patch LevelPlayAdsImpl.swift PATCHED-CUSTOM-STATUS 1
 need_patch LevelPlayAdsImpl.swift PATCHED-GDPR-FRESH 1
 need_patch LevelPlayAdsImpl.swift PATCHED-EQUAL-BUTTONS 1
 need_patch LevelPlayAdsImpl.swift PATCHED-NO-TCF-STUB 2
+need_patch LevelPlayAdsImpl.swift PATCHED-QUIET-REFUSAL 2
 if [ -n "$unpatched" ]; then
   refuse "capacitor-levelplay-ads in node_modules is missing its consent patches:$unpatched Run a bare 'npm install' (its postinstall applies them; 'npm install <pkg>' skips it) or 'node scripts/patch-levelplay-consent.mjs', then the npm sync chain again."
 fi

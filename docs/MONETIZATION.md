@@ -389,14 +389,17 @@ interests and to measure how those ads perform."* Neutral — what tracking is f
 nothing that pushes either answer (the 1.3.0 string said the game "plays the same
 either way").
 
-**The plugin's consent defects are patched** — eleven places, five defects
+**The plugin's consent defects are patched** — fifteen places, six defects
 (`scripts/patch-levelplay-consent.mjs`, the canonical playbook copy): a decline read
 back as `GRANTED` from the second launch (`PATCHED-CONSENT-ORDER`), another CMP's TCF
 record read as the answer (`PATCHED-CUSTOM-STATUS`), the first answer of a process
 sticking in the iOS GDPR map (`PATCHED-GDPR-FRESH`), Decline drawn apart from Accept
 (`.cancel`) with a hardcoded English policy link (`PATCHED-EQUAL-BUTTONS`), and every
 answer mirrored into a fake TCF record saying GDPR does not apply
-(`PATCHED-NO-TCF-STUB`). It runs at every `npm install`, writes nothing unless every
+(`PATCHED-NO-TCF-STUB`), and a refusal handed to an SDK that was never started — which then
+looked up its init host and wrote event records, at the Decline and at every later launch
+(`PATCHED-QUIET-REFUSAL`; a no now stays on the device until the SDK is running, and
+`initialize()` tells it a stored no before the start). It runs at every `npm install`, writes nothing unless every
 patch applies, and exits 1 if the code no longer has the known shape.
 `check-native-sync.mjs` (every sync chain, and the fastlane archive and `ad_gate` lanes)
 and the Xcode guard refuse a plugin without the markers.

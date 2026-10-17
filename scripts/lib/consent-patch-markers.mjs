@@ -6,8 +6,10 @@
 // reads back as consent from the second launch (CONSENT-ORDER), a Google-era
 // IAB TCF record counts as an answer (CUSTOM-STATUS), the first answer of a
 // process sticks in the SDK (GDPR-FRESH), Decline is drawn apart from Accept and
-// the policy link stays English (EQUAL-BUTTONS), and every answer tells each SDK
-// that GDPR does not apply (NO-TCF-STUB). So the gates count the markers in the
+// the policy link stays English (EQUAL-BUTTONS), every answer tells each SDK
+// that GDPR does not apply (NO-TCF-STUB), and a Decline is handed to an SDK that
+// was never started — which then looks up its init host and writes event
+// records (QUIET-REFUSAL). So the gates count the markers in the
 // very files the iOS build compiles (CapApp-SPM points at node_modules) and
 // Gradle reads.
 //
@@ -21,7 +23,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const LP_IOS = 'ios/Sources/LevelPlayAdsPlugin'
-const LP_ANDROID = 'android/src/main/java/com/capacitor/plugins/levelplay/consent'
+const LP_ANDROID_CORE = 'android/src/main/java/com/capacitor/plugins/levelplay'
+const LP_ANDROID = `${LP_ANDROID_CORE}/consent`
 
 /** [file relative to the plugin, marker, how many times the patched file carries it] */
 export const CONSENT_PATCH_MARKERS = {
@@ -31,12 +34,19 @@ export const CONSENT_PATCH_MARKERS = {
     [`${LP_IOS}/LevelPlayAdsImpl.swift`, 'PATCHED-GDPR-FRESH', 1],
     [`${LP_IOS}/LevelPlayAdsImpl.swift`, 'PATCHED-EQUAL-BUTTONS', 1],
     [`${LP_IOS}/LevelPlayAdsImpl.swift`, 'PATCHED-NO-TCF-STUB', 2],
+    // The flag with initialize(), and the one line of applyUserConsent().
+    [`${LP_IOS}/LevelPlayAdsImpl.swift`, 'PATCHED-QUIET-REFUSAL', 2],
   ],
   android: [
     [`${LP_ANDROID}/TcfPrefs.java`, 'PATCHED-CONSENT-ORDER', 1],
     [`${LP_ANDROID}/CustomModalConsentProvider.java`, 'PATCHED-CUSTOM-STATUS', 1],
     [`${LP_ANDROID}/CustomModalConsentProvider.java`, 'PATCHED-EQUAL-BUTTONS', 1],
     [`${LP_ANDROID}/CustomModalConsentProvider.java`, 'PATCHED-NO-TCF-STUB', 2],
+    // The gate, and the line of initialize() from which the SDK counts as running.
+    // Either one alone is worse than none: the gate without the line never lets
+    // a withdrawal through to a running SDK.
+    [`${LP_ANDROID_CORE}/privacy/PrivacyExecutor.java`, 'PATCHED-QUIET-REFUSAL', 1],
+    [`${LP_ANDROID_CORE}/LevelPlayAdsPlugin.java`, 'PATCHED-QUIET-REFUSAL', 1],
   ],
 }
 

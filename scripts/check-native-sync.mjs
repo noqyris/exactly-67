@@ -250,7 +250,8 @@ if (platform === 'ios') {
 //      build is archived from the same node_modules. A targeted
 //      `npm install <pkg>` skips postinstall, and an unpatched plugin builds
 //      fine — then reads a Decline back as consent, tells every SDK that GDPR
-//      does not apply, and dresses Decline apart from Accept. The marker table
+//      does not apply, dresses Decline apart from Accept, and hands a Decline
+//      to an SDK that was never started. The marker table
 //      is scripts/lib/consent-patch-markers.mjs.
 {
   const require = createRequire(pathToFileURL(APP_ROOT + '/'))
