@@ -27,6 +27,7 @@ import {
   setIapListener,
   welcomePrice,
 } from '../services/iap'
+import type { PurchaseOutcome } from '../services/iap'
 import { contentFrame, safeArea, u } from './layout'
 import { BEAM, BG, INK, OUTLINE, PAPER } from './palette'
 import { drawBackIcon, drawBulb, drawGift, makeIconButton, onTap, TEXT } from './ui'
@@ -159,12 +160,21 @@ export class StoreScene extends Phaser.Scene {
   }
 
   /** Serialize StoreKit round trips: a second tap while a sheet is up is ignored. */
-  private purchase(run: () => Promise<void>) {
+  private purchase(run: () => Promise<PurchaseOutcome>) {
     if (this.buying) return
     this.buying = true
-    void run().finally(() => {
-      this.buying = false
-    })
+    void run()
+      .then((outcome) => {
+        // A grant says so itself (the hints toast, or the owner card). A cancel
+        // was the player's own tap. The other two would otherwise be a button
+        // that silently did nothing.
+        if (!this.sys.isActive()) return
+        if (outcome === 'failed') this.showToast("The purchase didn't go through — try again later")
+        else if (outcome === 'unavailable') this.showToast("That isn't available right now")
+      })
+      .finally(() => {
+        this.buying = false
+      })
   }
 
   /** Nothing left to sell — say so instead of dangling worthless packs. */

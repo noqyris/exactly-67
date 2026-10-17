@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core'
 import { WELCOME_HINTS } from '../game/economy'
 import { adsRemoved, grantHints, hintsUnlimited, setAdsRemoved, setUnlimitedHints } from './ads'
 import { notePurchase, noteWelcomeBought, welcomeOffered } from './progression'
+import { loadIapPaid, saveIapPaid } from './storage'
 
 /**
  * In-app purchase service — the one-time "Remove Ads" unlock. Same shape as
@@ -68,6 +69,9 @@ const HINT_PACK_IDS = new Set(HINT_PACKS.map((p) => p.id))
 export const WELCOME_ID = 'com.noqyris.exactly67.welcome'
 
 let initialized = false
+/** Store transactions whose consumable was already paid, newest last (see payOnce). */
+let paid: string[] = []
+const PAID_KEEP = 200
 let onChange: (() => void) | null = null
 let onHintsPurchased: ((n: number) => void) | null = null
 
@@ -107,6 +111,9 @@ export async function initIap(): Promise<void> {
   }
   if (!iapSupported() || initialized) return
   initialized = true
+  // Read before any transaction can be delivered: initialize() below replays
+  // the ones StoreKit still holds.
+  paid = await loadIapPaid()
   const store = CdvPurchase.store
   const storePlatform =
     Capacitor.getPlatform() === 'android'
@@ -143,12 +150,12 @@ export async function initIap(): Promise<void> {
       if (grantsProduct(transaction, REMOVE_ADS_ID)) grant(true)
       else if (grantsProduct(transaction, NO_ADS_ID)) grant(false)
       const pack = hintPackFor(transaction)
-      if (pack) {
+      if (pack && payOnce(transaction)) {
         notePurchase()
         grantHints(pack.hints)
         onHintsPurchased?.(pack.hints)
       }
-      if (grantsProduct(transaction, WELCOME_ID)) {
+      if (grantsProduct(transaction, WELCOME_ID) && payOnce(transaction)) {
         // Persist "bought" before paying, so a relaunch mid-grant can't offer it again.
         noteWelcomeBought()
         grantHints(WELCOME_HINTS)
@@ -166,6 +173,25 @@ export async function initIap(): Promise<void> {
     // offline / unavailable — buttons just no-op
   }
   onChange?.()
+}
+
+/**
+ * Whether a consumable's transaction is delivered for the first time — and, if
+ * so, record it BEFORE the hints are paid. StoreKit re-delivers a transaction
+ * that was never finished (the app closed between the grant and finish(), a
+ * receipt refresh), and the plugin fires `approved` again for the same
+ * transaction once five seconds have passed since the last call: without this
+ * ledger such a re-delivery paid the pack a second time. Non-consumables need
+ * no ledger — granting them again changes nothing. A transaction without an id
+ * cannot be told apart, so it is paid as before.
+ */
+function payOnce(t: CdvPurchase.Transaction): boolean {
+  const id = t.transactionId
+  if (!id) return true
+  if (paid.includes(id)) return false
+  paid = [...paid, id].slice(-PAID_KEEP)
+  void saveIapPaid(paid)
+  return true
 }
 
 /** True only for an approved/finished transaction that includes the given product. */
@@ -202,13 +228,33 @@ function grant(withUnlimitedHints: boolean): void {
   onChange?.()
 }
 
+/**
+ * How a purchase attempt ended, as far as the caller can know. `started`: the
+ * store took the order — the grant arrives through `approved`, at once or later
+ * (Ask to Buy). `cancelled`: the player backed out. `failed`: the store refused
+ * it (payments not allowed, no network, a store error). `unavailable`: there is
+ * nothing to buy (no store, prices not loaded).
+ */
+export type PurchaseOutcome = 'started' | 'cancelled' | 'failed' | 'unavailable'
+
+async function order(id: string): Promise<PurchaseOutcome> {
+  if (!iapSupported()) return 'unavailable'
+  const offer = CdvPurchase.store.get(id)?.getOffer()
+  if (!offer) return 'unavailable'
+  try {
+    const error = await offer.order()
+    if (!error) return 'started'
+    return error.code === CdvPurchase.ErrorCode.PAYMENT_CANCELLED ? 'cancelled' : 'failed'
+  } catch {
+    return 'failed'
+  }
+}
+
 /** Start the purchase flow (StoreKit shows its own sheet). */
-export async function buyRemoveAds(): Promise<void> {
-  if (!iapSupported()) return
-  const offer = CdvPurchase.store.get(REMOVE_ADS_ID)?.getOffer()
+export async function buyRemoveAds(): Promise<PurchaseOutcome> {
   // On success StoreKit delivers an `approved` transaction (grants above); on
   // cancel it rejects / fires `error` — nothing is granted.
-  if (offer) await offer.order()
+  return order(REMOVE_ADS_ID)
 }
 
 /** Localized price of the ads-only unlock, or null before metadata loads. */
@@ -219,10 +265,8 @@ export function noAdsPrice(): string | null {
 }
 
 /** Start the purchase flow for the ads-only unlock. */
-export async function buyNoAds(): Promise<void> {
-  if (!iapSupported()) return
-  const offer = CdvPurchase.store.get(NO_ADS_ID)?.getOffer()
-  if (offer) await offer.order()
+export async function buyNoAds(): Promise<PurchaseOutcome> {
+  return order(NO_ADS_ID)
 }
 
 /** Localized price for a hint pack (e.g. "$0.99"), or null before metadata loads. */
@@ -233,10 +277,9 @@ export function hintPackPrice(id: string): string | null {
 }
 
 /** Start the purchase flow for a consumable hint pack. Grants hints on `approved`. */
-export async function buyHintPack(id: string): Promise<void> {
-  if (!iapSupported() || !HINT_PACK_IDS.has(id)) return
-  const offer = CdvPurchase.store.get(id)?.getOffer()
-  if (offer) await offer.order()
+export async function buyHintPack(id: string): Promise<PurchaseOutcome> {
+  if (!HINT_PACK_IDS.has(id)) return 'unavailable'
+  return order(id)
 }
 
 /** Localized price of the Welcome pack, or null (not on offer, or not loaded / not created yet). */
@@ -247,10 +290,9 @@ export function welcomePrice(): string | null {
 }
 
 /** Start the purchase flow for the Welcome pack (only while it is on offer). */
-export async function buyWelcomePack(): Promise<void> {
-  if (!iapSupported() || !welcomeOffered()) return
-  const offer = CdvPurchase.store.get(WELCOME_ID)?.getOffer()
-  if (offer) await offer.order()
+export async function buyWelcomePack(): Promise<PurchaseOutcome> {
+  if (!welcomeOffered()) return 'unavailable'
+  return order(WELCOME_ID)
 }
 
 /**

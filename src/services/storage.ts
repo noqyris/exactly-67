@@ -126,6 +126,28 @@ export async function loadHintCount(): Promise<number> {
   }
 }
 
+// Store transaction ids whose consumable (a hint pack, the Welcome pack) was
+// already paid — iap.ts pays each transaction once. JSON array, newest last.
+const IAP_PAID_KEY = 'exactly67.iapPaid'
+
+export async function loadIapPaid(): Promise<string[]> {
+  try {
+    const { value } = await Preferences.get({ key: IAP_PAID_KEY })
+    const list: unknown = value ? JSON.parse(value) : []
+    return Array.isArray(list) ? list.filter((v): v is string => typeof v === 'string' && v.length > 0) : []
+  } catch {
+    return []
+  }
+}
+
+export async function saveIapPaid(ids: readonly string[]): Promise<void> {
+  try {
+    await Preferences.set({ key: IAP_PAID_KEY, value: JSON.stringify(ids) })
+  } catch {
+    // non-fatal: the ledger only guards against a re-delivery paying twice
+  }
+}
+
 export async function saveHintCount(n: number): Promise<void> {
   try {
     await Preferences.set({ key: HINT_COUNT_KEY, value: String(Math.max(0, Math.floor(n))) })
