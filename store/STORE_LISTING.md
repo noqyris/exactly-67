@@ -44,6 +44,12 @@ en-AU holds new words. Phrases never form across two languages.
 | en-AU | AU, NZ (with en-GB) | Exactly 67: Maths Logic Game | Mental Arithmetic on a Scale | new words only |
 | en-CA | Canada | Exactly 67: Math Puzzle Game | Number Balance Brain Teaser | the core set + `training` |
 
+**de-DE and fr-FR** (added 2026-10-17, downloads already came from Germany and France): Apple's
+table has those storefronts index their own language **and en-GB**, so these two keyword fields
+add to en-GB's there. German: *Exactly 67: Mathe-Rätsel* / *Zahlen-Waage & Denkspiel*; French:
+*Exactly 67 : énigme de maths* / *Balance de nombres & logique*. Shorter descriptions in each
+language that end by saying the game itself is in English (the UI is English only).
+
 Descriptions are en-US with British spellings (en-GB, en-AU: *candy-coloured*, *Optimised*,
 *maths games*; en-CA: *candy-coloured*). Each language folder holds all nine files, URLs included:
 a new language copies nothing from en-US. No screenshot folders: they fall back to en-US.

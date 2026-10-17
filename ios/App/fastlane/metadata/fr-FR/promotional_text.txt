@@ -1,0 +1,1 @@
+Faites afficher 67 pile à la balance. Les poids tirent vers le bas, les ballons vers le haut. 600 niveaux, un défi par jour, sans chrono.
