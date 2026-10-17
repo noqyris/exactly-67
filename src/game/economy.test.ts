@@ -316,3 +316,12 @@ describe('keep your hint', () => {
     expect(Object.keys(PLACEMENT_CAPS)).not.toContain('keep')
   })
 })
+
+describe('meta persistence — the Daily intro', () => {
+  it('a blob from before it reads as never shown; a saved one survives a reload; garbage is a fresh one', () => {
+    expect(parseMeta(JSON.stringify({})).dailyIntro).toEqual({ shown: 0, day: null })
+    const m = { ...emptyMeta(), dailyIntro: { shown: 2, day: '2026-10-17' } }
+    expect(parseMeta(JSON.stringify(m)).dailyIntro).toEqual({ shown: 2, day: '2026-10-17' })
+    expect(parseMeta(JSON.stringify({ dailyIntro: { shown: 'x', day: 5 } })).dailyIntro).toEqual({ shown: 0, day: null })
+  })
+})

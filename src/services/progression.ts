@@ -14,6 +14,7 @@ import {
   type Medal,
 } from '../game/economy'
 import { levelByGlobal, PACKS, TOTAL_LEVELS } from '../game/levels'
+import { dailyIntroDue, noteDailyIntroShown } from '../game/dailyIntro'
 import { addDailySolved, giftAlreadyPaid, migrateMeta, withTrophy } from '../game/meta'
 import { isCleared, rangeStats, starsFor, totalStars } from '../game/progress'
 import {
@@ -339,7 +340,7 @@ export function claimGift(hints: number): boolean {
  * without a claim resets the ladder, so nothing else is a true promise) and
  * never for an Unlimited owner, who gets no gift.
  */
-function giftTomorrow(): GiftRung | null {
+export function giftTomorrow(): GiftRung | null {
   if (hintsUnlimited() || meta().giftDay !== today()) return null
   return giftInfo().next
 }
@@ -446,6 +447,25 @@ export function noteWelcomeBought(): void {
 
 export function welcomeOffered(): boolean {
   return welcomeEligible(meta().offers, { adsRemoved: adsRemoved(), unlimited: hintsUnlimited() })
+}
+
+// --- the Daily intro (game/dailyIntro.ts) -------------------------------------------
+
+/** Whether the win card for level `global` carries the row that sends the player to today's Daily. */
+export function dailyIntroDueNow(global: number): boolean {
+  const m = meta()
+  return dailyIntroDue({
+    global,
+    everSolvedDaily: m.daily.length > 0 || streak().best > 0,
+    doneToday: dailyDoneToday(),
+    state: m.dailyIntro,
+    today: today(),
+  })
+}
+
+/** The Daily intro row was drawn on a win card (once per card, at the win). */
+export function noteDailyIntro(): void {
+  updateMeta((m) => ({ ...m, dailyIntro: noteDailyIntroShown(m.dailyIntro, today()) }))
 }
 
 /** The quiet "remove ads between levels" link — only while such ads can come. */

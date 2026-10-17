@@ -73,8 +73,11 @@ import type { InterstitialContext, RewardedOutcome } from '../services/ads'
 import {
   claimHints,
   dailyDoneToday,
+  dailyIntroDueNow,
+  giftTomorrow,
   isFirstRun,
   noAdsNudgeNow,
+  noteDailyIntro,
   noteNoAdsNudge,
   recordDailyWin,
   recordLevelWin,
@@ -208,6 +211,10 @@ interface WinCard {
   ctx: InterstitialContext
   remind: 'none' | 'offer' | 'on' | 'denied'
   nudge: boolean
+  /** The Daily intro row: "Play today's puzzle" for a player who never solved one (game/dailyIntro). */
+  intro: boolean
+  /** Over the first streak's flame: what tomorrow brings ("Tomorrow: a new puzzle + a 2-hint gift"). */
+  tomorrow: string | null
   /** A navigation button was pressed: the card is on its way out. */
   acted: boolean
 }
@@ -1695,18 +1702,29 @@ export class GameScene extends Phaser.Scene {
     // A clear whose card offers a rewarded upgrade never also gets an
     // interstitial: two ad prompts on one win is the double tax players hate.
     const ctx: InterstitialContext = { rewardPrompt: reward !== null }
-    const adFollows = !this.daily && interstitialWouldShow(this.ref.global, ctx)
-    const reviewAsks = !this.daily && !adFollows && !reward && reviewWouldAsk(this.ref.global, stars)
+    // The Daily intro goes first, and alone: it is the one ask on its card, so
+    // no interstitial (nor the consent question) follows it either — the clear
+    // counter stays armed for the next clear. At most three cards ever carry it.
+    const intro = !this.daily && !reward && dailyIntroDueNow(this.ref.global)
+    if (intro) noteDailyIntro()
+    const adFollows = !this.daily && !intro && interstitialWouldShow(this.ref.global, ctx)
+    const reviewAsks = !this.daily && !intro && !adFollows && !reward && reviewWouldAsk(this.ref.global, stars)
     const remind = this.daily
       ? shouldOfferReminders('daily-clear')
-      : !reward && !adFollows && !reviewAsks && shouldOfferReminders('level-clear', stars, this.ref.global)
-    const nudge = !this.daily && !remind && !adFollows && noAdsNudgeNow()
+      : !intro && !reward && !adFollows && !reviewAsks && shouldOfferReminders('level-clear', stars, this.ref.global)
+    const nudge = !this.daily && !intro && !remind && !adFollows && noAdsNudgeNow()
     if (remind) noteReminderOffered()
     if (nudge) noteNoAdsNudge()
     // Each of those asks was made on the promise that no ad follows. Freeze that
     // answer: leaveAfterClear re-runs the gate at the Next/Map tap, by which time
     // the warm-up or the spacing floor may have run out and opened it.
-    ctx.cardAsk = remind || reviewAsks || nudge
+    ctx.cardAsk = intro || remind || reviewAsks || nudge
+    // The first streak's card says what tomorrow brings: the habit is the point.
+    let tomorrow: string | null = null
+    if (daily?.counted && daily.streak === 1) {
+      const gift = giftTomorrow()
+      tomorrow = gift ? `Tomorrow: a new puzzle + a ${gift.hints}-hint gift` : 'Tomorrow: a new puzzle'
+    }
 
     this.win = {
       stars,
@@ -1718,6 +1736,8 @@ export class GameScene extends Phaser.Scene {
       ctx,
       remind: remind ? 'offer' : 'none',
       nudge,
+      intro,
+      tomorrow,
       acted: false,
     }
     this.pushReminderContext()
@@ -1871,8 +1891,9 @@ export class GameScene extends Phaser.Scene {
       title: u(40),
       stars: u(70),
       sub: sub.height + u(10),
-      meta: showMeta ? u(46) : 0,
+      meta: showMeta ? u(46) + (this.daily && win.tomorrow ? u(16) : 0) : 0,
       reward: win.reward ? u(104) : 0,
+      intro: win.intro ? u(104) : 0,
       extra: win.remind !== 'none' ? u(70) : win.nudge ? u(34) : 0,
       nav: u(56) + u(22),
     }
@@ -1930,6 +1951,17 @@ export class GameScene extends Phaser.Scene {
     if (win.reward) {
       kids.push(...this.rewardRow(win.reward, cx, y, cardW))
       y += rows.reward
+    }
+    if (win.intro) {
+      kids.push(
+        ...this.dailyIntroRow(cx, y, cardW, () => {
+          if (win.acted || win.reward?.busy) return
+          win.acted = true
+          // "Today" is read at the tap: a card left open past midnight opens the new day's puzzle.
+          this.leaveAfterClear(() => this.scene.restart({ daily: true }))
+        }),
+      )
+      y += rows.intro
     }
     if (win.remind !== 'none') {
       kids.push(...this.remindRow(win, cx, y, cardW))
@@ -2090,6 +2122,14 @@ export class GameScene extends Phaser.Scene {
   private streakRow(win: WinCard, cx: number, y: number, cardW: number, anim: boolean): Phaser.GameObjects.GameObject[] {
     const d = win.daily
     if (!d) return []
+    const out: Phaser.GameObjects.GameObject[] = []
+    // The first streak: one line over the flame on what tomorrow brings.
+    if (win.tomorrow) {
+      const cap = this.add.text(cx, y + u(8), win.tomorrow, TEXT.ink(11, '700')).setOrigin(0.5).setColor(INK_SOFT)
+      if (cap.width > cardW - u(44)) cap.setScale((cardW - u(44)) / cap.width)
+      out.push(cap)
+      y += u(16)
+    }
     const rowY = y + u(22)
     const flame = this.add.graphics()
     const text = d.counted
@@ -2109,7 +2149,7 @@ export class GameScene extends Phaser.Scene {
     drawFlame(flame, 0, 0, size, d.counted || d.streak > 0)
     flame.setPosition(x0 + size / 2, rowY)
     label.setX(x0 + size + u(8))
-    const out: Phaser.GameObjects.GameObject[] = [flame, label]
+    out.push(flame, label)
     if (d.trophy) {
       const medal = this.add.graphics()
       drawMedal(medal, 0, 0, u(28), d.trophy)
@@ -2124,6 +2164,35 @@ export class GameScene extends Phaser.Scene {
       )
     }
     return out
+  }
+
+  /**
+   * The Daily intro (game/dailyIntro): a player who never solved a Daily is sent
+   * to today's puzzle from a level's win card — the streak, the gift ladder and
+   * the reminder offer all start there. Next stays the biggest button.
+   */
+  private dailyIntroRow(cx: number, y: number, cardW: number, play: () => void): Phaser.GameObjects.GameObject[] {
+    const panelX = cx - cardW / 2 + u(14)
+    const panelW = cardW - u(28)
+    const panelH = u(94)
+    const panel = this.add.graphics()
+    panel.fillStyle(0xeef6ff, 1)
+    panel.fillRoundedRect(panelX, y, panelW, panelH, u(18))
+    panel.lineStyle(u(3), INK, 1)
+    panel.strokeRoundedRect(panelX, y, panelW, panelH, u(18))
+    const titleY = y + u(24)
+    const icon = this.add.graphics()
+    drawFlame(icon, panelX + u(30), titleY, u(28), false)
+    const title = this.add.text(panelX + u(54), titleY - u(8), 'Daily Challenge', TEXT.ink(15, '800')).setOrigin(0, 0.5)
+    const line = this.add
+      .text(panelX + u(54), titleY + u(12), 'New every day · start a streak', TEXT.ink(12, '700'))
+      .setOrigin(0, 0.5)
+      .setColor(INK_SOFT)
+    const maxText = panelW - u(64)
+    for (const t of [title, line]) if (t.width > maxText) t.setScale(maxText / t.width)
+    const btn = makeButton(this, "Play today's puzzle", panelW - u(24), u(40), 0xd0ebff, '#2B2440', play)
+    btn.setPosition(cx, y + u(68))
+    return [panel, icon, title, line, btn]
   }
 
   /** A reward, already paid; a rewarded video adds more on top. */

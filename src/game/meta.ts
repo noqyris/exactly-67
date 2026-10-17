@@ -1,4 +1,6 @@
 import { addDays, daysBetween, isDayKey } from './days'
+import type { DailyIntroState } from './dailyIntro'
+import { emptyDailyIntro, parseDailyIntro } from './dailyIntro'
 import type { AdCaps, DayCount, Jar, Medal, Offers, RewardPlacement } from './economy'
 import { PLACEMENT_CAPS } from './economy'
 import type { Streak } from './streak'
@@ -33,6 +35,8 @@ export interface Meta {
    * a 1.2.x upgrade whose silent hint stood in for today's gift.
    */
   giftStreak: number
+  /** The Daily intro row on level win cards (dailyIntro.ts): how often, and when last. */
+  dailyIntro: DailyIntroState
 }
 
 /** Solved-day history kept: this month and the last, for the calendar + trophies. */
@@ -50,6 +54,7 @@ export function emptyMeta(): Meta {
     offers: { purchased: false, welcomeBought: false, interstitials: 0, noAdsNudges: 0, noAdsLastAt: 0, sessions: 0 },
     giftDay: null,
     giftStreak: 0,
+    dailyIntro: emptyDailyIntro(),
   }
 }
 
@@ -147,6 +152,7 @@ export function parseMeta(raw: string | null | undefined): Meta {
   meta.giftDay = dayOrNull(data.giftDay)
   // A count with no day to end on is no ladder at all.
   meta.giftStreak = meta.giftDay ? int(data.giftStreak, 0, 100_000, 0) : 0
+  meta.dailyIntro = parseDailyIntro(data.dailyIntro)
   return meta
 }
 

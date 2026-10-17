@@ -441,3 +441,33 @@ describe('gift and safety nets', () => {
     expect(p.streak().freezes).toBe(1)
   })
 })
+
+describe('the Daily intro on level win cards', () => {
+  it('a fresh install is due once it clears level 8, and only then', async () => {
+    const p = await boot()
+    expect(p.dailyIntroDueNow(7)).toBe(false)
+    expect(p.dailyIntroDueNow(8)).toBe(true)
+  })
+
+  it('is not due once today’s Daily is solved, nor ever again after any Daily', async () => {
+    const p = await boot()
+    p.recordDailyWin(TODAY)
+    expect(p.dailyIntroDueNow(12)).toBe(false)
+  })
+
+  it('never for a 1.2.x player with a Daily on record', async () => {
+    progressWith(1, 20)
+    stored.dailyDone = addDays(TODAY, -20)
+    const p = await boot()
+    expect(p.dailyIntroDueNow(21)).toBe(false)
+  })
+
+  it('a show is saved: not again today, and it survives a relaunch', async () => {
+    let p = await boot()
+    p.noteDailyIntro()
+    expect(p.dailyIntroDueNow(9)).toBe(false)
+    p = await boot()
+    expect(p.dailyIntroDueNow(9)).toBe(false)
+    expect(JSON.parse(stored.meta ?? '{}').dailyIntro).toEqual({ shown: 1, day: TODAY })
+  })
+})
