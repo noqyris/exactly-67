@@ -10,9 +10,13 @@
 //   node tools/asc/push-listing.mjs text   <version>   # text + review notes
 //   node tools/asc/push-listing.mjs shots  <version>   # replace the screenshot sets
 //
-// en-US only. Screenshots: every PNG in ios/App/fastlane/screenshots/en-US, sorted
-// by file name, grouped by pixel size (1320x2868 → iPhone 6.9", 2064x2752 → iPad 13").
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+// Text: every language folder under metadata/ that holds a name.txt (en-US, en-GB,
+// en-AU, en-CA), creating the localization on the version and on the app info when
+// App Store Connect does not have it yet. Screenshots: en-US only — a language
+// without its own sets shows the primary language's. Every PNG in
+// ios/App/fastlane/screenshots/en-US, sorted by file name, grouped by pixel size
+// (1320x2868 → iPhone 6.9", 2064x2752 → iPad 13").
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { asc } from './asc.mjs'
 
@@ -21,6 +25,13 @@ const ROOT = new URL('../../ios/App/fastlane/', import.meta.url)
 const META = new URL('metadata/', ROOT)
 const SHOTS = new URL('screenshots/en-US/', ROOT)
 const LOCALE = 'en-US'
+/** The listing's languages: en-US (the primary) first, then every other folder with a name.txt. */
+const LOCALES = [
+  LOCALE,
+  ...readdirSync(META)
+    .filter((d) => d !== LOCALE && existsSync(new URL(`${d}/name.txt`, META)))
+    .sort(),
+]
 const DISPLAY = { '1320x2868': 'APP_IPHONE_67', '2064x2752': 'APP_IPAD_PRO_3GEN_129' }
 
 const [mode, versionString] = process.argv.slice(2)
@@ -48,16 +59,30 @@ const loc = locs.data.find((l) => l.attributes.locale === LOCALE)
 if (!loc) throw new Error(`no ${LOCALE} localization on ${versionString}`)
 
 if (mode === 'text') {
-  const attrs = {
-    description: read(`${LOCALE}/description.txt`),
-    keywords: read(`${LOCALE}/keywords.txt`),
-    promotionalText: read(`${LOCALE}/promotional_text.txt`),
-    whatsNew: read(`${LOCALE}/release_notes.txt`),
-    marketingUrl: read(`${LOCALE}/marketing_url.txt`),
-    supportUrl: read(`${LOCALE}/support_url.txt`),
+  for (const locale of LOCALES) {
+    const attrs = {
+      description: read(`${locale}/description.txt`),
+      keywords: read(`${locale}/keywords.txt`),
+      promotionalText: read(`${locale}/promotional_text.txt`),
+      whatsNew: read(`${locale}/release_notes.txt`),
+      marketingUrl: read(`${locale}/marketing_url.txt`),
+      supportUrl: read(`${locale}/support_url.txt`),
+    }
+    const have = locs.data.find((l) => l.attributes.locale === locale)
+    if (have) {
+      await ok('PATCH', `/v1/appStoreVersionLocalizations/${have.id}`, { data: { type: 'appStoreVersionLocalizations', id: have.id, attributes: attrs } })
+    } else {
+      // A new language copies nothing from en-US: every field comes from its own folder.
+      await ok('POST', '/v1/appStoreVersionLocalizations', {
+        data: {
+          type: 'appStoreVersionLocalizations',
+          attributes: { locale, ...attrs },
+          relationships: { appStoreVersion: { data: { type: 'appStoreVersions', id: version.id } } },
+        },
+      })
+    }
+    console.log(`version localization ${locale}${have ? '' : ' (created)'}: ${Object.keys(attrs).join(', ')}`)
   }
-  await ok('PATCH', `/v1/appStoreVersionLocalizations/${loc.id}`, { data: { type: 'appStoreVersionLocalizations', id: loc.id, attributes: attrs } })
-  console.log(`version localization ${LOCALE}: ${Object.keys(attrs).join(', ')}`)
 
   await ok('PATCH', `/v1/appStoreVersions/${version.id}`, {
     data: { type: 'appStoreVersions', id: version.id, attributes: { copyright: read('copyright.txt'), releaseType: 'MANUAL' } },
@@ -70,10 +95,18 @@ if (mode === 'text') {
   const info = infos.data.find((i) => !['READY_FOR_SALE', 'READY_FOR_DISTRIBUTION'].includes(i.attributes.appStoreState ?? i.attributes.state))
   if (!info) throw new Error('no editable app info')
   const infoLocs = await ok('GET', `/v1/appInfos/${info.id}/appInfoLocalizations`)
-  const infoLoc = infoLocs.data.find((l) => l.attributes.locale === LOCALE)
-  const infoAttrs = { name: read(`${LOCALE}/name.txt`), subtitle: read(`${LOCALE}/subtitle.txt`), privacyPolicyUrl: read(`${LOCALE}/privacy_url.txt`) }
-  await ok('PATCH', `/v1/appInfoLocalizations/${infoLoc.id}`, { data: { type: 'appInfoLocalizations', id: infoLoc.id, attributes: infoAttrs } })
-  console.log(`app info ${LOCALE}: name "${infoAttrs.name}", subtitle "${infoAttrs.subtitle}"`)
+  for (const locale of LOCALES) {
+    const infoAttrs = { name: read(`${locale}/name.txt`), subtitle: read(`${locale}/subtitle.txt`), privacyPolicyUrl: read(`${locale}/privacy_url.txt`) }
+    const infoLoc = infoLocs.data.find((l) => l.attributes.locale === locale)
+    if (infoLoc) {
+      await ok('PATCH', `/v1/appInfoLocalizations/${infoLoc.id}`, { data: { type: 'appInfoLocalizations', id: infoLoc.id, attributes: infoAttrs } })
+    } else {
+      await ok('POST', '/v1/appInfoLocalizations', {
+        data: { type: 'appInfoLocalizations', attributes: { locale, ...infoAttrs }, relationships: { appInfo: { data: { type: 'appInfos', id: info.id } } } },
+      })
+    }
+    console.log(`app info ${locale}${infoLoc ? '' : ' (created)'}: name "${infoAttrs.name}", subtitle "${infoAttrs.subtitle}"`)
+  }
 
   const detail = await ok('GET', `/v1/appStoreVersions/${version.id}/appStoreReviewDetail`)
   const notes = read('review_information/notes.txt')

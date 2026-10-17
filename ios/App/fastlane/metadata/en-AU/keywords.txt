@@ -1,0 +1,1 @@
+weight,satisfying,zen,plus,minus,thinking,casual,clever,target,genius,sharp,solve,challenge,equal

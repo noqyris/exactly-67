@@ -456,7 +456,8 @@ Two traps: deliver only edits a version in `PREPARE_FOR_SUBMISSION`, and a versi
 build and complete metadata reads `READY_FOR_REVIEW`, so `prep_version` / `metadata` /
 `screenshots` then try to *create* it and fail ("version number has been previously
 used") — push the listing with `node tools/asc/push-listing.mjs text|shots <version>`
-instead. And screenshots cannot change while the version is an item of a draft
+instead (text: every language folder under `metadata/`, creating any language the version
+does not have yet; shots: en-US, which the other languages fall back to). And screenshots cannot change while the version is an item of a draft
 submission: `DELETE /v1/reviewSubmissionItems/{id}` puts it back to
 `PREPARE_FOR_SUBMISSION`; add it again before submitting.
 

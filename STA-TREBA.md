@@ -28,12 +28,26 @@ Stavke su po redu. Kad se neka završi, obriši je ili precrtaj.
 
 ## Za igrače
 
-- Ključne reči za en-GB, en-AU i en-CA. Preuzimanja već dolaze sa engleskog govornog područja.
+- ~~Ključne reči za en-GB, en-AU i en-CA.~~ Pripremljeno 17. 10. u `ios/App/fastlane/metadata/` (detalji u `store/STORE_LISTING.md`); ide sa sledećom verzijom, jer se ključne reči ne menjaju bez nje. Posle izlaska proveri u Nemačkoj pretragu `exactly equation` (opis provere je u istom fajlu).
 
 ## Iz plana zarade (proveriti u kodu da li još važi)
 
-- Ponuda „pomoć za reklamu, a svoju zadrži" kad igraču ostane jedna pomoć ili nijedna. Besplatnih
-  pomoći ima toliko da reklama skoro nikad ne dođe na red. Procena: +30–80% nagradnih reklama.
+- ~~Ponuda „pomoć za reklamu, a svoju zadrži".~~ Urađeno 17. 10. (commit `f489087`): pri 1–2 pomoći
+  dodir na sijalicu nudi „Use 1 hint" ili „Watch ad: keep my hint". Istraživanje je spustilo procenu
+  na mali rast (do ~15% nagradnih reklama), ne +30–80%, jer igrač retko ostane bez pomoći.
+- ~~Ulaz u Daily na kartici pobede.~~ Urađeno 17. 10. (commit `5fb35d8`), za igrače koji ga nisu
+  otkrili.
+
+## Tvoje odluke (iz istraživanja 17. 10.)
+
+- **Veličina dnevnog poklona.** Lestvica 1·2·4·6·8 daje oko 23 od ~40 besplatnih pomoći u prvoj
+  nedelji. Spuštanje na 1·2·3·4·5 bi jače od svega ostalog povećalo nagradne reklame.
+- **Nivoi 70–72** su po formuli generatora teži od svega do otprilike nivoa 530, a moraju da se pređu
+  redom. Mogući zid na kome igrači odustaju.
+- **Pitanje o reklamama posle nivoa 8 umesto posle nivoa 1.** U ovoj igri reklama ne dolazi pre
+  nivoa 9, pa ranije pitanje ništa ne donosi. To je tvoje pravilo za sve igre.
+- **Preuzimanja su najveća poluga.** Pri ~8 mesečno nijedna promena zadržavanja se ne vidi u
+  brojkama; listing, prevodi igre i video vrede više.
 
 ## Ne radi se
 

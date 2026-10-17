@@ -42,7 +42,7 @@ FREE TO PLAY, WITH ADS
 - Free to download. The game shows a banner ad at the bottom of the screen and sometimes a full-screen ad between levels (never in the middle of a puzzle).
 - Stuck? A hint shows you a piece that belongs in the answer. Hints come from the daily gift, the Star Jar and pack rewards, and you can watch a short optional video for extra hints and bigger rewards — always your choice.
 - Optional in-app purchases: a one-time Welcome pack of 25 hints, offered until your first purchase; hint packs of 10, 30 or 100 hints; "No ads", which removes the banner and the ads between levels (hints not included; the optional videos stay); or "Unlimited hints", which gives you unlimited hints and no ads.
-- You decide how your data is used for ads when the game first asks, and you can change it any time under Privacy choices on the main menu.
+- The game asks how your data may be used for ads after your first finished level, never at launch. Change your answer any time in Settings → Privacy & ads.
 
 PLAY ANYWHERE
 - The puzzles play fully offline; ads need a connection.
