@@ -126,6 +126,26 @@ export async function loadHintCount(): Promise<number> {
   }
 }
 
+// 'on' once the one-time "Stuck? A hint shows the next piece." nudge was shown.
+const HINT_NUDGED_KEY = 'exactly67.hintNudged'
+
+export async function loadHintNudged(): Promise<boolean> {
+  try {
+    const { value } = await Preferences.get({ key: HINT_NUDGED_KEY })
+    return value === 'on'
+  } catch {
+    return false
+  }
+}
+
+export async function saveHintNudged(): Promise<void> {
+  try {
+    await Preferences.set({ key: HINT_NUDGED_KEY, value: 'on' })
+  } catch {
+    // non-fatal: the nudge may show once more
+  }
+}
+
 // Store transaction ids whose consumable (a hint pack, the Welcome pack) was
 // already paid — iap.ts pays each transaction once. JSON array, newest last.
 const IAP_PAID_KEY = 'exactly67.iapPaid'

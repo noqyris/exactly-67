@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { beamAngleDeg } from '../game/balance'
-import { levelByGlobal, TOTAL_LEVELS } from '../game/levels'
+import { levelByGlobal, PACKS, TOTAL_LEVELS } from '../game/levels'
 import type { LevelRef } from '../game/levels'
 import { dailyLevelFor, todayKey } from '../game/daily'
 import type { LevelPack } from '../game/types'
@@ -28,7 +28,6 @@ import {
   playPlaceBalloon,
   playRefuse,
   playRemove,
-  playReward,
   playStarPop,
   playStreak,
   playWinJingle,
@@ -82,6 +81,7 @@ import {
   isFirstRun,
   noAdsNudgeNow,
   noteDailyIntro,
+  packInfo,
   noteNoAdsNudge,
   recordDailyWin,
   recordLevelWin,
@@ -99,7 +99,7 @@ import {
 } from '../services/notifications'
 import { splashFinished } from '../services/session'
 import { welcomePrice } from '../services/iap'
-import { saveDailyDone, saveHapticsEnabled, saveSoundEnabled } from '../services/storage'
+import { loadHintNudged, saveDailyDone, saveHapticsEnabled, saveHintNudged, saveSoundEnabled } from '../services/storage'
 import { contentFrame, MAX_WIDE_W, prefersReducedMotion, safeArea, setBannerStrip, u } from './layout'
 import { BG, CREAM_CSS, FONT, GOOD, INK, INK_CSS, OVER, OUTLINE, PAPER, STAR, UNDER } from './palette'
 import { ScaleView } from './ScaleView'
@@ -122,7 +122,8 @@ import {
   TEXT,
 } from './ui'
 import { WeightView } from './WeightView'
-import { drawCloseIcon, landingPuff, ringBurst } from './fx'
+import { drawCloseIcon, drawGridIcon, flyBulbs, landingPuff, popTarget, ringBurst } from './fx'
+import { meta } from '../services/metaStore'
 
 const GOOD_CSS = '#37B24D'
 const OVER_CSS = '#E8590C'
@@ -201,6 +202,8 @@ interface WinReward {
   placement: RewardPlacement
   /** The ad upgrade was paid. */
   upgraded: boolean
+  /** The free hints already flew to the hint button (once per card, not per redraw). */
+  flown?: boolean
   /** A video is loading or on screen: every other way out of the card waits. */
   busy: boolean
 }
@@ -222,6 +225,8 @@ interface WinCard {
   tomorrow: string | null
   /** A navigation button was pressed: the card is on its way out. */
   acted: boolean
+  /** Where the reward row's icon sits, for hints flying home from it. */
+  rewardAt?: { x: number; y: number }
 }
 
 /** Room kept between the pans and the tray for the equation strip (`53 + 19 − 5`). */
@@ -307,6 +312,15 @@ export class GameScene extends Phaser.Scene {
   /** |gap| after the last change (null while the pan is empty), for the closer ladder. */
   private prevGapAbs: number | null = null
   private countTween: Phaser.Tweens.Tween | null = null
+  /** Came here from the win card's Next (or Retry): the camera fades in. */
+  private enterFade = false
+  /** Per weight: the scene time it pops into its tray cell (the level's entrance). */
+  private enterAt: number[] = []
+  /** Fires the one-time "Stuck?" nudge after a quiet spell (armStuckNudge). */
+  private idleTimer: Phaser.Time.TimerEvent | null = null
+  /** The nudge was shown once already, on any level (exactly67.hintNudged). */
+  private nudgeSeen = true
+  private toastBg!: Phaser.GameObjects.Graphics
 
   private trayG!: Phaser.GameObjects.Graphics
   private tray!: TrayMetrics
@@ -345,8 +359,9 @@ export class GameScene extends Phaser.Scene {
     super('Game')
   }
 
-  init(data: { level?: number; daily?: boolean; date?: string }) {
+  init(data: { level?: number; daily?: boolean; date?: string; enter?: boolean }) {
     this.daily = data.daily === true
+    this.enterFade = data.enter === true
     if (this.daily) {
       // Same puzzle for everyone on a date; a fake pack carries just a title
       // label. `date` is a past day of this month replayed from the calendar.
@@ -392,6 +407,8 @@ export class GameScene extends Phaser.Scene {
     this.equation = null
     this.previewText = null
     this.prevGapAbs = null
+    this.enterAt = []
+    this.idleTimer = null
   }
 
   create() {
@@ -425,11 +442,29 @@ export class GameScene extends Phaser.Scene {
     }
     const ev = evaluate(level, this.placed)
     this.scaleView.setTargetAngle(beamAngleDeg(ev.total))
-    this.scaleView.settleImmediately()
+    // The beam starts level and swings to the board's weight: the scale weighs
+    // what is on it as the level opens. Reduced motion: it starts settled.
+    if (this.reducedMotion) this.scaleView.settleImmediately()
     this.updateHud(ev)
+    this.updateEquation(false)
 
-    // Snap weights to their homes on the first frame instead of gliding in.
+    // Snap weights to their homes on the first frame instead of gliding in…
     this.steerWeights(1)
+    // …then pop the tray pieces in one after another (they grow from nothing).
+    if (!this.reducedMotion) {
+      let k = 0
+      this.weights.forEach((view, i) => {
+        if (this.placed[i]) return
+        this.enterAt[i] = this.time.now + 60 + 35 * k++
+        view.setScale(0.01)
+      })
+    }
+    if (this.enterFade && !this.reducedMotion) this.cameras.main.fadeIn(160, 246, 238, 223)
+    this.maybeShowPackIntro()
+    void loadHintNudged().then((seen) => {
+      this.nudgeSeen = seen
+      if (this.sys.isActive()) this.armStuckNudge()
+    })
 
     this.input.dragDistanceThreshold = u(10)
     this.scale.on('resize', this.onResize, this)
@@ -684,6 +719,74 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Leave for another board (Next, Retry) through a short fade, so levels don't hard-cut. */
+  private restartWithFade(data: { level: number }) {
+    if (this.reducedMotion) {
+      this.scene.restart({ ...data, enter: false })
+      return
+    }
+    const cam = this.cameras.main
+    cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.restart({ ...data, enter: true }))
+    cam.fadeOut(120, 246, 238, 223)
+  }
+
+  /**
+   * A new pack's first level, the first time: its name and tagline slide down
+   * over the board for a moment ("Pack 3 of 25"). A tap skips it.
+   */
+  private maybeShowPackIntro() {
+    if (this.daily || this.ref.levelIndex !== 0 || this.ref.packIndex <= 0) return
+    if (isCleared(progress(), this.ref.global)) return
+    const f = this.frame()
+    const safe = safeArea()
+    const w = Math.min(f.ew - u(48), u(340))
+    const x = f.cx
+    const name = this.add.text(0, u(-26), this.ref.pack.name, TEXT.ink(28, '800')).setOrigin(0.5)
+    const tag = this.add.text(0, u(10), this.ref.pack.tagline, TEXT.ink(14, '600')).setOrigin(0.5).setColor(INK_SOFT)
+    tag.setWordWrapWidth(w - u(32)).setAlign('center')
+    const which = this.add.text(0, u(10) + tag.height / 2 + u(16), `Pack ${this.ref.packIndex + 1} of ${PACKS.length}`, TEXT.ink(12, '700')).setOrigin(0.5).setColor(INK_SOFT)
+    const h = u(96) + tag.height
+    const card = this.add.graphics()
+    drawCard(card, -w / 2, -h / 2 + u(-8), w, h, u(22))
+    const slab = this.add.container(x, 0, [card, name, tag, which]).setDepth(95).setSize(w, h).setInteractive()
+    const rest = Math.max(f.oy, safe.top) + u(12) + u(46) + u(16) + h / 2
+    const hide = () => {
+      if (!slab.active) return
+      slab.disableInteractive()
+      this.tweens.add({ targets: slab, alpha: 0, y: rest - u(24), duration: 200, onComplete: () => slab.destroy() })
+    }
+    onTap(slab, hide)
+    if (this.reducedMotion) {
+      slab.setY(rest).setAlpha(0)
+      this.tweens.add({ targets: slab, alpha: 1, duration: 150 })
+    } else {
+      slab.setY(rest - h - u(40))
+      this.tweens.add({ targets: slab, y: rest, duration: 240, ease: 'Back.out' })
+    }
+    this.time.delayedCall(1400, hide)
+  }
+
+  /**
+   * Once ever, on Level 3 or later: after 25 s with nothing changed and a hint to
+   * spend, the hint button pulses and a toast says what it does. Any change on
+   * the board starts the 25 s again.
+   */
+  private armStuckNudge() {
+    this.idleTimer?.remove(false)
+    this.idleTimer = null
+    if (this.daily || this.ref.global < 3 || this.nudgeSeen || this.wonState) return
+    this.idleTimer = this.time.delayedCall(25_000, () => {
+      if (this.wonState || this.hintShown || this.hintOverlay || this.nudgeSeen) return
+      if (!hintsUnlimited() && !hasHint()) return
+      this.nudgeSeen = true
+      void saveHintNudged()
+      if (!this.reducedMotion) {
+        this.tweens.add({ targets: this.hudButtons.hint, scale: 1.12, duration: 300, yoyo: true, repeat: 2 })
+      }
+      this.showToast('Stuck? A hint shows the next piece.')
+    })
+  }
+
   /** While a weight is dragged: light the pan as a drop target and preview the new total. */
   private dragFeedback(view: WeightView, x: number, y: number) {
     const over = this.dropZone.contains(x, y)
@@ -787,8 +890,9 @@ export class GameScene extends Phaser.Scene {
     this.gapText = this.add.text(0, 0, '', TEXT.ink(16, '600')).setOrigin(0.5, 0)
     // Cream on a thick ink stroke, like the win-card notes: on a short phone the
     // toast can sit over the lower pan, and ink-on-board text would vanish there.
-    this.toastText = this.add.text(0, 0, '', TEXT.cream(15, '800')).setOrigin(0.5).setAlpha(0)
-    this.toastText.setStroke(INK_CSS, u(5))
+    // A pill: cream text on ink. (Cream on a thick ink stroke smeared on a busy board.)
+    this.toastBg = this.add.graphics().setDepth(49).setAlpha(0)
+    this.toastText = this.add.text(0, 0, '', TEXT.cream(14, '800')).setOrigin(0.5).setAlpha(0)
     this.toastText.setDepth(50)
 
     const level = this.ref.def
@@ -868,14 +972,15 @@ export class GameScene extends Phaser.Scene {
   private hintBadge!: Phaser.GameObjects.Text
 
   /** Re-render the hint button + its count badge for the current stash size. */
-  private refreshHint() {
+  private refreshHint(shown?: number) {
     this.hudButtons.hint.refresh()
     if (hintsUnlimited()) {
       // Bundle owners have unlimited free hints — lit bulb, no count.
       this.hintBadge.setVisible(false)
       return
     }
-    const n = hintCountValue()
+    // `shown`: a count on its way to the real one (hints flying in from a card).
+    const n = Math.max(0, shown ?? hintCountValue())
     this.hintBadge.setText(n > 9 ? '9+' : String(n))
     this.hintBadge.setVisible(n > 0)
   }
@@ -1014,13 +1119,25 @@ export class GameScene extends Phaser.Scene {
 
   private showToast(message: string) {
     this.toastTween?.stop()
-    this.toastText.setText(message).setAlpha(1)
-    this.toastTween = this.tweens.add({
-      targets: this.toastText,
-      alpha: 0,
-      delay: 1500,
-      duration: 350,
-    })
+    this.tweens.killTweensOf([this.toastText, this.toastBg])
+    const t = this.toastText.setText(message)
+    const padX = u(14)
+    const padY = u(9)
+    const bg = this.toastBg.clear()
+    bg.fillStyle(INK, 0.92)
+    bg.fillRoundedRect(t.x - t.width / 2 - padX, t.y - t.height / 2 - padY, t.width + padX * 2, t.height + padY * 2, u(14))
+    if (this.reducedMotion) {
+      t.setAlpha(1)
+      bg.setAlpha(1).setY(0)
+    } else {
+      t.setAlpha(0)
+      bg.setAlpha(0).setY(u(10))
+      const y0 = t.y
+      t.setY(y0 + u(10))
+      this.tweens.add({ targets: t, alpha: 1, y: y0, duration: 160, ease: 'Quad.out' })
+      this.tweens.add({ targets: bg, alpha: 1, y: 0, duration: 160, ease: 'Quad.out' })
+    }
+    this.toastTween = this.tweens.add({ targets: [t, bg], alpha: 0, delay: 1660, duration: 300 })
   }
 
   /**
@@ -1715,6 +1832,7 @@ export class GameScene extends Phaser.Scene {
     if (!ev.balanced && placedCount(this.placed) > 0 && this.prevGapAbs !== null && gapAbs < this.prevGapAbs) playCloser(gapAbs)
     this.prevGapAbs = placedCount(this.placed) > 0 ? gapAbs : null
     this.updateEquation()
+    this.armStuckNudge()
     if (ev.balanced && !ev.won && ev.blockedReason === 'use-all') {
       this.showToast('Balanced — but every weight must be aboard!')
     }
@@ -1786,8 +1904,10 @@ export class GameScene extends Phaser.Scene {
   /** Every weight glides toward its home (tray slot or pan position). */
   private steerWeights(t: number) {
     const panTargets = this.panTargets()
+    const now = this.time.now
     this.weights.forEach((view, i) => {
       if (view.dragging) return
+      if (this.enterAt[i] !== undefined && now < this.enterAt[i]) return
       const target = panTargets.get(i)
       let tx: number
       let ty: number
@@ -1913,9 +2033,10 @@ export class GameScene extends Phaser.Scene {
     // who closes the app on the win card keeps it. The video only adds on top.
     if (reward) {
       claimHints(reward.base)
-      // The HUD badge counts the stash: it must not still show the old number
-      // under a card that says "+3 hints added".
-      this.refreshHint()
+      // The HUD badge shows the stash before the reward until the hints fly to
+      // it from the card (flyHintsHome) — and the real count once they land, so
+      // it never shows the old number under "+3 hints added" for long.
+      this.refreshHint(hintCountValue() - reward.base)
     }
 
     // A clear whose card offers a rewarded upgrade never also gets an
@@ -2143,53 +2264,72 @@ export class GameScene extends Phaser.Scene {
     const overlay = this.add.container(0, 0).setDepth(100)
     this.winOverlay = overlay
 
-    const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.45)
+    // A light dim: the balanced beam behind the card is the payoff, not a backdrop.
+    const dim = this.add.rectangle(w / 2, h / 2, w, h, INK, 0.28)
     dim.setInteractive() // swallow taps behind the card
+    overlay.add(dim)
+    // The card and everything on it ride one container, so it can rise in as one.
+    const sheet = this.add.container(0, 0)
+    overlay.add(sheet)
 
-    const cardW = Math.min(w - u(40), u(372))
-    const cx = w / 2
+    const f = this.frame()
+    const cx = this.wideMode ? this.tray.x + this.tray.width / 2 : w / 2
+    // Portrait: exactly the tray's width, so its outline never peeks out as a
+    // second frame around a card sitting over it.
+    const cardW = this.wideMode ? Math.min(this.tray.width - u(40), u(372)) : Math.min(this.tray.width, u(400))
 
     // --- measure rows first, so the card is exactly as tall as what it holds.
     const summaryText = this.winSummary(win)
-    const sub = this.add.text(cx, 0, summaryText, TEXT.ink(15, '600')).setOrigin(0.5, 0)
-    sub.setColor(INK_SOFT).setWordWrapWidth(cardW - u(40)).setAlign('center')
-    // On a 320 pt phone the longest summary wraps to three lines; step it down.
-    for (let size = 15; size > 12 && sub.getWrappedText(summaryText).length > 2; ) {
-      size -= 1
-      sub.setFontSize(`${Math.round(u(size))}px`)
-    }
-    const showMeta = this.daily || !hintsUnlimited()
+    const sub = this.add.text(cx, 0, summaryText, TEXT.ink(15, '700')).setOrigin(0.5, 0)
+    sub.setColor(INK_SOFT).setAlign('center')
+    if (sub.width > cardW - u(40)) sub.setScale((cardW - u(40)) / sub.width)
+    const waysLabel = this.waysTotal > 1 && win.which !== null ? `Way ${win.which} of ${this.waysTotal}` : this.waysTotal === 1 ? 'Only way' : ''
+    const firstLevels = !this.daily && this.ref.global <= 3
+    const showMeta = this.daily || (!hintsUnlimited() && win.reward?.placement !== 'jar')
+    const packLine = this.packGoalLine(win)
+    const retryLink = !this.daily && !firstLevels && win.stars < 3
     const rows = {
-      top: u(22),
-      title: u(40),
-      stars: u(70),
-      sub: sub.height + u(10),
+      top: u(20),
+      title: u(38),
+      stars: u(64),
+      sub: sub.displayHeight + u(6),
+      pill: waysLabel ? u(30) : u(4),
       meta: showMeta ? u(46) + (this.daily && win.tomorrow ? u(16) : 0) : 0,
+      pack: packLine ? u(24) : 0,
       reward: win.reward ? u(104) : 0,
       intro: win.intro ? u(104) : 0,
       extra: win.remind !== 'none' ? u(70) : win.nudge ? u(34) : 0,
-      nav: u(56) + u(22),
+      retry: retryLink ? u(34) : 0,
+      nav: u(58) + u(20),
     }
     const cardH = Object.values(rows).reduce((a, b) => a + b, 0) + u(8)
-    const avail = h - safe.top - safe.bottom
-    const cy = safe.top + Math.max(cardH / 2 + u(8), Math.min(avail * 0.46, avail - cardH / 2 - u(8)))
-    const top = cy - cardH / 2
+    // A sheet from the bottom that leaves the level beam in view; where it cannot
+    // (a short phone, a tall card) it falls back to the centre of the screen.
+    const bottomTop = this.tray.y + this.tray.height - cardH
+    const beamClear = this.geo.cy + this.geo.halfBeam * 0.1 + u(28)
+    let top: number
+    if (this.wideMode) top = Math.max(safe.top + u(8), (h - cardH) / 2)
+    else if (bottomTop >= beamClear) top = bottomTop
+    else {
+      const avail = h - safe.top - safe.bottom
+      top = safe.top + Math.max(cardH / 2 + u(8), Math.min(avail * 0.46, avail - cardH / 2 - u(8))) - cardH / 2
+    }
 
     const card = this.add.graphics()
     drawCard(card, cx - cardW / 2, top, cardW, cardH, u(26))
 
     let y = top + rows.top
     const titleWords = this.daily ? 'DAILY 67!' : this.ref.global === 67 ? 'SIX-SEVEN!' : 'EXACTLY 67!'
-    const title = this.add.text(cx, y + rows.title / 2, titleWords, TEXT.ink(30, '800')).setOrigin(0.5)
+    const title = this.add.text(cx, y + rows.title / 2, titleWords, TEXT.ink(28, '800')).setOrigin(0.5)
     y += rows.title
 
     // Three star slots; earned ones pop in with a rising pitch.
-    const starR = u(26)
+    const starR = u(24)
     const starViews: Phaser.GameObjects.Graphics[] = []
     for (let i = 0; i < 3; i++) {
       const sg = this.add.graphics()
-      drawStar(sg, 0, 0, i === 1 ? starR * 1.25 : starR, i < win.stars)
-      sg.setPosition(cx + (i - 1) * (starR * 2.6), y + rows.stars / 2)
+      drawStar(sg, 0, 0, i === 1 ? u(30) : starR, i < win.stars)
+      sg.setPosition(cx + (i - 1) * (starR * 2.7), y + rows.stars / 2)
       if (i < win.stars && anim) {
         sg.setScale(0)
         this.tweenWith(
@@ -2214,14 +2354,29 @@ export class GameScene extends Phaser.Scene {
 
     sub.setY(y)
     y += rows.sub
+    const kids: Phaser.GameObjects.GameObject[] = [card, title, ...starViews, sub]
 
-    const kids: Phaser.GameObjects.GameObject[] = [dim, card, title, ...starViews, sub]
+    // "Only way" / "Way 1 of 2": a pill, not a dangling lowercase line.
+    if (waysLabel) {
+      const t = this.add.text(cx, y + u(13), waysLabel, TEXT.ink(12, '700')).setOrigin(0.5).setColor(INK_SOFT)
+      const pw = t.width + u(20)
+      const pill = this.add.graphics()
+      pill.fillStyle(0xefe6d6, 1)
+      pill.fillRoundedRect(cx - pw / 2, y + u(2), pw, u(22), u(11))
+      kids.push(pill, t)
+    }
+    y += rows.pill
 
     if (rows.meta) {
       kids.push(...(this.daily ? this.streakRow(win, cx, y, cardW, anim) : this.jarRow(win, cx, y, cardW, anim)))
       y += rows.meta
     }
+    if (packLine) {
+      kids.push(this.add.text(cx, y + u(10), packLine, TEXT.ink(12, '700')).setOrigin(0.5).setColor(INK_SOFT))
+      y += rows.pack
+    }
     if (win.reward) {
+      win.rewardAt = { x: cx - cardW / 2 + u(14) + u(30), y: y + u(24) }
       kids.push(...this.rewardRow(win.reward, cx, y, cardW))
       y += rows.reward
     }
@@ -2259,7 +2414,7 @@ export class GameScene extends Phaser.Scene {
     // Navigation. Every way out first pays any unclaimed free reward — a reward
     // is never lost to a tap on Next — and is locked while a video is up.
     const btnY = top + cardH - rows.nav / 2 - u(4)
-    const btnH = u(56)
+    const btnH = u(58)
     const once = (fn: () => void) => () => {
       if (win.acted || win.reward?.busy) return
       win.acted = true
@@ -2267,7 +2422,6 @@ export class GameScene extends Phaser.Scene {
     }
     const inner = cardW - u(32)
     let nextBtn: Phaser.GameObjects.Container
-    const navKids: Phaser.GameObjects.Container[] = []
     if (this.daily) {
       const calW = inner * 0.42
       const doneW = inner - calW - u(10)
@@ -2275,38 +2429,50 @@ export class GameScene extends Phaser.Scene {
       cal.setPosition(cx - cardW / 2 + u(16) + calW / 2, btnY)
       nextBtn = makeButton(this, 'Done', doneW, btnH, 0xf5b942, '#2B2440', once(() => this.scene.start('Menu')))
       nextBtn.setPosition(cx + cardW / 2 - u(16) - doneW / 2, btnY)
-      navKids.push(cal, nextBtn)
+      kids.push(cal, nextBtn)
     } else {
-      const smallW = inner * 0.22
-      const nextW = inner - smallW * 2 - u(20)
+      // One primary action, full width, naming where it goes.
       const hasNext = this.ref.global < TOTAL_LEVELS
-      const retry = makeButton(this, 'Retry', smallW, btnH, PAPER, '#2B2440', once(() => {
-        this.scene.restart({ level: this.ref.global })
-      }))
-      const map = makeButton(this, 'Map', smallW, btnH, PAPER, '#2B2440', once(() => {
-        this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
-      }))
-      nextBtn = makeButton(this, hasNext ? 'Next' : 'The End!', nextW, btnH, 0xf5b942, '#2B2440', once(() => {
+      const next = hasNext ? levelByGlobal(this.ref.global + 1) : null
+      const label = !next ? 'The End!' : next.packIndex !== this.ref.packIndex ? `Next pack: ${next.pack.name}` : `Next · Level ${this.ref.global + 1}`
+      nextBtn = makeButton(this, label, inner, btnH, 0xf5b942, '#2B2440', once(() => {
         this.leaveAfterClear(() =>
-          hasNext ? this.scene.restart({ level: this.ref.global + 1 }) : this.scene.start('LevelMap', { scrollTo: this.ref.global }),
+          hasNext ? this.restartWithFade({ level: this.ref.global + 1 }) : this.scene.start('LevelMap', { scrollTo: this.ref.global }),
         )
       }))
-      const left = cx - cardW / 2 + u(16)
-      retry.setPosition(left + smallW / 2, btnY)
-      map.setPosition(left + smallW * 1.5 + u(10), btnY)
-      nextBtn.setPosition(cx + cardW / 2 - u(16) - nextW / 2, btnY)
-      navKids.push(retry, map, nextBtn)
-
-      // Share: a small corner button — sharing does not navigate, so it stays
-      // live after the sheet is dismissed, and it is kept out of the nav row.
+      nextBtn.setPosition(cx, btnY)
+      kids.push(nextBtn)
+      if (retryLink) {
+        // Retry only means something below three stars: say what it is for.
+        const link = this.add
+          .text(cx, btnY - btnH / 2 - u(4) - rows.retry / 2, `Retry for ★★★ (min ${this.minWeights})`, TEXT.ink(13, '700'))
+          .setOrigin(0.5)
+          .setColor(INK_SOFT)
+          .setPadding({ x: u(16), y: u(8) })
+          .setInteractive({ useHandCursor: true })
+        onTap(link, once(() => this.restartWithFade({ level: this.ref.global })))
+        kids.push(link)
+      }
+      // The first three cards: Next and nothing else.
+      if (!firstLevels) {
+        const map = makeIconButton(this, u(40), (g, sz) => drawGridIcon(g, sz), once(() => {
+          this.leaveAfterClear(() => this.scene.start('LevelMap', { scrollTo: this.ref.global }))
+        }))
+        map.setPosition(cx - cardW / 2 + u(30), top + u(30))
+        kids.push(map)
+      }
+    }
+    // Share: a small corner button — sharing does not navigate, so it stays live
+    // after the sheet is dismissed. The Daily shares too: the same board for
+    // everyone is the one worth comparing.
+    if (!firstLevels) {
       const share = makeIconButton(this, u(40), (g, sz) => drawShareIcon(g, sz), () => {
         void this.shareResult(win.used, win.stars, win.which)
       })
       share.setPosition(cx + cardW / 2 - u(30), top + u(30))
       kids.push(share)
     }
-    kids.push(...navKids)
-    overlay.add(kids)
+    sheet.add(kids)
 
     // One more level is the whole loop: once the card has settled, Next breathes.
     if (!this.reducedMotion) {
@@ -2314,7 +2480,7 @@ export class GameScene extends Phaser.Scene {
         nextBtn,
         this.tweens.add({
           targets: nextBtn,
-          scale: { from: 1, to: 1.05 },
+          scale: { from: 1, to: 1.04 },
           duration: 620,
           delay: animate ? 1500 : 0,
           yoyo: true,
@@ -2325,30 +2491,67 @@ export class GameScene extends Phaser.Scene {
     }
     if (anim) {
       overlay.setAlpha(0)
+      sheet.y = u(40)
       this.tweenWith(overlay, this.tweens.add({ targets: overlay, alpha: 1, duration: 200 }))
+      this.tweenWith(sheet, this.tweens.add({ targets: sheet, y: 0, duration: 260, ease: 'Back.out(1.2)' }))
     }
-    // Still this card, still up, and no video started over it meanwhile (a
-    // redraw keeps `win`, so the chime survives a fold but not a claim tap).
-    if (animate && win.reward) {
-      this.time.delayedCall(900, () => {
-        if (this.win === win && !win.acted && !win.reward?.busy) playReward()
+    // Hints paid at the win travel to the hint button: the reward is seen landing.
+    if (animate && win.reward && !win.reward.flown) {
+      win.reward.flown = true
+      const r = win.reward
+      this.time.delayedCall(anim ? 700 : 0, () => {
+        if (this.win !== win || !r) return
+        this.flyHintsHome(win.rewardAt, r.base)
       })
+    } else if (!animate) {
+      this.refreshHint()
     }
+    void f
   }
 
-  /** The card's one-line summary (plus "the only way" / "way 2 of 3"). */
+  /**
+   * Bulbs fly from `from` to the HUD hint button and its badge steps up as they
+   * land, ending on the real stash. The hints are already paid; this only shows
+   * where they went. Under reduced motion the badge just updates.
+   */
+  private flyHintsHome(from: { x: number; y: number } | undefined, n: number) {
+    if (n <= 0 || hintsUnlimited()) {
+      this.refreshHint()
+      return
+    }
+    const end = hintCountValue()
+    const start = end - n
+    const btn = this.hudButtons.hint
+    flyBulbs(this, from ?? { x: this.scale.width / 2, y: this.scale.height / 2 }, { x: btn.x, y: btn.y }, n, (i, last) => {
+      if (!this.sys.isActive()) return
+      const count = Math.min(n, 8)
+      this.refreshHint(last ? undefined : start + Math.round(((i + 1) / count) * n))
+      popTarget(this, btn)
+    })
+  }
+
+  /**
+   * "3 levels to the Prime Time bonus: +3 hints" — under the jar, while the
+   * pack's one-time bonus is still to come and close (five levels or fewer).
+   * Every reward is fixed and shown first; this one just says how near it is.
+   */
+  private packGoalLine(win: WinCard): string | null {
+    if (this.daily || hintsUnlimited() || win.level?.pack) return null
+    const index = this.ref.packIndex
+    if (index < 0 || meta().packRewards.includes(index)) return null
+    const info = packInfo(index)
+    const left = info.levels - info.cleared
+    if (left <= 0 || left > 5) return null
+    return `${left} level${left === 1 ? '' : 's'} to the ${this.ref.pack.name} bonus: +${PACK_HINTS} hints`
+  }
+
+  /** The card's line under the stars: pieces used, against the minimum when it isn't it. */
   private winSummary(win: WinCard): string {
     const best = this.daily ? undefined : bestFor(progress(), this.ref.global)
-    const ways = this.waysTotal
-    const wayLine =
-      ways > 1 && win.which !== null ? `\nway ${win.which} of ${ways}` : ways === 1 ? '\nthe only way' : ''
-    if (win.used <= this.minWeights) return `Solved with ${win.used} — the perfect minimum!${wayLine}`
+    const pieces = `${win.used} piece${win.used === 1 ? '' : 's'}`
+    if (win.used <= this.minWeights) return `${pieces} · perfect ✓`
     // Below 3★ the honest near-miss is the reason to replay: say the gap.
-    return (
-      `Used ${win.used} · minimum is ${this.minWeights}` +
-      (best !== undefined && best < win.used ? ` · your best ${best}` : '') +
-      wayLine
-    )
+    return `${pieces} · minimum is ${this.minWeights}` + (best !== undefined && best < win.used ? ` · best ${best}` : '')
   }
 
   /** Star Jar progress: the new stars pour in; a full jar is the reward row below. */
@@ -2521,11 +2724,11 @@ export class GameScene extends Phaser.Scene {
     if (outcome === 'earned') {
       r.upgraded = true
       claimHints(r.ad - r.base)
-      if (this.sys.isActive()) this.refreshHint()
+      if (this.sys.isActive()) this.refreshHint(hintCountValue() - (r.ad - r.base))
     }
     if (!this.sys.isActive()) return
-    if (outcome === 'earned') playReward()
     this.redrawWin()
+    if (outcome === 'earned') this.flyHintsHome(this.win?.rewardAt, r.ad - r.base)
     // 'no-consent': the tap asked for ad consent and got no yes — the player
     // just chose, so nothing is said (a no also took the button away).
     if (outcome === 'unavailable' || outcome === 'not-earned') {
@@ -2588,6 +2791,7 @@ export class GameScene extends Phaser.Scene {
     const card = shareCard(
       {
         level: this.ref.global,
+        daily: this.daily ? dailyLabel(this.dailyDate) : undefined,
         pieces: used,
         stars: starCount,
         way: which ?? undefined,

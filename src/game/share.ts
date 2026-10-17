@@ -31,6 +31,8 @@ export type Trace = readonly number[]
 
 export interface ShareStats {
   level: number
+  /** A Daily Challenge board: its date label ("Oct 17"), shared instead of a level number. */
+  daily?: string
   /** Pieces on the pan at the win, locked included. */
   pieces: number
   stars: number
@@ -116,7 +118,7 @@ export function shareCard(stats: ShareStats, trace: Trace): string {
   facts.push(stars(stats.stars))
 
   return [
-    `Exactly 67 · Level ${stats.level}`,
+    stats.daily ? `Exactly 67 · Daily ${stats.daily}` : `Exactly 67 · Level ${stats.level}`,
     traceGlyphs(trace),
     facts.join(' · '),
   ].join('\n')

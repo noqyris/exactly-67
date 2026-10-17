@@ -136,3 +136,17 @@ export function drawCloseIcon(g: Phaser.GameObjects.Graphics, size: number): voi
   g.lineBetween(-a, -a, a, a)
   g.lineBetween(-a, a, a, -a)
 }
+
+/** A 2×2 grid of rounded squares — the level map — centred in a `size` box. */
+export function drawGridIcon(g: Phaser.GameObjects.Graphics, size: number): void {
+  const cell = size * 0.17
+  const gap = size * 0.06
+  g.fillStyle(INK, 1)
+  for (const dx of [-1, 1]) {
+    for (const dy of [-1, 1]) {
+      const x = dx < 0 ? -gap / 2 - cell : gap / 2
+      const y = dy < 0 ? -gap / 2 - cell : gap / 2
+      g.fillRoundedRect(x, y, cell, cell, cell * 0.25)
+    }
+  }
+}

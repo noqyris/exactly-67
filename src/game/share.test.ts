@@ -86,4 +86,10 @@ describe('shareCard', () => {
     expect(shareCard({ level: 9, pieces: 3, stars: 1, waysTotal: 2, way: 1 }, [80, 70, 67])
       .split('\n')).toHaveLength(3)
   })
+
+  it('a Daily board is named by its date — the same board for everyone that day', () => {
+    const card = shareCard({ level: -1, daily: 'Oct 17', pieces: 3, stars: 3, waysTotal: 1 }, [40, 80, 67])
+    expect(card.split('\n')[0]).toBe('Exactly 67 · Daily Oct 17')
+    expect(card).not.toMatch(/Level -1/)
+  })
 })
