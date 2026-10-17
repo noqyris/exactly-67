@@ -4,10 +4,12 @@ import {
   BEAM,
   BEAM_DARK,
   FONT,
+  GOOD,
   INK,
   OUTLINE,
   PAN,
   PAN_DARK,
+  PAN_HOVER,
   TARGET_BLOCK,
 } from './palette'
 import { TEXT } from './ui'
@@ -46,6 +48,11 @@ export class ScaleView {
   private velocity = 0
   private targetAngle = 0
   private won = false
+  /** White beam-shaped overlay for the lock flash (rebuilt with the beam). */
+  private flashG: Phaser.GameObjects.Graphics | null = null
+  /** The right dish lit as a drop target while a weight is dragged over it. */
+  private hoverG: Phaser.GameObjects.Graphics | null = null
+  private hover = false
 
   constructor(scene: Phaser.Scene, geo: ScaleGeometry) {
     this.scene = scene
@@ -60,6 +67,7 @@ export class ScaleView {
     this.buildBeam()
     this.buildPan(this.leftPan)
     this.buildPan(this.rightPan)
+    this.buildHover()
     this.buildTargetBlock()
     this.drawFulcrum()
     this.positionPans()
@@ -74,6 +82,7 @@ export class ScaleView {
     this.buildBeam()
     this.buildPan(this.leftPan)
     this.buildPan(this.rightPan)
+    this.buildHover()
     this.buildTargetBlock()
     this.drawFulcrum()
     this.positionPans()
@@ -94,6 +103,33 @@ export class ScaleView {
   setWon(won: boolean) {
     this.won = won
     if (won) this.targetAngle = 0
+  }
+
+  /**
+   * A weight just landed: push the beam toward the loaded side (a balloon
+   * pulls the other way), `18 + 0.45·|value|` degrees per second, so the spring
+   * visibly takes the hit before it settles. Nothing under reduced motion.
+   */
+  kick(value: number) {
+    if (this.reducedMotion || this.won) return
+    const impulse = 18 + 0.45 * Math.min(Math.abs(value), 99)
+    this.velocity += value >= 0 ? impulse : -impulse
+  }
+
+  /** The lock moment: a white flash over the beam, 0 → 0.6 → 0 in 220 ms. */
+  flash() {
+    const g = this.flashG
+    if (!g || this.reducedMotion) return
+    this.scene.tweens.killTweensOf(g)
+    g.setAlpha(0)
+    this.scene.tweens.add({ targets: g, alpha: 0.6, duration: 70, yoyo: true, hold: 20, ease: 'Quad.out' })
+  }
+
+  /** Light the right dish as the drop target (a weight dragged over it), or not. */
+  setDropHover(on: boolean) {
+    if (this.hover === on) return
+    this.hover = on
+    this.hoverG?.setVisible(on)
   }
 
   /** World point of the right pan dish center-top (drop target / layout). */
@@ -172,6 +208,13 @@ export class ScaleView {
     g.fillStyle(BEAM_DARK, 1)
     g.fillRoundedRect(-L - h * 0.4 + u(3), h / 2 - h * 0.28, (L + h * 0.4) * 2 - u(6), h * 0.2, h * 0.1)
 
+    // The lock flash: the beam's own shape in white, invisible until flash().
+    const flash = this.scene.add.graphics()
+    flash.fillStyle(0xffffff, 1)
+    flash.fillRoundedRect(-L - h * 0.4, -h / 2, (L + h * 0.4) * 2, h, r)
+    flash.setAlpha(0)
+    this.flashG = flash
+
     // Center hub over the pivot.
     g.fillStyle(BEAM_DARK, 1)
     g.fillCircle(0, 0, h * 0.85)
@@ -180,7 +223,7 @@ export class ScaleView {
     g.fillStyle(INK, 1)
     g.fillCircle(0, 0, h * 0.3)
 
-    this.beam.add(g)
+    this.beam.add([g, flash])
   }
 
   private buildPan(pan: Phaser.GameObjects.Container) {
@@ -199,6 +242,21 @@ export class ScaleView {
     g.fillRoundedRect(-w / 2 + u(4), h * 0.55, w - u(8), h * 0.28, r * 0.5)
 
     pan.add(g)
+  }
+
+  /** The right dish's drop-target state: a lighter dish and a green ring. */
+  private buildHover() {
+    const { panWidth: w, panHeight: h } = this.geo
+    const r = h * 0.45
+    const pad = u(6)
+    const g = this.scene.add.graphics()
+    g.fillStyle(PAN_HOVER, 1)
+    g.fillRoundedRect(-w / 2, 0, w, h, { tl: r * 0.4, tr: r * 0.4, bl: r, br: r })
+    g.lineStyle(u(4), GOOD, 1)
+    g.strokeRoundedRect(-w / 2 - pad, -pad, w + pad * 2, h + pad * 2, { tl: r * 0.6, tr: r * 0.6, bl: r * 1.2, br: r * 1.2 })
+    g.setVisible(this.hover)
+    this.hoverG = g
+    this.rightPan.add(g)
   }
 
   /** The fixed "67" slab sitting on the left pan. */

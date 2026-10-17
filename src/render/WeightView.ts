@@ -30,6 +30,13 @@ export class WeightView extends Phaser.GameObjects.Container {
   target = { x: 0, y: 0, scale: 1 }
   dragging = false
 
+  /** The drawn body and the number on it, for the landing squash and the label floor. */
+  private readonly shape: Phaser.GameObjects.Graphics
+  private readonly label: Phaser.GameObjects.Text
+  private readonly labelPx: number
+  /** The label's rest y, so the squash can return it exactly. */
+  private readonly labelRestY: number
+
   constructor(scene: Phaser.Scene, index: number, value: number, locked: boolean) {
     super(scene, 0, 0)
     this.index = index
@@ -42,6 +49,7 @@ export class WeightView extends Phaser.GameObjects.Container {
     if (this.isBalloon) this.drawBalloon(g)
     else this.drawBlock(g)
     this.add(g)
+    this.shape = g
 
     const label = Math.abs(value) >= 100 ? String(value) : this.isBalloon ? `−${-value}` : `${value}`
     const fontPx = Math.round(this.bodySize * (label.length >= 3 ? 0.3 : 0.38))
@@ -55,6 +63,9 @@ export class WeightView extends Phaser.GameObjects.Container {
       })
       .setOrigin(0.5)
     this.add(text)
+    this.label = text
+    this.labelPx = fontPx
+    this.labelRestY = text.y
 
     if (locked) this.drawLockBadge()
 
@@ -221,6 +232,43 @@ export class WeightView extends Phaser.GameObjects.Container {
    */
   centerOffsetY(scale: number): number {
     return -Phaser.Geom.Rectangle.GetCenter(this.bodyRect()).y * scale
+  }
+
+  /**
+   * Keep the number readable at the scale the weight is drawn at: on the pan a
+   * weight shrinks to about half, and a 44-unit balloon's label fell to ~7 px.
+   * The label grows back to at least 11 pt there; at tray size it is unchanged.
+   */
+  setLabelFloor(scale: number) {
+    const s = Math.max(1, u(11) / (this.labelPx * Math.max(scale, 0.01)))
+    if (Math.abs(this.label.scaleX - s) > 0.01) this.label.setScale(s)
+  }
+
+  /**
+   * Landing on the pan: the body squashes (wider, lower) and springs back, more
+   * for a heavier weight (`k` 0.4–1). Only the drawn body moves — the container's
+   * position and scale belong to the steering. Off under reduced motion.
+   */
+  land(k: number) {
+    if (prefersReducedMotion()) return
+    const body = this.shape
+    const amt = 0.18 * Phaser.Math.Clamp(k, 0.4, 1) * (this.isBalloon ? 0.5 : 1)
+    // Squash about the body's bottom, not its centre: shift down as it flattens.
+    const drop = this.isBalloon ? 0 : this.bodySize * 0.4 * amt
+    this.scene.tweens.killTweensOf(body)
+    body.setScale(1)
+    this.scene.tweens.add({
+      targets: body,
+      scaleX: 1 + amt,
+      scaleY: 1 - amt,
+      y: drop,
+      duration: 90,
+      ease: 'Quad.out',
+      onComplete: () => {
+        this.scene.tweens.add({ targets: body, scaleX: 1, scaleY: 1, y: 0, duration: 160, ease: 'Back.out' })
+      },
+    })
+    this.scene.tweens.add({ targets: this.label, y: this.labelRestY + drop, duration: 90, yoyo: true, ease: 'Quad.out' })
   }
 
   /** A quick "no" wiggle for refused actions. */

@@ -12,6 +12,8 @@ export const BEAM = 0xf5b942
 export const BEAM_DARK = 0xd99a26
 export const PAN = 0x7fb8a4
 export const PAN_DARK = 0x639882
+/** The right dish lit as a drop target while a weight is dragged over it. */
+export const PAN_HOVER = 0xa8dcc8
 export const TARGET_BLOCK = 0x2b2440
 
 export const BALLOON = 0xf783ac

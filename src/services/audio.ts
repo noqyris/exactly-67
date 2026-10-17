@@ -101,12 +101,40 @@ function tone(ac: AudioContext, opts: ToneOpts) {
   osc.stop(t0 + dur + 0.05)
 }
 
-/** A down-weight lands: a short low "thock". */
-export function playPlace() {
+/**
+ * A down-weight lands: a short low "thock", deeper and longer for a heavier
+ * weight, so a 9 and a 90 sound like what they are. `value` defaults to a
+ * mid-weight 40 (the settings toggles play it as a preview).
+ */
+export function playPlace(value = 40) {
   const ac = context()
   if (!ac) return
-  tone(ac, { freq: 200, bendTo: 120, dur: 0.09, type: 'triangle', gain: 0.25 })
-  tone(ac, { freq: 400, bendTo: 240, dur: 0.05, type: 'sine', gain: 0.08 })
+  const v = Math.min(Math.abs(value), 99)
+  const f = 230 - 1.2 * v
+  const dur = 0.08 + 0.0006 * v
+  tone(ac, { freq: f, bendTo: f * 0.6, dur, type: 'triangle', gain: 0.25 })
+  tone(ac, { freq: f * 2, bendTo: f * 1.2, dur: dur * 0.55, type: 'sine', gain: 0.08 })
+}
+
+/**
+ * The pan got closer to 67: one note of a rising pentatonic ladder, higher the
+ * closer it is. It reports the real distance — nothing is played when a change
+ * moved the pan further away — so it is information, not a "so close" tease.
+ * The top rung (within 3) replaces playNear's old tick.
+ */
+export function playCloser(gapAbs: number) {
+  const ac = context()
+  if (!ac) return
+  const f = gapAbs >= 40 ? 523.25 : gapAbs >= 25 ? 587.33 : gapAbs >= 15 ? 659.25 : gapAbs >= 8 ? 783.99 : gapAbs >= 4 ? 880 : 1046.5
+  tone(ac, { freq: f, at: 0.04, dur: 0.12, type: 'sine', gain: 0.06 })
+}
+
+/** The beam locks at exactly 67: a low thud with a bright major chord on top. */
+export function playLock() {
+  const ac = context()
+  if (!ac) return
+  tone(ac, { freq: 90, dur: 0.09, type: 'triangle', gain: 0.22 })
+  for (const f of [523.25, 659.25, 783.99]) tone(ac, { freq: f, at: 0.03, dur: 0.28, type: 'triangle', gain: 0.09 })
 }
 
 /** A balloon clips on: a rising squeak. */

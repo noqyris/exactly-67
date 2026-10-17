@@ -12,10 +12,29 @@ export function hapticsEnabled(): boolean {
   return enabled
 }
 
-/** A weight lands on the pan. */
-export function placeTap() {
+/**
+ * A weight lands on the pan — as heavy as the weight: light under 20, medium
+ * up to 49, heavy from 50. A balloon (negative) is always light. No value: light.
+ */
+export function placeTap(value = 0) {
   if (!enabled) return
-  Haptics.impact({ style: ImpactStyle.Light }).catch(() => {})
+  const style = value >= 50 ? ImpactStyle.Heavy : value >= 20 ? ImpactStyle.Medium : ImpactStyle.Light
+  Haptics.impact({ style }).catch(() => {})
+}
+
+/** A weight is picked up to drag: the lightest tick there is. */
+export function pickupTap() {
+  if (!enabled) return
+  Haptics.selectionStart()
+    .then(() => Haptics.selectionChanged())
+    .then(() => Haptics.selectionEnd())
+    .catch(() => {})
+}
+
+/** The beam locks at exactly 67 — the impact, before the celebration's Success. */
+export function lockTap() {
+  if (!enabled) return
+  Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {})
 }
 
 /** A weight comes back off the pan. */

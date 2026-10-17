@@ -18,10 +18,12 @@ import { countSolutions, minimalSolution, solutionIndex, solveLevel } from '../g
 import { shareCard } from '../game/share'
 import { starsForClear } from '../game/stars'
 import type { Evaluation } from '../game/types'
+import { TARGET } from '../game/types'
 import {
   playCelebration,
+  playCloser,
   playHintChime,
-  playNear,
+  playLock,
   playPlace,
   playPlaceBalloon,
   playRefuse,
@@ -36,6 +38,8 @@ import {
 import { duckMusic } from '../services/music'
 import {
   hapticsEnabled,
+  lockTap,
+  pickupTap,
   placeTap,
   refuseTap,
   removeTap,
@@ -118,6 +122,7 @@ import {
   TEXT,
 } from './ui'
 import { WeightView } from './WeightView'
+import { drawCloseIcon, landingPuff, ringBurst } from './fx'
 
 const GOOD_CSS = '#37B24D'
 const OVER_CSS = '#E8590C'
@@ -143,7 +148,7 @@ const HINT_COPY = {
   /** The modal opens at zero hints; the stash can grow while it stays open. */
   body: (n: number) =>
     n === 0
-      ? 'Out of hints — watch a short ad for 1 hint, or grab a pack.'
+      ? 'Out of hints — watch a short ad for one more.'
       : `You have ${n} hint${n === 1 ? '' : 's'}. Watch a short ad for 1 more.`,
   /**
    * The player said no to ads, recently (option A keeps a refusal's offers off
@@ -219,8 +224,8 @@ interface WinCard {
   acted: boolean
 }
 
-/** The pan counts as "close" within this many of 67 (a quiet tick). */
-const NEAR_GAP = 3
+/** Room kept between the pans and the tray for the equation strip (`53 + 19 − 5`). */
+const EQUATION_BAND = u(30)
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 /** "Sep 21" for a past daily board. */
@@ -282,7 +287,26 @@ export class GameScene extends Phaser.Scene {
   /** Pan slot per weight index; null = in the tray. */
   private slotOf: (number | null)[] = []
   private nextSlot = 0
+  /** Pan scale with more than four blocks aboard (three to a row)… */
   private panScale = 0.62
+  /** …and with four or fewer (two to a row, about a third bigger), so a small sum stays readable. */
+  private panScaleWide = 0.8
+  /** Weights placed and still on their way to the pan: each lands (squash, kick, dust) once. */
+  private pendingLand = new Set<number>()
+  /** The weight placed last — the one that may complete the board. */
+  private lastPlaced: number | null = null
+  /** The completing weight still in flight, and what runs when it lands (whenWinningWeightLands). */
+  private pendingWinIndex: number | null = null
+  private onWinLanded: (() => void) | null = null
+  /** The lock moment's hit-stop: update() holds the board until this scene time. */
+  private hitStopUntil = 0
+  /** The sum on the pan, written out under the scale (`53 + 19 − 5 = 67`). */
+  private equation: Phaser.GameObjects.Container | null = null
+  /** While dragging: what the total would become ("→ 72"), beside the total chip. */
+  private previewText: Phaser.GameObjects.Text | null = null
+  /** |gap| after the last change (null while the pan is empty), for the closer ladder. */
+  private prevGapAbs: number | null = null
+  private countTween: Phaser.Tweens.Tween | null = null
 
   private trayG!: Phaser.GameObjects.Graphics
   private tray!: TrayMetrics
@@ -316,8 +340,6 @@ export class GameScene extends Phaser.Scene {
   private hintOverlay: Phaser.GameObjects.Container | null = null
   /** Which sheet hintOverlay is, so a resize redraws the same one. */
   private hintOverlayKind: 'menu' | 'keep' = 'menu'
-  /** Whether the pan total sat within NEAR_GAP of 67 after the last change. */
-  private wasNear = false
 
   constructor() {
     super('Game')
@@ -361,7 +383,15 @@ export class GameScene extends Phaser.Scene {
     this.win = null
     this.winOverlay = null
     this.hintOverlay = null
-    this.wasNear = false
+    // Phaser re-uses the scene object on restart: every per-board field resets here.
+    this.pendingLand = new Set()
+    this.lastPlaced = null
+    this.pendingWinIndex = null
+    this.onWinLanded = null
+    this.hitStopUntil = 0
+    this.equation = null
+    this.previewText = null
+    this.prevGapAbs = null
   }
 
   create() {
@@ -475,7 +505,7 @@ export class GameScene extends Phaser.Scene {
     // chip — on a short or wide phone (iPhone SE, the folded iPhone Duo) the
     // proportional position alone put the tilted beam through the text.
     const messageBottom = top + u(12) + u(46) + u(48) + u(43) + u(22)
-    const cy = Math.max(top + f.eh * 0.245, messageBottom + u(8) + halfBeam * 0.23)
+    const minCy = Math.max(top + f.eh * 0.245, messageBottom + u(8) + halfBeam * 0.23)
     // …and keep the lower pan clear of the tray AND of the labels stacked just
     // above it (the budget / "use every weight" row, the level hint, both laid
     // out in layoutHud) by shortening the ropes if needed. Once the beam came
@@ -485,11 +515,39 @@ export class GameScene extends Phaser.Scene {
     const hintH = this.hintText ? this.hintText.height : u(22)
     const band =
       u(12) +
+      EQUATION_BAND +
       (level.maxWeights !== undefined || level.useAll ? u(24) : 0) +
       (level.hint ? Math.max(u(26), hintH + u(4)) : 0)
-    const trayTop = f.oy + f.eh * 0.635
-    const ropeLen = Math.max(u(40), Math.min(f.eh * 0.14, u(130), trayTop - band - cy - halfBeam * 0.23 - panHeight))
+    const trayTop = this.portraitTrayTop()
+    // The scale takes the room the content-fit tray gave back: longer ropes, and
+    // the rest split about evenly above and below it, instead of a dead band
+    // between the pans and the tray.
+    const room = trayTop - band - minCy - halfBeam * 0.23 - panHeight
+    const ropeLen = Math.max(u(40), Math.min(u(160), room * 0.6))
+    const cy = minCy + Math.max(0, room - ropeLen) * 0.45
     return { cx: f.cx, cy, halfBeam, ropeLen, panWidth, panHeight }
+  }
+
+  /** The tray's grid: only the pieces that start in it (a locked piece starts on the pan). */
+  private trayGrid(): { n: number; cols: number; rows: number } {
+    const n = this.ref.def.weights.filter((_, i) => !(this.ref.def.locked ?? []).includes(i)).length
+    const cols = this.wideMode ? this.bestTrayCols(n) : n <= 4 ? Math.max(1, n) : n <= 8 ? 4 : Math.ceil(n / 3)
+    return { n, cols, rows: Math.max(1, Math.ceil(n / Math.max(1, cols))) }
+  }
+
+  /**
+   * Portrait: the tray is as tall as its rows need, not a fixed 36% of the
+   * screen — a one-row level used to leave a 300 pt panel around two weights and
+   * a dead band over it. Never above 56% of the frame, so a full tray still fits.
+   */
+  private portraitTrayTop(): number {
+    const f = this.frame()
+    const trayBottom = Math.min(f.oy + f.eh, this.scale.height - safeArea().bottom) - u(10)
+    const n = this.ref.def.weights.filter((_, i) => !(this.ref.def.locked ?? []).includes(i)).length
+    const cols = n <= 4 ? Math.max(1, n) : n <= 8 ? 4 : Math.ceil(n / 3)
+    const rows = Math.max(1, Math.ceil(n / cols))
+    const rowH = f.ew < u(375) ? u(100) : u(118)
+    return Math.max(trayBottom - (rows * rowH + u(20)), f.oy + f.eh * 0.56)
   }
 
   /** Wide layout columns: outer margins, a gutter over the fold, two equal halves. */
@@ -536,6 +594,7 @@ export class GameScene extends Phaser.Scene {
     this.wideMode = f.wide
     this.scaleView.layout(geo)
     this.panScale = Math.min(1, (geo.panWidth * 0.34) / u(84))
+    this.panScaleWide = Math.min(1, (geo.panWidth * 0.47) / u(84))
 
     if (f.wide) {
       const { trayX, colW } = this.wideColumns()
@@ -545,7 +604,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Tray panel: centered in the content frame, above the home indicator.
       const trayMargin = Math.max(u(12), safe.left, safe.right)
-      const trayTop = f.oy + f.eh * 0.635
+      const trayTop = this.portraitTrayTop()
       const trayBottom = Math.min(f.oy + f.eh, h - safe.bottom) - u(10)
       this.tray = {
         x: f.ox + trayMargin,
@@ -571,7 +630,85 @@ export class GameScene extends Phaser.Scene {
         )
 
     this.layoutHud()
-    if (this.placed.length > 0) this.updateHud(evaluate(this.ref.def, this.placed))
+    if (this.placed.length > 0) {
+      this.updateHud(evaluate(this.ref.def, this.placed))
+      this.updateEquation(false)
+    }
+  }
+
+  /**
+   * The pan's sum written out under the scale, in the order the pieces went on
+   * (locked ones first): `53 + 19 − 5 = 67`. Balloons in their own colour. The
+   * newest term pops in. More than seven terms show "…" and the last six.
+   * Hidden while the pan is empty.
+   */
+  private updateEquation(pop = true) {
+    this.equation?.destroy()
+    this.equation = null
+    const aboard = this.weights
+      .filter((v) => this.placed[v.index] && this.slotOf[v.index] !== null)
+      .sort((a, b) => (this.slotOf[a.index] ?? 0) - (this.slotOf[b.index] ?? 0))
+    if (aboard.length === 0) return
+    const geo = this.geo
+    const f = this.frame()
+    const x = this.wideMode ? geo.cx : f.cx
+    const y = geo.cy + geo.halfBeam * 0.23 + geo.ropeLen + geo.panHeight + u(16)
+    const c = this.add.container(x, y).setDepth(5)
+    const shown = aboard.length > 7 ? aboard.slice(-6) : aboard
+    const parts: { text: string; color: string; view?: WeightView }[] = []
+    if (aboard.length > 7) parts.push({ text: '… ', color: INK_SOFT })
+    shown.forEach((v, i) => {
+      const n = Math.abs(v.value)
+      const first = i === 0 && aboard.length <= 7
+      const text = first ? (v.value < 0 ? `−${n}` : `${n}`) : v.value < 0 ? ` − ${n}` : ` + ${n}`
+      parts.push({ text, color: v.isBalloon ? '#D66690' : INK_CSS, view: v })
+    })
+    const total = evaluate(this.ref.def, this.placed).total
+    parts.push({ text: ` = ${total}`, color: INK_SOFT })
+    let w = 0
+    const texts = parts.map((p) => {
+      const t = this.add.text(w, 0, p.text, TEXT.ink(17, '800')).setOrigin(0, 0.5).setColor(p.color)
+      w += t.width
+      return { t, p }
+    })
+    for (const { t } of texts) t.x -= w / 2
+    c.add(texts.map((e) => e.t))
+    const maxW = (this.wideMode ? f.ew / 2 : this.tray.width) - u(20)
+    if (w > maxW) c.setScale(maxW / w)
+    this.equation = c
+    // The term just put on pops in (a place, not a removal or a relayout).
+    const newest = texts.find((e) => e.p.view && e.p.view.index === this.lastPlaced)
+    if (pop && newest && this.lastPlaced !== null && this.placed[this.lastPlaced] && !this.reducedMotion) {
+      newest.t.setScale(1.25)
+      this.tweens.add({ targets: newest.t, scale: 1, duration: 160, ease: 'Back.out' })
+    }
+  }
+
+  /** While a weight is dragged: light the pan as a drop target and preview the new total. */
+  private dragFeedback(view: WeightView, x: number, y: number) {
+    const over = this.dropZone.contains(x, y)
+    const placed = this.placed[view.index]
+    this.scaleView.setDropHover(over && !placed)
+    const now = evaluate(this.ref.def, this.placed).total
+    const next = !placed && over ? now + view.value : placed && !over ? now - view.value : null
+    if (next === null) {
+      this.previewText?.setVisible(false)
+      return
+    }
+    if (!this.previewText) {
+      this.previewText = this.add.text(0, 0, '', TEXT.ink(15, '800')).setOrigin(0, 0.5).setAlpha(0.75).setDepth(6)
+    }
+    const color = next === TARGET ? GOOD_CSS : next > TARGET ? OVER_CSS : UNDER_CSS
+    this.previewText
+      .setText(`→ ${next}`)
+      .setColor(color)
+      .setPosition(this.totalText.x + u(74), this.totalText.y)
+      .setVisible(true)
+  }
+
+  private endDragFeedback() {
+    this.scaleView.setDropHover(false)
+    this.previewText?.setVisible(false)
   }
 
   private drawTray() {
@@ -587,17 +724,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   private computeTrayHomes() {
-    const n = this.ref.def.weights.length
-    const cols = this.wideMode ? this.bestTrayCols(n) : n <= 4 ? Math.max(1, n) : n <= 8 ? 4 : Math.ceil(n / 3)
-    const rows = Math.ceil(n / cols)
+    const all = this.ref.def.weights.length
+    const locked = this.ref.def.locked ?? []
+    const { n, cols, rows } = this.trayGrid()
     const pad = u(10)
     const cellW = (this.tray.width - pad * 2) / cols
     const cellH = (this.tray.height - pad * 2) / rows
     this.tray.homes = []
-    for (let i = 0; i < n; i++) {
-      const row = Math.floor(i / cols)
+    // Only the pieces that can come back to the tray get a cell: a locked piece
+    // starts on the pan and never leaves it, and its empty cell read as a
+    // missing weight. It keeps a home at the tray's centre that is never used.
+    let slot = 0
+    for (let i = 0; i < all; i++) {
+      if (locked.includes(i)) {
+        this.tray.homes.push({ x: this.tray.x + this.tray.width / 2, y: this.tray.y + this.tray.height / 2, scale: 1 })
+        continue
+      }
+      const row = Math.floor(slot / cols)
       const inRow = Math.min(cols, n - row * cols)
-      const col = i - row * cols
+      const col = slot - row * cols
+      slot++
       // Center the last (possibly short) row.
       const rowOffset = ((cols - inRow) * cellW) / 2
       const view = this.weights[i]
@@ -751,6 +897,10 @@ export class GameScene extends Phaser.Scene {
     this.levelText.setText(this.daily ? 'Daily 67' : `Level ${this.ref.global}`)
     this.packText.setPosition(f.cx, top + u(24))
     this.packText.setText(this.ref.pack.name)
+    // The title lives between the two button clusters: on a 320 pt phone
+    // "Level 372" ran under the hint button and "Dead Reckoning" lost its ends.
+    const room = rightX - size - u(12) - size / 2 - (leftX + size + u(12) + size / 2) - u(8)
+    for (const t of [this.levelText, this.packText]) t.setScale(Math.min(1, room / Math.max(t.width, 1)))
 
     // Total chip sits between the HUD row and the beam (over the scale's column
     // in the wide layout); the gap message hangs just below it.
@@ -805,10 +955,22 @@ export class GameScene extends Phaser.Scene {
 
   private updateHud(ev: Evaluation) {
     const level = this.ref.def
-    this.totalText.setText(String(ev.total))
     if (!this.reducedMotion && this.prevTotal !== null && this.prevTotal !== ev.total) {
+      // The total counts to its new value instead of snapping: the sum is felt.
+      const from = this.prevTotal
+      this.countTween?.stop()
+      this.countTween = this.tweens.addCounter({
+        from,
+        to: ev.total,
+        duration: 160,
+        ease: 'Quad.out',
+        onUpdate: (t) => this.totalText.setText(String(Math.round(t.getValue() ?? ev.total))),
+        onComplete: () => this.totalText.setText(String(ev.total)),
+      })
       this.tweens.killTweensOf(this.totalText)
       this.tweens.add({ targets: this.totalText, scale: { from: 1.3, to: 1 }, duration: 240, ease: 'Back.out' })
+    } else {
+      this.totalText.setText(String(ev.total))
     }
     this.prevTotal = ev.total
 
@@ -1145,6 +1307,13 @@ export class GameScene extends Phaser.Scene {
     return fits ? full : short
   }
 
+  /** A sheet's visible way out: an ✕ in the card's top-right corner (40 pt, a 48 pt target). */
+  private closeGlyph(x: number, y: number, close: () => void): Phaser.GameObjects.Container {
+    const b = makeIconButton(this, u(40), (g, sz) => drawCloseIcon(g, sz), close)
+    b.setPosition(x, y)
+    return b
+  }
+
   /** The hint card's frame: an ink drop shadow, paper, an ink outline. */
   private drawHintCard(cx: number, top: number, cardW: number, cardH: number): Phaser.GameObjects.Graphics {
     const card = this.add.graphics()
@@ -1239,7 +1408,7 @@ export class GameScene extends Phaser.Scene {
     title.setY(top + u(34))
     const watchLabel = this.fitLabel(HINT_COPY.keepWatch, HINT_COPY.keepWatchShort, btnW, rowH)
     const { note, say } = this.hintCardNote(overlay, cx, top + cardH + u(30), cardW)
-    overlay.add([dim, card, cardHit, title, body, note])
+    overlay.add([dim, card, cardHit, title, body, note, this.closeGlyph(cx + cardW / 2 - u(30), top + u(30), close)])
 
     let watch: Phaser.GameObjects.Container | null = null
     let use: Phaser.GameObjects.Container | null = null
@@ -1341,6 +1510,7 @@ export class GameScene extends Phaser.Scene {
     const card = this.drawHintCard(cx, top, cardW, cardH)
     title.setY(top + u(34))
     upsell.setY(top + upsellOff)
+    const closeX = this.closeGlyph(cx + cardW / 2 - u(30), top + u(30), close)
 
     // Button row: Done left, the (wider) watch button right, with fixed side
     // margins and gap so the pair fills a 320 pt card as well as a 430 pt one.
@@ -1357,7 +1527,7 @@ export class GameScene extends Phaser.Scene {
     // What happened to a tap, said just under the card (see hintCardNote).
     const { note, say } = this.hintCardNote(overlay, cx, top + cardH + u(30), cardW)
 
-    overlay.add([dim, card, title, body, upsell, note])
+    overlay.add([dim, card, title, body, upsell, note, closeX])
 
     // Re-reads everything on every call — the stash, the busy flag and whether
     // the offer stands — so a yes given later in Settings → "Privacy & ads"
@@ -1391,11 +1561,11 @@ export class GameScene extends Phaser.Scene {
         )
         watch.setPosition(cx + cardW / 2 - margin - watchW / 2, btnY)
         if (this.hintBusy) watch.setAlpha(0.6).disableInteractive()
-        done = makeButton(this, 'Done', doneW, rowH, PAPER, '#2B2440', () => close())
+        done = makeButton(this, 'Close', doneW, rowH, PAPER, '#2B2440', () => close())
         done.setPosition(cx - cardW / 2 + margin + doneW / 2, btnY)
       } else {
         // Nothing to watch: Done alone, centred; the body says why and where.
-        done = makeButton(this, 'Done', cardW * 0.4, rowH, PAPER, '#2B2440', () => close())
+        done = makeButton(this, 'Close', cardW * 0.4, rowH, PAPER, '#2B2440', () => close())
         done.setPosition(cx, btnY)
       }
       if (this.hintBusy) done.setAlpha(0.5)
@@ -1454,16 +1624,19 @@ export class GameScene extends Phaser.Scene {
       this.dismissHintDemo()
       view.dragging = true
       this.children.bringToTop(view)
-      this.tweens.add({ targets: view, scale: 1, duration: 90 })
+      this.tweens.add({ targets: view, scale: 1, duration: 90, ease: 'Quad.out' })
+      pickupTap()
     })
 
-    view.on('drag', (_p: Phaser.Input.Pointer, dragX: number, dragY: number) => {
+    view.on('drag', (p: Phaser.Input.Pointer, dragX: number, dragY: number) => {
       if (this.wonState) return
       view.setPosition(dragX, dragY)
+      this.dragFeedback(view, p.x, p.y)
     })
 
     view.on('dragend', (pointer: Phaser.Input.Pointer) => {
       view.dragging = false
+      this.endDragFeedback()
       if (this.wonState) return
       const overPan = this.dropZone.contains(pointer.x, pointer.y)
       const isPlaced = this.placed[view.index]
@@ -1495,9 +1668,12 @@ export class GameScene extends Phaser.Scene {
     }
     this.placed = place(level, this.placed, index)
     this.slotOf[index] = this.nextSlot++
-    if (this.weights[index].isBalloon) playPlaceBalloon()
-    else playPlace()
-    placeTap()
+    const view = this.weights[index]
+    if (view.isBalloon) playPlaceBalloon()
+    else playPlace(view.value)
+    placeTap(view.value)
+    this.pendingLand.add(index)
+    this.lastPlaced = index
     this.afterChange()
   }
 
@@ -1515,6 +1691,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.placed = remove(level, this.placed, index)
     this.slotOf[index] = null
+    this.pendingLand.delete(index)
     playRemove()
     removeTap()
     this.afterChange()
@@ -1532,13 +1709,12 @@ export class GameScene extends Phaser.Scene {
     this.startedAt ??= performance.now()
     this.scaleView.setTargetAngle(beamAngleDeg(ev.total))
     this.updateHud(ev)
-    // "Close" is felt before it is read: one quiet tick on entering the band.
-    const near = !ev.balanced && placedCount(this.placed) > 0 && Math.abs(ev.gap) <= NEAR_GAP
-    if (near && !this.wasNear) {
-      playNear()
-      placeTap()
-    }
-    this.wasNear = near
+    // "Closer" is heard before it is read: one note of a rising ladder, higher
+    // the nearer 67 — only when this change actually brought the pan closer.
+    const gapAbs = Math.abs(ev.gap)
+    if (!ev.balanced && placedCount(this.placed) > 0 && this.prevGapAbs !== null && gapAbs < this.prevGapAbs) playCloser(gapAbs)
+    this.prevGapAbs = placedCount(this.placed) > 0 ? gapAbs : null
+    this.updateEquation()
     if (ev.balanced && !ev.won && ev.blockedReason === 'use-all') {
       this.showToast('Balanced — but every weight must be aboard!')
     }
@@ -1557,18 +1733,36 @@ export class GameScene extends Phaser.Scene {
     const blocks = aboard.filter((v) => !v.isBalloon)
     const balloons = aboard.filter((v) => v.isBalloon)
 
+    // Up to four blocks sit two to a row at a third more size; from five on,
+    // three to a row at the old size — the numbers on a small sum stay readable.
+    // Only where the ropes leave room for the taller stack (not a 320×568 phone,
+    // where the bigger pieces and their balloons climbed over the gap message).
+    const roomy = blocks.length <= 4 && geo.ropeLen >= u(90)
+    const scale = roomy ? this.panScaleWide : this.panScale
+    const perRow = roomy ? 2 : 3
+    const slotW = geo.panWidth * (roomy ? 0.47 : 0.31)
+    // Each row is as tall as its tallest block, and rows stack on each other:
+    // a small weight on the second row sits ON the big one, not inside it.
+    const rowH: number[] = []
+    blocks.forEach((view, i) => {
+      const row = Math.floor(i / perRow)
+      rowH[row] = Math.max(rowH[row] ?? 0, view.bodySize * 0.8 * scale)
+    })
+    const rowBase: number[] = []
+    rowH.reduce((acc, h, r) => {
+      rowBase[r] = acc
+      return acc + h * 1.04
+    }, 0)
     let stackTop = 0
     blocks.forEach((view, i) => {
-      const perRow = 3
       const row = Math.floor(i / perRow)
       const inRow = Math.min(perRow, blocks.length - row * perRow)
       const col = i - row * perRow
-      const slotW = geo.panWidth * 0.31
       const x = anchor.x + (col - (inRow - 1) / 2) * slotW
-      const bodyH = view.bodySize * 0.8 * this.panScale
-      const y = anchor.y - row * bodyH * 1.02 - bodyH / 2 - u(2)
-      stackTop = Math.max(stackTop, row * bodyH * 1.02 + bodyH)
-      targets.set(view.index, { x, y, scale: this.panScale })
+      const bodyH = view.bodySize * 0.8 * scale
+      const y = anchor.y - rowBase[row] - bodyH / 2 - u(2)
+      stackTop = Math.max(stackTop, rowBase[row] + bodyH)
+      targets.set(view.index, { x, y, scale })
     })
 
     // Balloons hover above whatever is stacked in the dish, strings down.
@@ -1576,13 +1770,15 @@ export class GameScene extends Phaser.Scene {
     balloons.forEach((view, i) => {
       const x = anchor.x + geo.panWidth * spread[i % spread.length]
       const y = anchor.y - stackTop - u(4) - (i % 3) * u(8)
-      targets.set(view.index, { x, y, scale: this.panScale })
+      targets.set(view.index, { x, y, scale })
     })
 
     return targets
   }
 
   update(time: number, delta: number) {
+    // The lock moment's hit-stop: the board holds still for a beat (winSequence).
+    if (this.time.now < this.hitStopUntil) return
     this.scaleView.update(time, delta)
     this.steerWeights(1 - Math.exp(-12 * (delta / 1000)))
   }
@@ -1600,6 +1796,9 @@ export class GameScene extends Phaser.Scene {
         tx = target.x
         ty = target.y
         ts = target.scale
+        // Come in over the dish and drop onto it, instead of rising through it
+        // from the tray below: aim above the slot until lined up with it.
+        if (Math.abs(view.x - tx) > u(30) && view.y > ty - u(40)) ty = target.y - u(40)
       } else {
         const home = this.tray.homes[i]
         tx = home.x
@@ -1609,7 +1808,21 @@ export class GameScene extends Phaser.Scene {
       view.x = Phaser.Math.Linear(view.x, tx, t)
       view.y = Phaser.Math.Linear(view.y, ty, t)
       view.setScale(Phaser.Math.Linear(view.scaleX, ts, t))
+      view.setLabelFloor(view.scaleX)
+      // Landed: once per placement, the first frame it is (nearly) in its slot.
+      if (target && this.pendingLand.has(i) && Math.abs(view.x - target.x) < u(3) && Math.abs(view.y - target.y) < u(3)) {
+        this.pendingLand.delete(i)
+        this.onLanded(view)
+      }
     })
+  }
+
+  /** A placed weight reached the pan: squash, beam kick, dust — and a pending win can land now. */
+  private onLanded(view: WeightView) {
+    view.land(Math.abs(view.value) / 60)
+    this.scaleView.kick(view.value)
+    landingPuff(this, view.x, view.y + (view.isBalloon ? -view.bodySize * view.scaleX * 0.4 : view.bodySize * view.scaleX * 0.4), view.isBalloon)
+    if (this.pendingWinIndex === view.index) this.startWinSequence()
   }
 
   /** Generate a few candy-colored confetti textures once (no image assets). */
@@ -1647,7 +1860,8 @@ export class GameScene extends Phaser.Scene {
           rotate: { min: 0, max: 360 },
           emitting: false,
         })
-        .setDepth(101)
+        // Under the win card (100): confetti must never sit over its text.
+        .setDepth(99)
       emitter.explode(12)
       this.time.delayedCall(2700, () => emitter.destroy())
     }
@@ -1697,7 +1911,12 @@ export class GameScene extends Phaser.Scene {
     // Pay the free part of any reward NOW, right after the state that earned it
     // was saved (the emptied jar, the pack marked paid, the milestone): a player
     // who closes the app on the win card keeps it. The video only adds on top.
-    if (reward) claimHints(reward.base)
+    if (reward) {
+      claimHints(reward.base)
+      // The HUD badge counts the stash: it must not still show the old number
+      // under a card that says "+3 hints added".
+      this.refreshHint()
+    }
 
     // A clear whose card offers a rewarded upgrade never also gets an
     // interstitial: two ad prompts on one win is the double tax players hate.
@@ -1747,17 +1966,70 @@ export class GameScene extends Phaser.Scene {
     // pops over the board. Then the reward: the card slides up with the stars
     // and the fanfare. Splitting them is what makes a clear feel earned rather
     // than merely acknowledged — one lump of feedback reads as a notification.
-    this.time.delayedCall(500, () => {
-      if (!this.reducedMotion) this.cameras.main.shake(180, 0.007)
+    // The celebration starts when the winning weight LANDS, not when it was
+    // let go: the lock is the moment the dish takes the weight.
+    this.whenWinningWeightLands(() => this.celebrate(reviewAsks, stars))
+  }
+
+  /**
+   * Run `fn` once the weight that completed the board has landed (see
+   * onLanded), or at once when nothing is in flight (a win by taking a weight
+   * off). A fallback fires it anyway after 600 ms, so a win can never stall.
+   */
+  private whenWinningWeightLands(fn: () => void) {
+    const flying = this.lastPlaced !== null && this.placed[this.lastPlaced] && this.pendingLand.has(this.lastPlaced)
+    if (!flying) {
+      fn()
+      return
+    }
+    this.pendingWinIndex = this.lastPlaced
+    this.onWinLanded = fn
+    this.time.delayedCall(600, () => this.startWinSequence())
+  }
+
+  /** The pending celebration, once (the landing, or the fallback timer). */
+  private startWinSequence() {
+    const fn = this.onWinLanded
+    this.onWinLanded = null
+    this.pendingWinIndex = null
+    fn?.()
+  }
+
+  /**
+   * The win, in beats from the moment the beam takes the last weight:
+   *   0 ms   the lock — the board holds still for 70 ms (hit-stop), the beam
+   *          flashes, the total pops, a heavy haptic and the lock chord;
+   *   120    a green ring bursts from the pivot;
+   *   350    confetti and "Congratulations!" (gone again by 850);
+   *   380    the "six-seven" jingle, the Success haptic, the music ducks;
+   *   900    the card, and the fanfare.
+   * Under reduced motion: no hit-stop, flash, ring, shake or confetti, and the
+   * card comes at 600. The card never has anything drawn over it.
+   */
+  private celebrate(reviewAsks: boolean, stars: number) {
+    const rm = this.reducedMotion
+    if (!rm) this.hitStopUntil = this.time.now + 70
+    this.scaleView.flash()
+    if (!rm) {
+      this.tweens.killTweensOf(this.totalText)
+      this.tweens.add({ targets: this.totalText, scale: { from: 1.35, to: 1 }, duration: 260, ease: 'Back.out' })
+    }
+    lockTap()
+    playLock()
+    this.time.delayedCall(120, () => ringBurst(this, this.geo.cx, this.geo.cy, this.geo.halfBeam * 1.1, GOOD))
+    this.time.delayedCall(rm ? 0 : 350, () => {
+      if (!rm) this.cameras.main.shake(160, 0.004)
       this.burstConfetti()
+      this.showCongratulations()
+    })
+    this.time.delayedCall(rm ? 0 : 380, () => {
       // Pull the music bed down so the jingle and fanfare cut through instead
       // of fighting the pad underneath.
       duckMusic(0.2, 2.6)
       playWinJingle()
       winTap()
-      this.showCongratulations()
     })
-    this.time.delayedCall(1000, () => {
+    this.time.delayedCall(rm ? 600 : 900, () => {
       playCelebration()
       this.showWinOverlay(true)
     })
@@ -1813,7 +2085,7 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({
         targets: label,
         alpha: 0,
-        duration: 220,
+        duration: 180,
         onComplete: () => label.destroy(),
       })
 
@@ -1826,10 +2098,11 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({
       targets: label,
       scale: fit,
-      duration: 380,
+      duration: 220,
       ease: 'Back.easeOut',
-      // Hold it just long enough to be read, then clear the way for the card.
-      onComplete: () => this.time.delayedCall(260, fade),
+      // Hold it just long enough to be read, then clear the way: it is gone
+      // before the card arrives (celebrate), never drawn over it.
+      onComplete: () => this.time.delayedCall(100, fade),
     })
   }
 
@@ -2248,6 +2521,7 @@ export class GameScene extends Phaser.Scene {
     if (outcome === 'earned') {
       r.upgraded = true
       claimHints(r.ad - r.base)
+      if (this.sys.isActive()) this.refreshHint()
     }
     if (!this.sys.isActive()) return
     if (outcome === 'earned') playReward()
